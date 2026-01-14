@@ -142,33 +142,44 @@ jobs:
   # ============================================
   # BUILD PYTHON WHEELS (Multi-platform)
   # ============================================
-  build-python:
-    name: Build Python - ${{ matrix.target }} - ${{ matrix.os }}
+  build-python-linux:
+    name: Build Python - Linux ${{ matrix.target }}
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist --find-interpreter
+          working-directory: crates/bulk-keychain-python
+          sccache: true
+          manylinux: auto
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels-linux-${{ matrix.target }}
+          path: crates/bulk-keychain-python/dist/*.whl
+          if-no-files-found: error
+
+  build-python-macos:
+    name: Build Python - macOS ${{ matrix.target }}
     needs: [validate, test]
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x64
-          - os: ubuntu-latest
-            target: x86_64
-
-          # Linux arm64
-          - os: ubuntu-latest
-            target: aarch64
-
-          # macOS x64
           - os: macos-13
             target: x86_64
-
-          # macOS arm64
           - os: macos-14
             target: aarch64
-
-          # Windows x64
-          - os: windows-latest
-            target: x64
-
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -185,12 +196,38 @@ jobs:
           args: --release --out dist
           working-directory: crates/bulk-keychain-python
           sccache: true
-          manylinux: auto
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
-          name: python-wheels-${{ matrix.os }}-${{ matrix.target }}
+          name: python-wheels-macos-${{ matrix.target }}
+          path: crates/bulk-keychain-python/dist/*.whl
+          if-no-files-found: error
+
+  build-python-windows:
+    name: Build Python - Windows
+    needs: [validate, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: x64
+          args: --release --out dist
+          working-directory: crates/bulk-keychain-python
+          sccache: true
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels-windows-x64
           path: crates/bulk-keychain-python/dist/*.whl
           if-no-files-found: error
 
@@ -322,7 +359,7 @@ jobs:
   # ============================================
   publish-pypi:
     name: Publish to PyPI
-    needs: [validate, build-python, build-python-sdist]
+    needs: [validate, build-python-linux, build-python-macos, build-python-windows, build-python-sdist]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
