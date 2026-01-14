@@ -57,28 +57,16 @@ jobs:
   # BUILD NODE.JS NATIVE ADDON (Multi-platform)
   # ============================================
   build-node:
-    name: Build Node.js - ${{ matrix.target }}
+    name: Build Node.js - ${{ matrix.settings.target }}
     needs: [validate, test]
     strategy:
       fail-fast: false
       matrix:
-        include:
+        settings:
           # Linux x64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact: linux-x64-gnu
-
-          # Linux x64 musl (Alpine)
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            artifact: linux-x64-musl
-            use-cross: true
-
-          # Linux arm64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact: linux-arm64-gnu
-            use-cross: true
 
           # macOS x64
           - os: macos-13
@@ -95,14 +83,14 @@ jobs:
             target: x86_64-pc-windows-msvc
             artifact: win32-x64-msvc
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.settings.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.settings.target }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -112,28 +100,18 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Install cross (if needed)
-        if: matrix.use-cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
-
       - name: Install dependencies
         working-directory: packages/bulk-keychain-node
         run: pnpm install
 
       - name: Build native addon
         working-directory: packages/bulk-keychain-node
-        shell: bash
-        run: |
-          if [[ "${{ matrix.use-cross }}" == "true" ]]; then
-            pnpm build --target ${{ matrix.target }} --use-cross
-          else
-            pnpm build --target ${{ matrix.target }}
-          fi
+        run: pnpm build --target ${{ matrix.settings.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: node-${{ matrix.artifact }}
+          name: node-${{ matrix.settings.artifact }}
           path: packages/bulk-keychain-node/*.node
           if-no-files-found: error
 
@@ -155,7 +133,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist -i python3.9 -i python3.10 -i python3.11 -i python3.12 -i python3.13
           working-directory: crates/bulk-keychain-python
           sccache: true
           manylinux: auto
@@ -168,7 +146,7 @@ jobs:
           if-no-files-found: error
 
   build-python-macos:
-    name: Build Python - macOS ${{ matrix.target }}
+    name: Build Python - macOS ${{ matrix.os }}
     needs: [validate, test]
     strategy:
       fail-fast: false
@@ -185,7 +163,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
@@ -212,7 +190,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
