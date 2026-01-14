@@ -2,6 +2,7 @@
   "name": "bulk-keychain",
   "version": "0.1.0",
   "description": "A simple high perf signing lib for BULK txns",
+  "license": "MIT",
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {

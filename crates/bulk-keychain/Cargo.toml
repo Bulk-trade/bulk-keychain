@@ -3,6 +3,7 @@ name = "bulk-keychain"
 description = "A simple high perf signing lib for BULK txns"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 repository.workspace = true
 keywords.workspace = true
 categories.workspace = true

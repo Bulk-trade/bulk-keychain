@@ -10,6 +10,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 repository = "https://github.com/bulk-trade/bulk-keychain"
 keywords = ["crypto", "signing", "ed25519", "trading", "bulk"]
 categories = ["cryptography", "api-bindings"]
