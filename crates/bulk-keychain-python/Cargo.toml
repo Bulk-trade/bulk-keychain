@@ -1,0 +1,16 @@
+[package]
+name = "bulk-keychain-python"
+description = "Python bindings for BULK txn signing"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+name = "bulk_keychain"
+crate-type = ["cdylib"]
+
+[dependencies]
+bulk-keychain = { path = "../bulk-keychain" }
+pyo3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

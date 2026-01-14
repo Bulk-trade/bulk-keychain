@@ -1,0 +1,29 @@
+{
+  "name": "bulk-keychain-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A simple high perf signing lib for BULK txns",
+  "scripts": {
+    "build": "turbo run build",
+    "build:rust": "cargo build --release",
+    "build:wasm": "cd crates/bulk-keychain-wasm && wasm-pack build --target web --release",
+    "build:node": "cd packages/bulk-keychain-node && pnpm build",
+    "build:python": "cd crates/bulk-keychain-python && maturin build --release",
+    "test": "turbo run test",
+    "test:rust": "cargo test",
+    "bench": "cargo bench",
+    "lint": "turbo run lint",
+    "lint:rust": "cargo clippy --all-targets --all-features -- -D warnings",
+    "fmt": "cargo fmt --all && turbo run fmt",
+    "clean": "cargo clean && turbo run clean",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "packageManager": "pnpm@9.15.2",
+  "engines": {
+    "node": ">=20"
+  }
+}

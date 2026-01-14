@@ -1,0 +1,28 @@
+[package]
+name = "bulk-keychain"
+description = "A simple high perf signing lib for BULK txns"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+bs58 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rayon = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+
+[[bench]]
+name = "signing"
+harness = false
+
+[[example]]
+name = "basic"
+path = "../../examples/rust/basic.rs"

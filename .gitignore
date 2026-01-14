@@ -1,0 +1,51 @@
+# Rust
+/target/
+Cargo.lock
+
+# Node
+node_modules/
+*.node
+dist/
+*.tsbuildinfo
+
+# WASM
+/crates/bulk-wasm/pkg/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+build/
+develop-eggs/
+.installed.cfg
+*.egg
+wheels/
+*.whl
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Turborepo
+.turbo/
+
+# Testing
+coverage/
+*.lcov
+
+# Build artifacts
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+.env.*.local

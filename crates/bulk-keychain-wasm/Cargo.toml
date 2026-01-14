@@ -1,0 +1,29 @@
+[package]
+name = "bulk-keychain-wasm"
+description = "WASM bindings for BULK txn signing"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bulk-keychain = { path = "../bulk-keychain" }
+wasm-bindgen = { workspace = true }
+js-sys = { workspace = true }
+getrandom = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+[features]
+default = ["console_error_panic_hook"]
+console_error_panic_hook = ["dep:console_error_panic_hook"]
+
+[dependencies.console_error_panic_hook]
+version = "0.1"
+optional = true

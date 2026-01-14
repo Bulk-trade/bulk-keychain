@@ -1,0 +1,42 @@
+{
+  "name": "bulk-keychain",
+  "version": "0.1.0",
+  "description": "A simple high perf signing lib for BULK txns",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "name": "bulk-keychain",
+    "triples": {
+      "defaults": true,
+      "additional": [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-gnu",
+        "aarch64-unknown-linux-musl",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-freebsd"
+      ]
+    }
+  },
+  "scripts": {
+    "artifacts": "napi artifacts",
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm",
+    "universal": "napi universal",
+    "test": "node --test test/*.js"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4"
+  },
+  "engines": {
+    "node": ">= 20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "*.node"
+  ]
+}

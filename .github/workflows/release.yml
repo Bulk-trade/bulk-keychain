@@ -1,0 +1,394 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip actual publish)"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ============================================
+  # VALIDATION & TESTING
+  # ============================================
+  validate:
+    name: Validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="0.0.0-dev"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --all-features
+
+  # ============================================
+  # BUILD NODE.JS NATIVE ADDON (Multi-platform)
+  # ============================================
+  build-node:
+    name: Build Node.js - ${{ matrix.target }}
+    needs: [validate, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-x64-gnu
+
+          # Linux x64 musl (Alpine)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: linux-x64-musl
+            use-cross: true
+
+          # Linux arm64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact: linux-arm64-gnu
+            use-cross: true
+
+          # macOS x64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: darwin-x64
+
+          # macOS arm64 (Apple Silicon)
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: darwin-arm64
+
+          # Windows x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: win32-x64-msvc
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install cross (if needed)
+        if: matrix.use-cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install dependencies
+        working-directory: packages/bulk-keychain-node
+        run: pnpm install
+
+      - name: Build native addon
+        working-directory: packages/bulk-keychain-node
+        shell: bash
+        run: |
+          if [[ "${{ matrix.use-cross }}" == "true" ]]; then
+            pnpm build --target ${{ matrix.target }} --use-cross
+          else
+            pnpm build --target ${{ matrix.target }}
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.artifact }}
+          path: packages/bulk-keychain-node/*.node
+          if-no-files-found: error
+
+  # ============================================
+  # BUILD PYTHON WHEELS (Multi-platform)
+  # ============================================
+  build-python:
+    name: Build Python - ${{ matrix.target }} - ${{ matrix.os }}
+    needs: [validate, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x64
+          - os: ubuntu-latest
+            target: x86_64
+
+          # Linux arm64
+          - os: ubuntu-latest
+            target: aarch64
+
+          # macOS x64
+          - os: macos-13
+            target: x86_64
+
+          # macOS arm64
+          - os: macos-14
+            target: aarch64
+
+          # Windows x64
+          - os: windows-latest
+            target: x64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          args: --release --out dist
+          working-directory: crates/bulk-keychain-python
+          sccache: true
+          manylinux: auto
+
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheels-${{ matrix.os }}-${{ matrix.target }}
+          path: crates/bulk-keychain-python/dist/*.whl
+          if-no-files-found: error
+
+  # Source distribution for Python
+  build-python-sdist:
+    name: Build Python sdist
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+          working-directory: crates/bulk-keychain-python
+
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-sdist
+          path: crates/bulk-keychain-python/dist/*.tar.gz
+          if-no-files-found: error
+
+  # ============================================
+  # BUILD WASM
+  # ============================================
+  build-wasm:
+    name: Build WASM
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Build WASM
+        working-directory: crates/bulk-keychain-wasm
+        run: wasm-pack build --target web --release
+
+      - name: Upload WASM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-pkg
+          path: crates/bulk-keychain-wasm/pkg/
+          if-no-files-found: error
+
+  # ============================================
+  # PUBLISH RUST CRATE
+  # ============================================
+  publish-crates:
+    name: Publish to crates.io
+    needs: [validate, test]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Publish bulk-keychain
+        if: ${{ !inputs.dry_run }}
+        working-directory: crates/bulk-keychain
+        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  # ============================================
+  # PUBLISH NODE.JS PACKAGE
+  # ============================================
+  publish-npm:
+    name: Publish to npm
+    needs: [validate, build-node]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Download all node artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: node-*
+          path: packages/bulk-keychain-node/artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la packages/bulk-keychain-node/artifacts/
+
+      - name: Move artifacts to package root
+        working-directory: packages/bulk-keychain-node
+        run: mv artifacts/*.node . || true
+
+      - name: Install dependencies
+        working-directory: packages/bulk-keychain-node
+        run: pnpm install --ignore-scripts
+
+      - name: Publish to npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: packages/bulk-keychain-node
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ============================================
+  # PUBLISH PYTHON PACKAGE
+  # ============================================
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [validate, build-python, build-python-sdist]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: python-*
+          path: dist
+          merge-multiple: true
+
+      - name: List wheels
+        run: ls -la dist/
+
+      - name: Publish to PyPI
+        if: ${{ !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+
+  # ============================================
+  # PUBLISH WASM PACKAGE
+  # ============================================
+  publish-wasm:
+    name: Publish WASM to npm
+    needs: [validate, build-wasm]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Download WASM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-pkg
+          path: crates/bulk-keychain-wasm/pkg
+
+      - name: Publish WASM to npm
+        if: ${{ !inputs.dry_run }}
+        working-directory: crates/bulk-keychain-wasm/pkg
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ============================================
+  # CREATE GITHUB RELEASE
+  # ============================================
+  release:
+    name: Create GitHub Release
+    needs: [validate, publish-crates, publish-npm, publish-pypi, publish-wasm]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

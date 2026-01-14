@@ -1,0 +1,19 @@
+[package]
+name = "bulk-keychain-node"
+description = "Native Node.js bindings for BULK txn signing"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bulk-keychain = { path = "../../crates/bulk-keychain" }
+napi = { workspace = true }
+napi-derive = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"
