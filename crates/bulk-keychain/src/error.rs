@@ -29,6 +29,10 @@ pub enum Error {
     #[error("orders array cannot be empty")]
     EmptyOrders,
 
+    /// Signature count mismatch (for batch finalization)
+    #[error("signature count mismatch: expected {expected}, got {got}")]
+    SignatureMismatch { expected: usize, got: usize },
+
     /// Invalid order parameters
     #[error("invalid order: {0}")]
     InvalidOrder(String),

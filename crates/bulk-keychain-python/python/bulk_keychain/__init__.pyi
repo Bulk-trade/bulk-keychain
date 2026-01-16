@@ -202,3 +202,91 @@ def compute_order_id(wincode_bytes: bytes) -> str:
     order ID generation. Useful if you're serializing transactions yourself.
     """
     ...
+
+# ============================================================================
+# External Wallet Support - Prepare/Finalize API
+# ============================================================================
+
+class PreparedMessage(TypedDict):
+    """Message prepared for external wallet signing"""
+    message_bytes: bytes      # Raw bytes to pass to wallet.signMessage()
+    message_base58: str       # Base58 encoded message
+    message_base64: str       # Base64 encoded message
+    message_hex: str          # Hex encoded message
+    order_id: str             # Pre-computed order ID
+    action: dict[str, Any]    # Action JSON for API
+    account: str              # Account public key (base58)
+    signer: str               # Signer public key (base58)
+    nonce: int                # Nonce used
+
+def py_prepare_order(
+    order: OrderItemType,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare a single order for external wallet signing
+    
+    Use this when you don't have access to the private key and need
+    to sign with an external wallet.
+    
+    Example:
+        prepared = py_prepare_order(order, "account_pubkey")
+        signature = wallet.sign_message(prepared["message_bytes"])
+        signed = py_finalize_transaction(prepared, signature)
+    """
+    ...
+
+def py_prepare_all_orders(
+    orders: list[OrderItemType],
+    account: str,
+    signer: str | None = None,
+    base_nonce: int | None = None
+) -> list[PreparedMessage]:
+    """Prepare multiple orders - each becomes its own transaction (parallel)"""
+    ...
+
+def py_prepare_order_group(
+    orders: list[OrderItemType],
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare multiple orders as ONE atomic transaction
+    
+    Use for bracket orders (entry + stop loss + take profit).
+    """
+    ...
+
+def py_prepare_agent_wallet_auth(
+    agent_pubkey: str,
+    delete: bool,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare agent wallet creation for external signing"""
+    ...
+
+def py_prepare_faucet_request(
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare faucet request for external signing"""
+    ...
+
+def py_finalize_transaction(
+    prepared: PreparedMessage,
+    signature: str
+) -> SignedTransaction:
+    """Finalize a prepared message with a signature from an external wallet
+    
+    Args:
+        prepared: PreparedMessage dict from prepare_* functions
+        signature: Base58-encoded signature from wallet
+    
+    Returns:
+        SignedTransaction dict ready for API submission
+    """
+    ...

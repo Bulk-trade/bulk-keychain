@@ -50,6 +50,7 @@
 mod error;
 mod keypair;
 pub mod nonce;
+pub mod prepare;
 pub mod serialize;
 mod sign;
 pub mod types;
@@ -57,6 +58,11 @@ pub mod types;
 pub use error::{Error, Result};
 pub use keypair::Keypair;
 pub use nonce::{NonceManager, NonceStrategy};
+pub use prepare::{
+    finalize_all, finalize_transaction, finalize_transaction_bytes,
+    prepare_action, prepare_agent_wallet, prepare_all, prepare_faucet,
+    prepare_group, prepare_message, prepare_user_settings, PreparedMessage,
+};
 pub use sign::Signer;
 pub use types::*;
 

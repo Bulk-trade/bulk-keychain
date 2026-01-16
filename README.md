@@ -179,6 +179,74 @@ let bracket = vec![entry.into(), stop_loss.into(), take_profit.into()];
 let signed = signer.sign_group(bracket, None)?;  // Returns SignedTransaction
 ```
 
+## External Wallet Support (Phantom, Privy, etc.)
+
+For browser apps using external wallets where you don't have access to the private key, use the **prepare/finalize** flow:
+
+### TypeScript (WASM)
+```typescript
+import { prepareOrder, WasmPreparedMessage } from 'bulk-keychain-wasm';
+
+// Step 1: Prepare the message (no private key needed)
+const prepared = prepareOrder(order, {
+  account: walletPubkey,        // The trading account
+  signer: walletPubkey,         // Who signs (defaults to account)
+  nonce: Date.now()             // Optional, auto-generated if omitted
+});
+
+// Step 2: Get signature from external wallet
+// prepared.messageBytes is Uint8Array - pass to wallet.signMessage()
+const { signature } = await wallet.signMessage(prepared.messageBytes);
+
+// Step 3: Finalize into SignedTransaction
+const signed = prepared.finalize(bs58.encode(signature));
+
+// Alternative format options:
+prepared.messageBase58;  // Base58 encoded message
+prepared.messageBase64;  // Base64 encoded message  
+prepared.messageHex;     // Hex encoded message
+prepared.orderId;        // Pre-computed order ID
+```
+
+### Python
+```python
+from bulk_keychain import py_prepare_order, py_finalize_transaction
+
+# Step 1: Prepare
+prepared = py_prepare_order(order, account=wallet_pubkey)
+
+# Step 2: Sign with external wallet
+signature = wallet.sign_message(prepared["message_bytes"])
+
+# Step 3: Finalize
+signed = py_finalize_transaction(prepared, signature)
+```
+
+### Prepare Functions
+
+| Function | Description |
+|----------|-------------|
+| `prepareOrder(order, options)` | Single order |
+| `prepareAll(orders, options)` | Multiple orders (parallel, each gets own tx) |
+| `prepareGroup(orders, options)` | Atomic multi-order (one tx) |
+| `prepareAgentWallet(agent, delete, options)` | Agent wallet authorization |
+| `prepareFaucet(options)` | Testnet faucet request |
+
+### Agent Wallet with External Signing
+
+When the main account uses an external wallet but trades via an agent:
+
+```typescript
+// Main wallet (Phantom) authorizes agent wallet (Privy)
+const prepared = prepareAgentWallet(agentPubkey, false, {
+  account: mainWalletPubkey,  // Phantom
+  signer: mainWalletPubkey    // Phantom signs
+});
+
+const { signature } = await phantom.signMessage(prepared.messageBytes);
+const signed = prepared.finalize(bs58.encode(signature));
+```
+
 ## Order Types
 
 ### Limit Order

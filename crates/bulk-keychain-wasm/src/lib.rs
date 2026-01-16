@@ -5,7 +5,9 @@
 
 use bulk_keychain::{
     Cancel, CancelAll, Hash, Keypair, NonceManager, NonceStrategy, Order, OrderItem,
-    OrderType, Pubkey, Signer, TimeInForce, UserSettings,
+    OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
+    finalize_transaction, prepare_all, prepare_group, prepare_message,
+    prepare_agent_wallet, prepare_faucet,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -436,6 +438,266 @@ pub fn validate_hash(s: &str) -> bool {
 #[wasm_bindgen(js_name = computeOrderId)]
 pub fn compute_order_id(wincode_bytes: &[u8]) -> String {
     Hash::from_wincode_bytes(wincode_bytes).to_base58()
+}
+
+// ============================================================================
+// External Wallet Support - Prepare/Finalize API
+// ============================================================================
+
+/// Prepared message for external wallet signing
+///
+/// This contains everything needed to sign with an external wallet
+/// and then finalize into a SignedTransaction.
+#[wasm_bindgen]
+pub struct WasmPreparedMessage {
+    inner: PreparedMessage,
+}
+
+#[wasm_bindgen]
+impl WasmPreparedMessage {
+    /// Get the raw message bytes to sign (Uint8Array)
+    #[wasm_bindgen(getter, js_name = messageBytes)]
+    pub fn message_bytes(&self) -> Vec<u8> {
+        self.inner.message_bytes.clone()
+    }
+
+    /// Get message as base58 string
+    #[wasm_bindgen(getter, js_name = messageBase58)]
+    pub fn message_base58(&self) -> String {
+        self.inner.message_base58()
+    }
+
+    /// Get message as base64 string
+    #[wasm_bindgen(getter, js_name = messageBase64)]
+    pub fn message_base64(&self) -> String {
+        self.inner.message_base64()
+    }
+
+    /// Get message as hex string
+    #[wasm_bindgen(getter, js_name = messageHex)]
+    pub fn message_hex(&self) -> String {
+        self.inner.message_hex()
+    }
+
+    /// Get the pre-computed order ID
+    #[wasm_bindgen(getter, js_name = orderId)]
+    pub fn order_id(&self) -> String {
+        self.inner.order_id.clone()
+    }
+
+    /// Get the action JSON
+    #[wasm_bindgen(getter)]
+    pub fn action(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.inner.action).unwrap_or(JsValue::NULL)
+    }
+
+    /// Get the account public key (base58)
+    #[wasm_bindgen(getter)]
+    pub fn account(&self) -> String {
+        self.inner.account.clone()
+    }
+
+    /// Get the signer public key (base58)
+    #[wasm_bindgen(getter)]
+    pub fn signer(&self) -> String {
+        self.inner.signer.clone()
+    }
+
+    /// Get the nonce
+    #[wasm_bindgen(getter)]
+    pub fn nonce(&self) -> f64 {
+        self.inner.nonce as f64
+    }
+
+    /// Finalize with a signature (base58 string)
+    ///
+    /// Call this after your wallet signs the messageBytes.
+    #[wasm_bindgen]
+    pub fn finalize(&self, signature: &str) -> JsValue {
+        let signed = finalize_transaction(self.inner.clone(), signature);
+        serde_wasm_bindgen::to_value(&signed).unwrap_or(JsValue::NULL)
+    }
+
+    /// Finalize with signature bytes (Uint8Array)
+    #[wasm_bindgen(js_name = finalizeBytes)]
+    pub fn finalize_bytes(&self, signature: &[u8]) -> JsValue {
+        let sig_b58 = bulk_keychain::bs58::encode(signature).into_string();
+        self.finalize(&sig_b58)
+    }
+}
+
+/// Options for preparing a message
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PrepareOptions {
+    /// Account public key (base58) - the trading account
+    account: String,
+    /// Signer public key (base58) - defaults to account if not provided
+    signer: Option<String>,
+    /// Nonce - defaults to current timestamp if not provided
+    nonce: Option<f64>,
+}
+
+/// Prepare a single order for external wallet signing
+///
+/// Use this when you don't have access to the private key and need
+/// to sign with an external wallet (like Phantom, Privy, etc).
+///
+/// @param order - The order to prepare
+/// @param options - { account: string, signer?: string, nonce?: number }
+/// @returns PreparedMessage with messageBytes to sign
+///
+/// @example
+/// ```typescript
+/// const prepared = prepareOrder(order, { account: myPubkey });
+/// const signature = await wallet.signMessage(prepared.messageBytes);
+/// const signed = prepared.finalize(signature);
+/// ```
+#[wasm_bindgen(js_name = prepareOrder)]
+pub fn wasm_prepare_order(order: JsValue, options: JsValue) -> Result<WasmPreparedMessage, JsError> {
+    let order_input: OrderInput =
+        serde_wasm_bindgen::from_value(order).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let order_item: OrderItem = order_input.try_into().map_err(|e: String| JsError::new(&e))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_message(order_item, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare multiple orders - each becomes its own transaction (parallel)
+///
+/// @param orders - Array of orders to prepare
+/// @param options - { account: string, signer?: string, nonce?: number }
+/// @returns Array of PreparedMessage
+#[wasm_bindgen(js_name = prepareAll)]
+pub fn wasm_prepare_all(orders: JsValue, options: JsValue) -> Result<Vec<WasmPreparedMessage>, JsError> {
+    let order_inputs: Vec<OrderInput> =
+        serde_wasm_bindgen::from_value(orders).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let order_items: Result<Vec<OrderItem>, String> =
+        order_inputs.into_iter().map(|o| o.try_into()).collect();
+    let order_items = order_items.map_err(|e| JsError::new(&e))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let base_nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_all(order_items, &account, signer.as_ref(), base_nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(prepared.into_iter().map(|p| WasmPreparedMessage { inner: p }).collect())
+}
+
+/// Prepare multiple orders as ONE atomic transaction
+///
+/// Use for bracket orders (entry + stop loss + take profit).
+///
+/// @param orders - Array of orders for the atomic transaction
+/// @param options - { account: string, signer?: string, nonce?: number }
+/// @returns Single PreparedMessage containing all orders
+#[wasm_bindgen(js_name = prepareGroup)]
+pub fn wasm_prepare_group(orders: JsValue, options: JsValue) -> Result<WasmPreparedMessage, JsError> {
+    let order_inputs: Vec<OrderInput> =
+        serde_wasm_bindgen::from_value(orders).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let order_items: Result<Vec<OrderItem>, String> =
+        order_inputs.into_iter().map(|o| o.try_into()).collect();
+    let order_items = order_items.map_err(|e| JsError::new(&e))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_group(order_items, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare agent wallet creation for external signing
+///
+/// @param agentPubkey - The agent wallet public key to authorize
+/// @param delete - Whether to delete (true) or add (false) the agent
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareAgentWallet)]
+pub fn wasm_prepare_agent_wallet(
+    agent_pubkey: &str,
+    delete: bool,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let agent = Pubkey::from_base58(agent_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_agent_wallet(&agent, delete, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare faucet request for external signing
+///
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareFaucet)]
+pub fn wasm_prepare_faucet(options: JsValue) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_faucet(&account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Finalize a prepared message with a signature
+///
+/// Alternative to calling prepared.finalize() - useful if you have
+/// the prepared message as a plain object.
+#[wasm_bindgen(js_name = finalizeTransaction)]
+pub fn wasm_finalize_transaction(prepared: JsValue, signature: &str) -> Result<JsValue, JsError> {
+    let prep: PreparedMessage =
+        serde_wasm_bindgen::from_value(prepared).map_err(|e| JsError::new(&e.to_string()))?;
+    let signed = finalize_transaction(prep, signature);
+    serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
 }
 
 #[cfg(test)]

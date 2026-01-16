@@ -5,7 +5,8 @@
 
 use bulk_keychain::{
     Cancel, CancelAll, Hash, Keypair, NonceManager, NonceStrategy, Order, OrderItem,
-    OrderType, Pubkey, Signer, TimeInForce, UserSettings,
+    OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
+    prepare_all, prepare_group, prepare_message, prepare_agent_wallet, prepare_faucet,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -170,7 +171,7 @@ impl NativeSigner {
 
     /// Sign multiple orders - each becomes its own transaction (parallel)
     ///
-    /// Optimized for HFT: each order gets independent confirmation/rejection.
+    /// each order gets independent confirmation/rejection.
     /// Automatically parallelizes when > 10 orders.
     ///
     /// @example
@@ -495,4 +496,233 @@ pub fn validate_hash(s: String) -> bool {
 #[napi]
 pub fn compute_order_id(wincode_bytes: Buffer) -> String {
     Hash::from_wincode_bytes(&wincode_bytes).to_base58()
+}
+
+// ============================================================================
+// External Wallet Support - Prepare/Finalize API
+// ============================================================================
+
+/// Options for preparing a message
+#[napi(object)]
+#[derive(Debug)]
+pub struct PrepareOptions {
+    /// Account public key (base58) - the trading account
+    pub account: String,
+    /// Signer public key (base58) - defaults to account if not provided
+    pub signer: Option<String>,
+    /// Nonce - defaults to current timestamp if not provided
+    pub nonce: Option<f64>,
+}
+
+/// Prepared message ready for external wallet signing
+#[napi(object)]
+pub struct PreparedMessageOutput {
+    /// Raw message bytes to sign (pass to wallet.signMessage())
+    pub message_bytes: Buffer,
+    /// Message as base58 string
+    pub message_base58: String,
+    /// Message as base64 string
+    pub message_base64: String,
+    /// Message as hex string
+    pub message_hex: String,
+    /// Pre-computed order ID (base58)
+    pub order_id: String,
+    /// Action JSON as string
+    pub action: String,
+    /// Account public key (base58)
+    pub account: String,
+    /// Signer public key (base58)
+    pub signer: String,
+    /// Nonce used for this transaction
+    pub nonce: f64,
+}
+
+impl From<PreparedMessage> for PreparedMessageOutput {
+    fn from(p: PreparedMessage) -> Self {
+        Self {
+            message_bytes: Buffer::from(p.message_bytes.clone()),
+            message_base58: p.message_base58(),
+            message_base64: p.message_base64(),
+            message_hex: p.message_hex(),
+            order_id: p.order_id,
+            action: serde_json::to_string(&p.action).unwrap_or_default(),
+            account: p.account,
+            signer: p.signer,
+            nonce: p.nonce as f64,
+        }
+    }
+}
+
+/// Prepare a single order for external wallet signing
+///
+/// Use this when you don't have access to the private key and need
+/// to sign with an external wallet (like Phantom, Privy, etc).
+///
+/// @example
+/// ```typescript
+/// const prepared = prepareOrder(order, { account: myPubkey });
+/// const signature = await wallet.signMessage(prepared.messageBytes);
+/// const signed = finalizeTransaction(prepared, signature);
+/// ```
+#[napi]
+pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<PreparedMessageOutput> {
+    let order_item: OrderItem = order.try_into()?;
+    let account = Pubkey::from_base58(&options.account)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_message(order_item, &account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare multiple orders - each becomes its own transaction (parallel)
+///
+/// Each order gets independent confirmation/rejection.
+///
+/// @example
+/// ```typescript
+/// const orders = [order1, order2, order3];
+/// const prepared = prepareAllOrders(orders, { account: myPubkey });
+/// // Sign each with wallet, then finalize
+/// ```
+#[napi]
+pub fn prepare_all_orders(
+    orders: Vec<OrderInput>,
+    options: PrepareOptions,
+) -> Result<Vec<PreparedMessageOutput>> {
+    let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
+    let order_items = order_items?;
+
+    let account = Pubkey::from_base58(&options.account)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let base_nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_all(order_items, &account, signer.as_ref(), base_nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into_iter().map(Into::into).collect())
+}
+
+/// Prepare multiple orders as ONE atomic transaction
+///
+/// Use for bracket orders (entry + stop loss + take profit).
+///
+/// @example
+/// ```typescript
+/// const bracket = [entryOrder, stopLoss, takeProfit];
+/// const prepared = prepareOrderGroup(bracket, { account: myPubkey });
+/// const signature = await wallet.signMessage(prepared.messageBytes);
+/// const signed = finalizeTransaction(prepared, signature);
+/// ```
+#[napi]
+pub fn prepare_order_group(
+    orders: Vec<OrderInput>,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
+    let order_items = order_items?;
+
+    let account = Pubkey::from_base58(&options.account)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_group(order_items, &account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare agent wallet creation for external signing
+///
+/// @example
+/// ```typescript
+/// const prepared = prepareAgentWalletAuth(agentPubkey, false, { account: myPubkey });
+/// const signature = await wallet.signMessage(prepared.messageBytes);
+/// const signed = finalizeTransaction(prepared, signature);
+/// ```
+#[napi]
+pub fn prepare_agent_wallet_auth(
+    agent_pubkey: String,
+    delete: bool,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let agent = Pubkey::from_base58(&agent_pubkey)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let account = Pubkey::from_base58(&options.account)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_agent_wallet(&agent, delete, &account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare faucet request for external signing
+#[napi]
+pub fn prepare_faucet_request(options: PrepareOptions) -> Result<PreparedMessageOutput> {
+    let account = Pubkey::from_base58(&options.account)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_faucet(&account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Finalize a prepared message with a signature from an external wallet
+///
+/// @param prepared - The prepared message from prepare* functions
+/// @param signature - Base58-encoded signature from wallet.signMessage()
+///
+/// @example
+/// ```typescript
+/// const prepared = prepareOrder(order, { account: myPubkey });
+/// const signature = await wallet.signMessage(prepared.messageBytes);
+/// const signed = finalizeTransaction(prepared, signature);
+/// // Now submit `signed` to the API
+/// ```
+#[napi]
+pub fn finalize_prepared_transaction(
+    prepared: PreparedMessageOutput,
+    signature: String,
+) -> SignedTransactionOutput {
+    // Reconstruct the PreparedMessage (we only need the fields for finalization)
+    let action: serde_json::Value = serde_json::from_str(&prepared.action).unwrap_or_default();
+    let signed = bulk_keychain::SignedTransaction {
+        action,
+        account: prepared.account,
+        signer: prepared.signer,
+        signature,
+        order_id: Some(prepared.order_id),
+    };
+    signed.into()
 }

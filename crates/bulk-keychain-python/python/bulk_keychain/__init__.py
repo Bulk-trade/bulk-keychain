@@ -32,6 +32,14 @@ from bulk_keychain._native import (
     current_timestamp,
     validate_pubkey,
     validate_hash,
+    compute_order_id,
+    # External wallet support
+    py_prepare_order as prepare_order,
+    py_prepare_all_orders as prepare_all_orders,
+    py_prepare_order_group as prepare_order_group,
+    py_prepare_agent_wallet_auth as prepare_agent_wallet,
+    py_prepare_faucet_request as prepare_faucet,
+    py_finalize_transaction as finalize_transaction,
 )
 
 __all__ = [
@@ -41,6 +49,14 @@ __all__ = [
     "current_timestamp",
     "validate_pubkey",
     "validate_hash",
+    "compute_order_id",
+    # External wallet support
+    "prepare_order",
+    "prepare_all_orders",
+    "prepare_order_group",
+    "prepare_agent_wallet",
+    "prepare_faucet",
+    "finalize_transaction",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.2"

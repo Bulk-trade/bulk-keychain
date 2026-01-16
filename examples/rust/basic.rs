@@ -62,7 +62,7 @@ fn main() -> bulk_keychain::Result<()> {
     println!("CancelAll signature: {}...", &signed_cancel_all.signature[..40]);
     println!();
 
-    // 8. Batch signing - each order gets its own tx (sign_all) - HFT optimized
+    // 8. Batch signing - each order gets its own tx (sign_all) 
     println!("--- Batch Signing (sign_all - 100 orders) ---");
     let orders: Vec<OrderItem> = (0..100)
         .map(|i| {

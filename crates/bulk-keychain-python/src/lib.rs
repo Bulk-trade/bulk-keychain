@@ -4,7 +4,8 @@
 
 use bulk_keychain::{
     Cancel, CancelAll, Hash, Keypair, NonceManager, NonceStrategy, Order, OrderItem,
-    OrderType, Pubkey, Signer, TimeInForce, UserSettings,
+    OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
+    prepare_all, prepare_group, prepare_message, prepare_agent_wallet, prepare_faucet,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -519,6 +520,225 @@ fn compute_order_id(wincode_bytes: &[u8]) -> String {
 }
 
 // ============================================================================
+// External Wallet Support - Prepare/Finalize API
+// ============================================================================
+
+fn prepared_to_py(py: Python<'_>, prepared: &PreparedMessage) -> PyResult<PyObject> {
+    let dict = PyDict::new(py);
+    // Raw bytes as Python bytes
+    dict.set_item("message_bytes", pyo3::types::PyBytes::new(py, &prepared.message_bytes))?;
+    // Format helpers
+    dict.set_item("message_base58", &prepared.message_base58())?;
+    dict.set_item("message_base64", &prepared.message_base64())?;
+    dict.set_item("message_hex", &prepared.message_hex())?;
+    // Metadata
+    dict.set_item("order_id", &prepared.order_id)?;
+    dict.set_item("action", json_to_py(py, &prepared.action)?)?;
+    dict.set_item("account", &prepared.account)?;
+    dict.set_item("signer", &prepared.signer)?;
+    dict.set_item("nonce", prepared.nonce)?;
+    Ok(dict.into())
+}
+
+/// Prepare a single order for external wallet signing
+///
+/// Use this when you don't have access to the private key and need
+/// to sign with an external wallet.
+///
+/// Args:
+///     order: Order dict with type, symbol, is_buy, price, size, etc.
+///     account: Account public key (base58)
+///     signer: Signer public key (defaults to account)
+///     nonce: Transaction nonce (defaults to current timestamp)
+///
+/// Returns:
+///     PreparedMessage dict with message_bytes to sign
+///
+/// Example:
+///     prepared = prepare_order(order, "account_pubkey")
+///     signature = wallet.sign_message(prepared["message_bytes"])
+///     signed = finalize_transaction(prepared, signature)
+#[pyfunction]
+#[pyo3(signature = (order, account, signer=None, nonce=None))]
+fn py_prepare_order(
+    order: &Bound<'_, PyAny>,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let order_item = parse_order_item(order)?;
+    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(|s| Pubkey::from_base58(s))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_message(order_item, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare multiple orders - each becomes its own transaction (parallel)
+///
+/// Optimized for HFT: each order gets independent confirmation/rejection.
+///
+/// Example:
+///     prepared_list = prepare_all_orders([order1, order2], "account_pubkey")
+#[pyfunction]
+#[pyo3(signature = (orders, account, signer=None, base_nonce=None))]
+fn py_prepare_all_orders(
+    orders: &Bound<'_, PyList>,
+    account: &str,
+    signer: Option<&str>,
+    base_nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let order_items: PyResult<Vec<OrderItem>> = orders
+        .iter()
+        .map(|item| parse_order_item(&item))
+        .collect();
+    let order_items = order_items?;
+
+    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(|s| Pubkey::from_base58(s))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_all(order_items, &account_pk, signer_pk.as_ref(), base_nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| {
+        let list = PyList::empty(py);
+        for p in &prepared {
+            list.append(prepared_to_py(py, p)?)?;
+        }
+        Ok(list.into())
+    })
+}
+
+/// Prepare multiple orders as ONE atomic transaction
+///
+/// Use for bracket orders (entry + stop loss + take profit).
+///
+/// Example:
+///     bracket = [entry, stop_loss, take_profit]
+///     prepared = prepare_order_group(bracket, "account_pubkey")
+#[pyfunction]
+#[pyo3(signature = (orders, account, signer=None, nonce=None))]
+fn py_prepare_order_group(
+    orders: &Bound<'_, PyList>,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let order_items: PyResult<Vec<OrderItem>> = orders
+        .iter()
+        .map(|item| parse_order_item(&item))
+        .collect();
+    let order_items = order_items?;
+
+    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(|s| Pubkey::from_base58(s))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_group(order_items, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare agent wallet creation for external signing
+///
+/// Example:
+///     prepared = prepare_agent_wallet_auth(agent_pubkey, False, "account_pubkey")
+#[pyfunction]
+#[pyo3(signature = (agent_pubkey, delete, account, signer=None, nonce=None))]
+fn py_prepare_agent_wallet_auth(
+    agent_pubkey: &str,
+    delete: bool,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let agent = Pubkey::from_base58(agent_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(|s| Pubkey::from_base58(s))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_agent_wallet(&agent, delete, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare faucet request for external signing
+#[pyfunction]
+#[pyo3(signature = (account, signer=None, nonce=None))]
+fn py_prepare_faucet_request(
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(|s| Pubkey::from_base58(s))
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_faucet(&account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Finalize a prepared message with a signature from an external wallet
+///
+/// Args:
+///     prepared: PreparedMessage dict from prepare_* functions
+///     signature: Base58-encoded signature from wallet
+///
+/// Returns:
+///     SignedTransaction dict ready for API submission
+///
+/// Example:
+///     prepared = prepare_order(order, "account_pubkey")
+///     signature = wallet.sign_message(prepared["message_bytes"])
+///     signed = finalize_transaction(prepared, signature)
+#[pyfunction]
+fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyResult<PyObject> {
+    let account: String = prepared
+        .get_item("account")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'account'"))?
+        .extract()?;
+    let signer: String = prepared
+        .get_item("signer")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
+        .extract()?;
+    let order_id: String = prepared
+        .get_item("order_id")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'order_id'"))?
+        .extract()?;
+    let action = prepared
+        .get_item("action")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'action'"))?;
+
+    Python::with_gil(|py| {
+        let dict = PyDict::new(py);
+        dict.set_item("action", action)?;
+        dict.set_item("account", &account)?;
+        dict.set_item("signer", &signer)?;
+        dict.set_item("signature", signature)?;
+        dict.set_item("order_id", &order_id)?;
+        Ok(dict.into())
+    })
+}
+
+// ============================================================================
 // Module definition
 // ============================================================================
 
@@ -532,5 +752,12 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_pubkey, m)?)?;
     m.add_function(wrap_pyfunction!(validate_hash, m)?)?;
     m.add_function(wrap_pyfunction!(compute_order_id, m)?)?;
+    // External wallet support
+    m.add_function(wrap_pyfunction!(py_prepare_order, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_all_orders, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_order_group, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_agent_wallet_auth, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_faucet_request, m)?)?;
+    m.add_function(wrap_pyfunction!(py_finalize_transaction, m)?)?;
     Ok(())
 }
