@@ -106,6 +106,23 @@ impl Hash {
         rand::thread_rng().fill(&mut bytes);
         Self(bytes)
     }
+
+    /// Compute hash from wincode bytes (matches BULK's order ID generation)
+    ///
+    /// This uses SHA256 to hash the serialized transaction bytes,
+    /// which is exactly how BULK generates order IDs server-side.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let order_id = Hash::from_wincode_bytes(&wincode_bytes);
+    /// println!("Order ID: {}", order_id.to_base58());
+    /// ```
+    #[inline]
+    pub fn from_wincode_bytes(wincode_bytes: &[u8]) -> Self {
+        use sha2::{Sha256, Digest};
+        let hash: [u8; 32] = Sha256::digest(wincode_bytes).into();
+        Self(hash)
+    }
 }
 
 impl std::fmt::Display for Hash {
@@ -535,6 +552,10 @@ pub struct SignedTransaction {
     pub signer: String,
     /// Signature (base58)
     pub signature: String,
+    /// Pre-computed order/transaction ID (base58)
+    /// This matches BULK's server-side ID generation: SHA256(wincode_bytes)
+    #[serde(rename = "orderId", skip_serializing_if = "Option::is_none")]
+    pub order_id: Option<String>,
 }
 
 impl SignedTransaction {

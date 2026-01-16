@@ -336,6 +336,11 @@ jobs:
     needs: [validate, build-python-linux, build-python-macos, build-python-windows, build-python-sdist]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      name: pypi
+      url: https://pypi.org/p/bulk-keychain
+    permissions:
+      id-token: write  # Required for OIDC trusted publishing
     steps:
       - name: Download all wheel artifacts
         uses: actions/download-artifact@v4
@@ -350,8 +355,7 @@ jobs:
       - name: Publish to PyPI
         if: ${{ !inputs.dry_run }}
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+        # Uses OIDC trusted publishing - no token needed!
 
   # ============================================
   # PUBLISH WASM PACKAGE

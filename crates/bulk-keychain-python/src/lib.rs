@@ -443,6 +443,10 @@ fn signed_to_py(py: Python<'_>, signed: &bulk_keychain::SignedTransaction) -> Py
     dict.set_item("account", &signed.account)?;
     dict.set_item("signer", &signed.signer)?;
     dict.set_item("signature", &signed.signature)?;
+    // Include order_id if computed (SHA256 of wincode bytes, matches BULK's server-side ID)
+    if let Some(ref order_id) = signed.order_id {
+        dict.set_item("order_id", order_id)?;
+    }
     Ok(dict.into())
 }
 
@@ -505,6 +509,15 @@ fn validate_hash(s: &str) -> bool {
     Hash::from_base58(s).is_ok()
 }
 
+/// Compute order ID from wincode bytes
+///
+/// This computes SHA256(wincode_bytes), which matches BULK's server-side
+/// order ID generation. Useful if you're serializing transactions yourself.
+#[pyfunction]
+fn compute_order_id(wincode_bytes: &[u8]) -> String {
+    Hash::from_wincode_bytes(wincode_bytes).to_base58()
+}
+
 // ============================================================================
 // Module definition
 // ============================================================================
@@ -518,5 +531,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(current_timestamp, m)?)?;
     m.add_function(wrap_pyfunction!(validate_pubkey, m)?)?;
     m.add_function(wrap_pyfunction!(validate_hash, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_order_id, m)?)?;
     Ok(())
 }

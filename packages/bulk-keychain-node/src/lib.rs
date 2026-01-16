@@ -371,6 +371,10 @@ pub struct SignedTransactionOutput {
     pub signer: String,
     /// Signature (base58)
     pub signature: String,
+    /// Pre-computed order/transaction ID (base58)
+    /// This is SHA256(wincode_bytes), matching BULK's server-side ID generation.
+    /// Available before server response for optimistic tracking.
+    pub order_id: Option<String>,
 }
 
 impl From<bulk_keychain::SignedTransaction> for SignedTransactionOutput {
@@ -380,6 +384,7 @@ impl From<bulk_keychain::SignedTransaction> for SignedTransactionOutput {
             account: tx.account,
             signer: tx.signer,
             signature: tx.signature,
+            order_id: tx.order_id,
         }
     }
 }
@@ -481,4 +486,13 @@ pub fn validate_pubkey(s: String) -> bool {
 #[napi]
 pub fn validate_hash(s: String) -> bool {
     Hash::from_base58(&s).is_ok()
+}
+
+/// Compute order ID from wincode bytes
+///
+/// This computes SHA256(wincode_bytes), which matches BULK's server-side
+/// order ID generation. Useful if you're serializing transactions yourself.
+#[napi]
+pub fn compute_order_id(wincode_bytes: Buffer) -> String {
+    Hash::from_wincode_bytes(&wincode_bytes).to_base58()
 }

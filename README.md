@@ -105,6 +105,30 @@ let json = signed.to_json()?;
 | `signAll([orders])` | Sign multiple orders (each gets own tx, parallel) | `SignedTransaction[]` |
 | `signGroup([orders])` | Sign multiple orders atomically (one tx) | `SignedTransaction` |
 
+## Pre-computed Order ID
+
+Every signed transaction includes a pre-computed `orderId` that matches BULK's network order ID generation. This lets you know the order ID **before** the node responds - useful for optimistic tracking.
+
+### TypeScript
+```typescript
+const signed = signer.sign(order);
+console.log(`Order ID: ${signed.orderId}`);  // Know ID immediately!
+```
+
+### Python
+```python
+signed = signer.sign(order)
+print(f"Order ID: {signed['order_id']}")  # Pre-computed!
+```
+
+### Rust
+```rust
+let signed = signer.sign(order.into(), None)?;
+println!("Order ID: {}", signed.order_id.unwrap());
+```
+
+The ID is computed as `SHA256(wincode_bytes)` - exactly matching BULK's backend algorithm.
+
 ## Batch Signing
 
 For high-frequency trading, sign many independent orders in parallel:

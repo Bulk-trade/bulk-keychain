@@ -18,6 +18,7 @@ categories = ["cryptography", "api-bindings"]
 [workspace.dependencies]
 # Core crypto
 ed25519-dalek = { version = "2.1", features = ["rand_core", "batch"] }
+sha2 = "0.10"
 rand = "0.8"
 bs58 = "0.5"
 

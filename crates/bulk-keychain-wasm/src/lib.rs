@@ -429,6 +429,15 @@ pub fn validate_hash(s: &str) -> bool {
     Hash::from_base58(s).is_ok()
 }
 
+/// Compute order ID from wincode bytes
+///
+/// This computes SHA256(wincode_bytes), which matches BULK's server-side
+/// order ID generation. Useful if you're serializing transactions yourself.
+#[wasm_bindgen(js_name = computeOrderId)]
+pub fn compute_order_id(wincode_bytes: &[u8]) -> String {
+    Hash::from_wincode_bytes(wincode_bytes).to_base58()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

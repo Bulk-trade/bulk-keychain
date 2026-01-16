@@ -39,6 +39,7 @@ class SignedTransaction(TypedDict):
     account: str
     signer: str
     signature: str
+    order_id: NotRequired[str]  # Pre-computed order ID (SHA256 of wincode bytes)
 
 class Keypair:
     """Ed25519 keypair for signing transactions"""
@@ -192,4 +193,12 @@ def validate_pubkey(s: str) -> bool:
 
 def validate_hash(s: str) -> bool:
     """Validate a base58-encoded hash"""
+    ...
+
+def compute_order_id(wincode_bytes: bytes) -> str:
+    """Compute order ID from wincode bytes
+    
+    This computes SHA256(wincode_bytes), which matches BULK's server-side
+    order ID generation. Useful if you're serializing transactions yourself.
+    """
     ...

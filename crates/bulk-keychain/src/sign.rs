@@ -21,15 +21,21 @@ pub struct Signer {
     nonce_manager: Option<NonceManager>,
     /// Pre-allocated serializer for single-threaded use
     serializer: WincodeSerializer,
+    /// Whether to compute order IDs (SHA256 of wincode bytes)
+    compute_order_id: bool,
 }
 
 impl Signer {
     /// Create a new signer with the given keypair
+    ///
+    /// By default, order IDs are computed (SHA256 of wincode bytes).
+    /// Use `without_order_id()` to disable if you don't need them.
     pub fn new(keypair: Keypair) -> Self {
         Self {
             keypair,
             nonce_manager: None,
             serializer: WincodeSerializer::new(),
+            compute_order_id: true,
         }
     }
 
@@ -39,7 +45,28 @@ impl Signer {
             keypair,
             nonce_manager: Some(nonce_manager),
             serializer: WincodeSerializer::new(),
+            compute_order_id: true,
         }
+    }
+
+    /// Disable order ID computation for maximum performance
+    ///
+    /// Use this if you don't need to know the order ID before server response.
+    /// Saves ~500ns per order (SHA256 cost).
+    pub fn without_order_id(mut self) -> Self {
+        self.compute_order_id = false;
+        self
+    }
+
+    /// Enable order ID computation
+    pub fn with_order_id(mut self) -> Self {
+        self.compute_order_id = true;
+        self
+    }
+
+    /// Check if order ID computation is enabled
+    pub fn computes_order_id(&self) -> bool {
+        self.compute_order_id
     }
 
     /// Get the signer's public key
@@ -82,6 +109,13 @@ impl Signer {
         self.serializer
             .serialize_for_signing(action, nonce, account, &signer_pubkey);
 
+        // Compute order ID if enabled (before signing, uses same bytes)
+        let order_id = if self.compute_order_id {
+            Some(Hash::from_wincode_bytes(self.serializer.as_bytes()).to_base58())
+        } else {
+            None
+        };
+
         // Sign
         let signature = self.sign_bytes(self.serializer.as_bytes());
 
@@ -93,6 +127,7 @@ impl Signer {
             account: account.to_base58(),
             signer: signer_pubkey.to_base58(),
             signature,
+            order_id,
         })
     }
 
@@ -194,6 +229,13 @@ impl Signer {
         let mut serializer = WincodeSerializer::new();
         serializer.serialize_for_signing(&action, nonce, &account, &signer_pubkey);
 
+        // Compute order ID if enabled
+        let order_id = if self.compute_order_id {
+            Some(Hash::from_wincode_bytes(serializer.as_bytes()).to_base58())
+        } else {
+            None
+        };
+
         let signature = self.sign_bytes(serializer.as_bytes());
         let action_json = self.action_to_json(&action, nonce);
 
@@ -202,6 +244,7 @@ impl Signer {
             account: account.to_base58(),
             signer: signer_pubkey.to_base58(),
             signature,
+            order_id,
         })
     }
 
@@ -308,6 +351,13 @@ impl Signer {
         let mut serializer = WincodeSerializer::new();
         serializer.serialize_for_signing(&action, nonce, &account, &signer_pubkey);
 
+        // Compute order ID if enabled
+        let order_id = if self.compute_order_id {
+            Some(Hash::from_wincode_bytes(serializer.as_bytes()).to_base58())
+        } else {
+            None
+        };
+
         let signature = self.sign_bytes(serializer.as_bytes());
         let action_json = self.action_to_json(&action, nonce);
 
@@ -316,6 +366,7 @@ impl Signer {
             account: account.to_base58(),
             signer: signer_pubkey.to_base58(),
             signature,
+            order_id,
         })
     }
 
@@ -614,5 +665,83 @@ mod tests {
 
         let result = signer.sign_agent_wallet(agent_keypair.pubkey(), false, Some(1234567890));
         assert!(result.is_ok());
+    }
+
+    // ========================================================================
+    // Order ID tests
+    // ========================================================================
+
+    #[test]
+    fn test_order_id_computed_by_default() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        assert!(signer.computes_order_id());
+
+        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+        let signed = signer.sign(order.into(), Some(1234567890)).unwrap();
+
+        // Order ID should be present (computed by default)
+        assert!(signed.order_id.is_some());
+        let order_id = signed.order_id.unwrap();
+        // Should be a valid base58 string (32 bytes = ~44 chars)
+        assert!(order_id.len() >= 40 && order_id.len() <= 50);
+    }
+
+    #[test]
+    fn test_order_id_deterministic() {
+        // Same inputs should produce same order ID
+        let keypair = Keypair::generate();
+        let mut signer1 = Signer::new(keypair.clone());
+        let mut signer2 = Signer::new(keypair);
+
+        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+        let signed1 = signer1.sign(order.clone().into(), Some(1234567890)).unwrap();
+        let signed2 = signer2.sign(order.into(), Some(1234567890)).unwrap();
+
+        // Same order with same nonce = same order ID
+        assert_eq!(signed1.order_id, signed2.order_id);
+    }
+
+    #[test]
+    fn test_order_id_unique_per_nonce() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+
+        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+        let signed1 = signer.sign(order.clone().into(), Some(1)).unwrap();
+        let signed2 = signer.sign(order.into(), Some(2)).unwrap();
+
+        // Different nonces = different order IDs
+        assert_ne!(signed1.order_id, signed2.order_id);
+    }
+
+    #[test]
+    fn test_order_id_disabled() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair).without_order_id();
+        assert!(!signer.computes_order_id());
+
+        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+        let signed = signer.sign(order.into(), Some(1234567890)).unwrap();
+
+        // Order ID should be None when disabled
+        assert!(signed.order_id.is_none());
+    }
+
+    #[test]
+    fn test_order_id_in_batch() {
+        let keypair = Keypair::generate();
+        let signer = Signer::new(keypair);
+
+        let orders: Vec<OrderItem> = (0..5)
+            .map(|i| Order::limit("BTC-USD", true, 100000.0 + i as f64, 0.1, TimeInForce::Gtc).into())
+            .collect();
+
+        let signed = signer.sign_all(orders, Some(1000)).unwrap();
+        
+        // Each transaction should have a unique order ID
+        let order_ids: Vec<_> = signed.iter().map(|t| t.order_id.clone().unwrap()).collect();
+        let unique_ids: std::collections::HashSet<_> = order_ids.iter().collect();
+        assert_eq!(order_ids.len(), unique_ids.len());
     }
 }
