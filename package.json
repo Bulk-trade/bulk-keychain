@@ -1,6 +1,6 @@
 {
   "name": "bulk-keychain-monorepo",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "private": true,
   "description": "A simple high perf signing lib for BULK txns",
   "scripts": {
