@@ -26,6 +26,7 @@
 //! let signed = finalize_transaction(prepared, "signature-base58");
 //! ```
 
+use crate::order_id::compute_order_item_id;
 use crate::serialize::WincodeSerializer;
 use crate::types::*;
 use crate::{Error, Result};
@@ -192,8 +193,8 @@ pub fn prepare_action(
     serializer.serialize_for_signing(action, nonce, account, signer_pubkey);
     let message_bytes = serializer.into_bytes();
 
-    // Compute order ID
-    let order_id = Hash::from_wincode_bytes(&message_bytes).to_base58();
+    // Compute order ID using new fixed-point algorithm
+    let order_id = compute_action_order_id(action, nonce, account);
 
     // Build action JSON
     let action_json = action_to_json(action, nonce);
@@ -206,6 +207,19 @@ pub fn prepare_action(
         signer: signer_pubkey.to_base58(),
         nonce,
     })
+}
+
+/// Compute order ID for an action using the new fixed-point algorithm
+fn compute_action_order_id(action: &Action, nonce: u64, account: &Pubkey) -> String {
+    match action {
+        Action::Order { orders } if orders.len() == 1 => {
+            // Single order: compute OID from the order itself
+            compute_order_item_id(&orders[0], nonce, account)
+                .map(|h| h.to_base58())
+                .unwrap_or_default()
+        }
+        _ => String::new(), // Multi-order groups, Cancel, CancelAll, Faucet, etc. don't have OIDs
+    }
 }
 
 // ============================================================================
@@ -265,13 +279,17 @@ fn prepare_single_item(
     signer: &Pubkey,
     nonce: u64,
 ) -> Result<PreparedMessage> {
+    // Compute order ID using new fixed-point algorithm
+    let order_id = compute_order_item_id(&item, nonce, account)
+        .map(|h| h.to_base58())
+        .unwrap_or_default();
+
     let action = Action::Order { orders: vec![item] };
 
     let mut serializer = WincodeSerializer::new();
     serializer.serialize_for_signing(&action, nonce, account, signer);
     let message_bytes = serializer.into_bytes();
 
-    let order_id = Hash::from_wincode_bytes(&message_bytes).to_base58();
     let action_json = action_to_json(&action, nonce);
 
     Ok(PreparedMessage {

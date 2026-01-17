@@ -107,16 +107,14 @@ impl Hash {
         Self(bytes)
     }
 
-    /// Compute hash from wincode bytes (matches BULK's order ID generation)
+    /// Compute SHA256 hash from arbitrary bytes
     ///
-    /// This uses SHA256 to hash the serialized transaction bytes,
-    /// which is exactly how BULK generates order IDs server-side.
+    /// **Note**: For computing order IDs, use `compute_order_id()` or
+    /// `compute_limit_order_id()` / `compute_market_order_id()` instead.
+    /// Those functions use the correct fixed-point serialization format
+    /// that matches BULK's server-side order ID generation.
     ///
-    /// # Example
-    /// ```ignore
-    /// let order_id = Hash::from_wincode_bytes(&wincode_bytes);
-    /// println!("Order ID: {}", order_id.to_base58());
-    /// ```
+    /// This method is primarily used internally for legacy compatibility.
     #[inline]
     pub fn from_wincode_bytes(wincode_bytes: &[u8]) -> Self {
         use sha2::{Sha256, Digest};

@@ -127,7 +127,24 @@ let signed = signer.sign(order.into(), None)?;
 println!("Order ID: {}", signed.order_id.unwrap());
 ```
 
-The ID is computed as `SHA256(wincode_bytes)` - exactly matching BULK's backend algorithm.
+### Algorithm
+
+Order IDs use **fixed-point serialization** for cross-platform determinism:
+
+| Field | Limit Order | Market Order | Encoding |
+|-------|-------------|--------------|----------|
+| nonce | ✓ | ✓ | u64 LE |
+| market | ✓ | ✓ | u32 len + UTF-8 |
+| owner | ✓ | ✓ | 32 bytes raw |
+| side | ✓ | ✓ | u8 (0=Buy, 1=Sell) |
+| amount | ✓ | ✓ | fixed-point u64 |
+| price | ✓ | - | fixed-point u64 |
+| tif | ✓ | - | u32 enum |
+| reduce_only | ✓ | ✓ | u8 |
+
+**Fixed-point**: `(value × 10^8).round()` → ensures `0.917` and `0.91700000000000004` produce identical IDs.
+
+Final: `SHA256(serialized_bytes)` → 32-byte order ID (base58 encoded).
 
 ## Batch Signing
 

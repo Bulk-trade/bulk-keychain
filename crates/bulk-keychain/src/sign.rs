@@ -2,6 +2,7 @@
 //!
 //! High-performance Ed25519 signing with support for batch operations.
 
+use crate::order_id::compute_order_item_id;
 use crate::serialize::WincodeSerializer;
 use crate::types::*;
 use crate::{Error, Keypair, NonceManager, Result};
@@ -109,9 +110,10 @@ impl Signer {
         self.serializer
             .serialize_for_signing(action, nonce, account, &signer_pubkey);
 
-        // Compute order ID if enabled (before signing, uses same bytes)
+        // Compute order ID if enabled
+        // Uses the new fixed-point algorithm for Order actions
         let order_id = if self.compute_order_id {
-            Some(Hash::from_wincode_bytes(self.serializer.as_bytes()).to_base58())
+            self.compute_action_order_id(action, nonce, account)
         } else {
             None
         };
@@ -129,6 +131,17 @@ impl Signer {
             signature,
             order_id,
         })
+    }
+
+    /// Compute order ID for an action using the new fixed-point algorithm
+    fn compute_action_order_id(&self, action: &Action, nonce: u64, account: &Pubkey) -> Option<String> {
+        match action {
+            Action::Order { orders } if orders.len() == 1 => {
+                // Single order: compute OID from the order itself
+                compute_order_item_id(&orders[0], nonce, account).map(|h| h.to_base58())
+            }
+            _ => None, // Multi-order groups, Cancel, CancelAll, Faucet, etc. don't have OIDs
+        }
     }
 
     /// Sign an action using own pubkey as account
@@ -224,17 +237,18 @@ impl Signer {
     fn sign_single_item(&self, item: OrderItem, nonce: u64) -> Result<SignedTransaction> {
         let account = self.keypair.pubkey();
         let signer_pubkey = self.keypair.pubkey();
+
+        // Compute order ID if enabled (before creating action to avoid clone)
+        let order_id = if self.compute_order_id {
+            compute_order_item_id(&item, nonce, &account).map(|h| h.to_base58())
+        } else {
+            None
+        };
+
         let action = Action::Order { orders: vec![item] };
 
         let mut serializer = WincodeSerializer::new();
         serializer.serialize_for_signing(&action, nonce, &account, &signer_pubkey);
-
-        // Compute order ID if enabled
-        let order_id = if self.compute_order_id {
-            Some(Hash::from_wincode_bytes(serializer.as_bytes()).to_base58())
-        } else {
-            None
-        };
 
         let signature = self.sign_bytes(serializer.as_bytes());
         let action_json = self.action_to_json(&action, nonce);
@@ -346,17 +360,18 @@ impl Signer {
 
         let account = self.keypair.pubkey();
         let signer_pubkey = self.keypair.pubkey();
+
+        // Compute order ID if enabled (single order only)
+        let order_id = if self.compute_order_id && orders.len() == 1 {
+            compute_order_item_id(&orders[0], nonce, &account).map(|h| h.to_base58())
+        } else {
+            None
+        };
+
         let action = Action::Order { orders };
 
         let mut serializer = WincodeSerializer::new();
         serializer.serialize_for_signing(&action, nonce, &account, &signer_pubkey);
-
-        // Compute order ID if enabled
-        let order_id = if self.compute_order_id {
-            Some(Hash::from_wincode_bytes(serializer.as_bytes()).to_base58())
-        } else {
-            None
-        };
 
         let signature = self.sign_bytes(serializer.as_bytes());
         let action_json = self.action_to_json(&action, nonce);
