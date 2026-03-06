@@ -10,7 +10,7 @@ const GROUP_SIZE: usize = 3;
 fn make_order(i: usize) -> OrderItem {
     Order::limit(
         "BTC-USD",
-        i % 2 == 0,
+        i.is_multiple_of(2),
         100000.0 + i as f64,
         0.1,
         TimeInForce::Gtc,

@@ -63,6 +63,7 @@ pub(crate) fn compute_order_item_id_with_serializer(
 
 /// Compute order ID for a limit order.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 pub fn compute_limit_order_id(
     nonce: u64,
     market: &str,

@@ -643,9 +643,9 @@ fn prepared_to_py(py: Python<'_>, prepared: &PreparedMessage) -> PyResult<PyObje
         pyo3::types::PyBytes::new(py, &prepared.message_bytes),
     )?;
     // Format helpers
-    dict.set_item("message_base58", &prepared.message_base58())?;
-    dict.set_item("message_base64", &prepared.message_base64())?;
-    dict.set_item("message_hex", &prepared.message_hex())?;
+    dict.set_item("message_base58", prepared.message_base58())?;
+    dict.set_item("message_base64", prepared.message_base64())?;
+    dict.set_item("message_hex", prepared.message_hex())?;
     // Metadata
     if let Some(ref order_id) = prepared.order_id {
         dict.set_item("order_id", order_id)?;
@@ -693,7 +693,7 @@ fn py_prepare_order(
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
-        .map(|s| Pubkey::from_base58(s))
+        .map(Pubkey::from_base58)
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
@@ -724,7 +724,7 @@ fn py_prepare_all_orders(
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
-        .map(|s| Pubkey::from_base58(s))
+        .map(Pubkey::from_base58)
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
@@ -762,7 +762,7 @@ fn py_prepare_order_group(
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
-        .map(|s| Pubkey::from_base58(s))
+        .map(Pubkey::from_base58)
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
@@ -790,7 +790,7 @@ fn py_prepare_agent_wallet_auth(
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
-        .map(|s| Pubkey::from_base58(s))
+        .map(Pubkey::from_base58)
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
@@ -811,7 +811,7 @@ fn py_prepare_faucet_request(
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
-        .map(|s| Pubkey::from_base58(s))
+        .map(Pubkey::from_base58)
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
