@@ -4,8 +4,8 @@
 
 use bulk_keychain::{
     prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
-    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, Order, OrderItem, OrderType,
-    PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
+    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OraclePrice, Order, OrderItem,
+    OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer, TimeInForce, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -266,6 +266,74 @@ impl PySigner {
         let signed = self
             .inner
             .sign_user_settings(settings, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign one or more oracle price updates (`px`)
+    #[pyo3(signature = (oracles, nonce=None))]
+    fn sign_oracle_prices(
+        &mut self,
+        oracles: Vec<(u64, String, f64)>,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let oracle_prices: Vec<OraclePrice> = oracles
+            .into_iter()
+            .map(|(timestamp, asset, price)| OraclePrice {
+                timestamp,
+                asset,
+                price,
+            })
+            .collect();
+
+        let signed = self
+            .inner
+            .sign_oracle_prices(oracle_prices, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign a batch Pyth oracle update (`o`)
+    #[pyo3(signature = (oracles, nonce=None))]
+    fn sign_pyth_oracle(
+        &mut self,
+        oracles: Vec<(u64, u64, u64, i16)>,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let pyth_oracles: Vec<PythOraclePrice> = oracles
+            .into_iter()
+            .map(|(timestamp, feed_index, price, exponent)| PythOraclePrice {
+                timestamp,
+                feed_index,
+                price,
+                exponent,
+            })
+            .collect();
+
+        let signed = self
+            .inner
+            .sign_pyth_oracle(pyth_oracles, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
+    #[pyo3(signature = (target_pubkey, whitelist, nonce=None))]
+    fn sign_whitelist_faucet(
+        &mut self,
+        target_pubkey: &str,
+        whitelist: bool,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let target =
+            Pubkey::from_base58(target_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let signed = self
+            .inner
+            .sign_whitelist_faucet(target, whitelist, nonce)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         Python::with_gil(|py| signed_to_py(py, &signed))

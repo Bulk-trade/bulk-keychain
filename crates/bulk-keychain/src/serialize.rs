@@ -183,6 +183,18 @@ impl WincodeSerializer {
         self.write_f64(price.price);
     }
 
+    /// Serialize a compact `o` action (discriminant 6).
+    pub fn write_pyth_oracle_action(&mut self, oracles: &[PythOraclePrice]) {
+        self.write_u32(6);
+        self.write_u64(oracles.len() as u64);
+        for oracle in oracles {
+            self.write_u64(oracle.timestamp);
+            self.write_u64(oracle.feed_index);
+            self.write_u64(oracle.price);
+            self.write_i16(oracle.exponent);
+        }
+    }
+
     /// Serialize a compact `faucet` action (discriminant 7).
     pub fn write_faucet_action(&mut self, faucet: &Faucet) {
         self.write_u32(7);
@@ -227,6 +239,7 @@ impl WincodeSerializer {
         let action_count = match action {
             Action::Order { orders } => orders.len() as u64,
             Action::Oracle { oracles } => oracles.len() as u64,
+            Action::PythOracle { .. } => 1,
             _ => 1,
         };
 
@@ -248,6 +261,7 @@ impl WincodeSerializer {
                     self.write_price_action(price);
                 }
             }
+            Action::PythOracle { oracles } => self.write_pyth_oracle_action(oracles),
             Action::Faucet(faucet) => self.write_faucet_action(faucet),
             Action::UpdateUserSettings(settings) => self.write_user_settings_action(settings),
             Action::AgentWalletCreation(agent) => self.write_agent_wallet_action(agent),

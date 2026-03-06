@@ -5,8 +5,9 @@
 
 use bulk_keychain::{
     finalize_transaction, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
-    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, Order,
-    OrderItem, OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
+    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy,
+    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer,
+    TimeInForce, UserSettings,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -289,6 +290,81 @@ impl WasmSigner {
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// Sign one or more oracle price updates (`px`)
+    #[wasm_bindgen(js_name = signOraclePrices)]
+    pub fn sign_oracle_prices(
+        &mut self,
+        oracles: JsValue,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let oracle_inputs: Vec<OraclePriceInput> =
+            serde_wasm_bindgen::from_value(oracles).map_err(|e| JsError::new(&e.to_string()))?;
+        let oracle_prices: Vec<OraclePrice> = oracle_inputs
+            .into_iter()
+            .map(|o| OraclePrice {
+                timestamp: o.timestamp,
+                asset: o.asset,
+                price: o.price,
+            })
+            .collect();
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_oracle_prices(oracle_prices, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a batch Pyth oracle update (`o`)
+    #[wasm_bindgen(js_name = signPythOracle)]
+    pub fn sign_pyth_oracle(
+        &mut self,
+        oracles: JsValue,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let oracle_inputs: Vec<PythOraclePriceInput> =
+            serde_wasm_bindgen::from_value(oracles).map_err(|e| JsError::new(&e.to_string()))?;
+        let pyth_oracles: Vec<PythOraclePrice> = oracle_inputs
+            .into_iter()
+            .map(|o| PythOraclePrice {
+                timestamp: o.timestamp,
+                feed_index: o.feed_index,
+                price: o.price,
+                exponent: o.exponent,
+            })
+            .collect();
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_pyth_oracle(pyth_oracles, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
+    #[wasm_bindgen(js_name = signWhitelistFaucet)]
+    pub fn sign_whitelist_faucet(
+        &mut self,
+        target_pubkey: &str,
+        whitelist: bool,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let target =
+            Pubkey::from_base58(target_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_whitelist_faucet(target, whitelist, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
     // ========================================================================
     // Legacy methods (deprecated, kept for backward compatibility)
     // ========================================================================
@@ -363,6 +439,23 @@ struct OrderTypeInput {
 #[serde(rename_all = "camelCase")]
 struct UserSettingsInput {
     max_leverage: Vec<(String, f64)>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OraclePriceInput {
+    timestamp: u64,
+    asset: String,
+    price: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PythOraclePriceInput {
+    timestamp: u64,
+    feed_index: u64,
+    price: u64,
+    exponent: i16,
 }
 
 impl TryFrom<OrderInput> for OrderItem {

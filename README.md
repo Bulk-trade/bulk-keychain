@@ -114,6 +114,11 @@ let json = signed.to_json()?;
 | `sign(order)` | Sign a single order/cancel | `SignedTransaction` |
 | `signAll([orders])` | Sign multiple orders (each gets own tx, parallel) | `SignedTransaction[]` |
 | `signGroup([orders])` | Sign multiple orders atomically (one tx) | `SignedTransaction` |
+| `signOraclePrices([{ timestamp, asset, price }])` | Sign oracle `px` updates | `SignedTransaction` |
+| `signPythOracle([{ timestamp, feedIndex, price, exponent }])` | Sign Pyth oracle `o` batch | `SignedTransaction` |
+| `signWhitelistFaucet(targetPubkey, whitelist)` | Sign whitelist faucet admin action | `SignedTransaction` |
+
+Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, and `sign_whitelist_faucet`. Rust equivalents are `sign_oracle_prices`, `sign_pyth_oracle`, and `sign_whitelist_faucet`.
 
 ## Pre-computed Order ID
 
@@ -166,22 +171,18 @@ println!("Order IDs: {:?}", grouped.order_ids);
 
 ### Algorithm
 
-Order IDs use **fixed-point serialization** for cross-platform determinism:
+Order IDs are derived from canonical **wincode** bytes for a single order action:
 
-| Field | Limit Order | Market Order | Encoding |
-|-------|-------------|--------------|----------|
-| nonce | ✓ | ✓ | u64 LE |
-| market | ✓ | ✓ | u32 len + UTF-8 |
-| owner | ✓ | ✓ | 32 bytes raw |
-| side | ✓ | ✓ | u8 (0=Buy, 1=Sell) |
-| amount | ✓ | ✓ | fixed-point u64 |
-| price | ✓ | - | fixed-point u64 |
-| tif | ✓ | - | u32 enum |
-| reduce_only | ✓ | ✓ | u8 |
+`[action_count=1] + [order_action] + [nonce] + [account] + [signer]`
 
-**Fixed-point**: `(value × 10^8).round()` → ensures `0.917` and `0.91700000000000004` produce identical IDs.
+Then hashed as:
 
-Final: `SHA256(serialized_bytes)` → 32-byte order ID (base58 encoded).
+`order_id = SHA256(wincode_bytes)` (base58 encoded)
+
+Encoding matches the API signing guide:
+- enum discriminants: `u32` LE
+- vector/string lengths: `u64` LE
+- floats: raw IEEE-754 `f64` LE (no fixed-point conversion)
 
 ## Batch Signing
 

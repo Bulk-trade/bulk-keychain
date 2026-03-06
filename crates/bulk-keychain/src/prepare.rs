@@ -1,6 +1,6 @@
 //! Message preparation for external wallet signing.
 
-use crate::order_id::compute_order_item_id;
+use crate::order_id::{compute_order_item_id_with_serializer, compute_order_item_id_with_signer};
 use crate::serialize::WincodeSerializer;
 use crate::types::*;
 use crate::{Error, Result};
@@ -125,8 +125,8 @@ pub fn prepare_action(
     let message_bytes = serializer.into_bytes();
 
     let actions = action_to_json(action)?;
-    let order_id = compute_action_order_id(action, nonce, account);
-    let order_ids = compute_action_order_ids(action, nonce, account);
+    let order_id = compute_action_order_id(action, nonce, account, signer_pubkey);
+    let order_ids = compute_action_order_ids(action, nonce, account, signer_pubkey);
 
     Ok(PreparedMessage {
         message_bytes,
@@ -139,22 +139,41 @@ pub fn prepare_action(
     })
 }
 
-fn compute_action_order_id(action: &Action, nonce: u64, account: &Pubkey) -> Option<String> {
+fn compute_action_order_id(
+    action: &Action,
+    nonce: u64,
+    account: &Pubkey,
+    signer: &Pubkey,
+) -> Option<String> {
     match action {
         Action::Order { orders } if orders.len() == 1 => {
-            compute_order_item_id(&orders[0], nonce, account).map(|h| h.to_base58())
+            compute_order_item_id_with_signer(&orders[0], nonce, account, signer)
+                .map(|h| h.to_base58())
         }
         _ => None,
     }
 }
 
-fn compute_action_order_ids(action: &Action, nonce: u64, account: &Pubkey) -> Option<Vec<String>> {
+fn compute_action_order_ids(
+    action: &Action,
+    nonce: u64,
+    account: &Pubkey,
+    signer: &Pubkey,
+) -> Option<Vec<String>> {
     match action {
         Action::Order { orders } if orders.len() > 1 => {
+            let mut id_serializer = WincodeSerializer::new();
             let ids: Vec<String> = orders
                 .iter()
                 .filter_map(|item| {
-                    compute_order_item_id(item, nonce, account).map(|h| h.to_base58())
+                    compute_order_item_id_with_serializer(
+                        item,
+                        nonce,
+                        account,
+                        signer,
+                        &mut id_serializer,
+                    )
+                    .map(|h| h.to_base58())
                 })
                 .collect();
             if ids.is_empty() {
@@ -202,7 +221,8 @@ fn prepare_single_item(
     signer: &Pubkey,
     nonce: u64,
 ) -> Result<PreparedMessage> {
-    let order_id = compute_order_item_id(&item, nonce, account).map(|h| h.to_base58());
+    let order_id =
+        compute_order_item_id_with_signer(&item, nonce, account, signer).map(|h| h.to_base58());
     let action = Action::Order { orders: vec![item] };
 
     let mut serializer = WincodeSerializer::new();
@@ -298,6 +318,20 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 })
             })
             .collect()),
+        Action::PythOracle { oracles } => {
+            let entries: Vec<_> = oracles
+                .iter()
+                .map(|o| {
+                    json!({
+                        "t": o.timestamp,
+                        "fi": o.feed_index,
+                        "px": o.price,
+                        "e": o.exponent
+                    })
+                })
+                .collect();
+            Ok(vec![json!({ "o": { "oracles": entries } })])
+        }
         Action::WhitelistFaucet(action) => Ok(vec![json!({
             "whitelistFaucet": {
                 "target": action.target.to_base58(),

@@ -3,7 +3,8 @@
 //! Run: cargo run --example basic
 
 use bulk_keychain::{
-    Cancel, CancelAll, Hash, Keypair, Order, OrderItem, Signer, TimeInForce, UserSettings,
+    Cancel, CancelAll, Hash, Keypair, OraclePrice, Order, OrderItem, PythOraclePrice, Signer,
+    TimeInForce, UserSettings,
 };
 use std::time::Instant;
 
@@ -124,6 +125,76 @@ fn main() -> bulk_keychain::Result<()> {
         .cloned()
         .unwrap_or_else(|| "unknown".to_string());
     println!("Settings action tag: {}", settings_tag);
+    println!();
+
+    // 11. Sign oracle price update(s)
+    println!("--- Oracle Prices (px) ---");
+    let signed_oracle = signer.sign_oracle_prices(
+        vec![
+            OraclePrice {
+                timestamp: 1704067200000000000,
+                asset: "BTC-USD".into(),
+                price: 102500.0,
+            },
+            OraclePrice {
+                timestamp: 1704067200000000000,
+                asset: "ETH-USD".into(),
+                price: 3250.0,
+            },
+        ],
+        None,
+    )?;
+    let oracle_tag = signed_oracle
+        .actions
+        .first()
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.keys().next())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("Oracle action tag: {}", oracle_tag);
+    println!();
+
+    // 12. Sign Pyth oracle batch update
+    println!("--- Pyth Oracle (o) ---");
+    let signed_pyth = signer.sign_pyth_oracle(
+        vec![
+            PythOraclePrice {
+                timestamp: 1704067200000000000,
+                feed_index: 0,
+                price: 10250000000000,
+                exponent: -8,
+            },
+            PythOraclePrice {
+                timestamp: 1704067200000000000,
+                feed_index: 1,
+                price: 325000000000,
+                exponent: -8,
+            },
+        ],
+        None,
+    )?;
+    let pyth_tag = signed_pyth
+        .actions
+        .first()
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.keys().next())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("Pyth action tag: {}", pyth_tag);
+    println!();
+
+    // 13. Sign whitelist faucet admin action
+    println!("--- Whitelist Faucet ---");
+    let target = Keypair::generate().pubkey();
+    let signed_whitelist = signer.sign_whitelist_faucet(target, true, None)?;
+    let whitelist_tag = signed_whitelist
+        .actions
+        .first()
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.keys().next())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("Whitelist action tag: {}", whitelist_tag);
 
     println!("\n=== Done ===");
     Ok(())

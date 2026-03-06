@@ -1,50 +1,67 @@
-//! Order ID computation
+//! Order ID computation.
 //!
-//! Computes deterministic order IDs that match BULK.
+//! Order IDs are SHA256 hashes of canonical wincode bytes for a single
+//! order action:
 //!
-//! ## Algorithm
-//!
-//! Order IDs use a custom serialization format with fixed-point numbers:
-//! - Floats are converted to u64 via: `(value × 10^8).round()`
-//! - Strings use u32 length prefix (not u64)
-//! - SHA256 hash of the serialized bytes
-//!
-//! This ensures deterministic IDs across platforms despite float precision differences.
+//! `[action_count=1] + [order_action] + [nonce] + [account] + [signer]`
 
+use crate::serialize::WincodeSerializer;
 use crate::types::*;
-use sha2::{Digest, Sha256};
 
-/// Fixed-point multiplier: 10^8 (8 decimal places)
-const DECIMALS_MULTIPLIER: f64 = 100_000_000.0;
-
-/// Convert f64 to fixed-point u64
-///
-/// `(value × 10^8).round()` ensures deterministic results regardless of
-/// floating-point representation (e.g., 0.917 and 0.91700000000000004 both → 91700000)
 #[inline]
-fn to_fixed_point(value: f64) -> u64 {
-    (value * DECIMALS_MULTIPLIER).round() as u64
+fn serialize_order_item_for_id(
+    item: &OrderItem,
+    nonce: u64,
+    account: &Pubkey,
+    signer: &Pubkey,
+    serializer: &mut WincodeSerializer,
+) -> crate::Result<()> {
+    serializer.reset();
+    serializer.write_u64(1);
+    serializer.write_order_item_action(item)?;
+    serializer.write_u64(nonce);
+    serializer.write_pubkey(account);
+    serializer.write_pubkey(signer);
+    Ok(())
 }
 
-/// Write a string with u32 length prefix (wincode-style for OID)
-#[inline]
-fn write_string(buffer: &mut Vec<u8>, s: &str) {
-    let bytes = s.as_bytes();
-    buffer.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-    buffer.extend_from_slice(bytes);
+/// Compute order ID for an order item using explicit account and signer.
+///
+/// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
+pub fn compute_order_item_id_with_signer(
+    item: &OrderItem,
+    nonce: u64,
+    account: &Pubkey,
+    signer: &Pubkey,
+) -> Option<Hash> {
+    let mut serializer = WincodeSerializer::new();
+    compute_order_item_id_with_serializer(item, nonce, account, signer, &mut serializer)
 }
 
-/// Compute order ID for a limit order
+/// Compute order ID for an order item, assuming `signer == owner`.
 ///
-/// Serialization format:
-/// - nonce: u64 LE (8 bytes)
-/// - market: u32 length + UTF-8 (4 + len bytes)
-/// - owner: raw 32 bytes
-/// - side: u8 (0=Buy, 1=Sell)
-/// - amount: fixed-point u64 LE (8 bytes)
-/// - price: fixed-point u64 LE (8 bytes)
-/// - tif: u32 enum (4 bytes)
-/// - reduce_only: u8 (0/1)
+/// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
+pub fn compute_order_item_id(item: &OrderItem, nonce: u64, owner: &Pubkey) -> Option<Hash> {
+    compute_order_item_id_with_signer(item, nonce, owner, owner)
+}
+
+#[inline]
+pub(crate) fn compute_order_item_id_with_serializer(
+    item: &OrderItem,
+    nonce: u64,
+    account: &Pubkey,
+    signer: &Pubkey,
+    serializer: &mut WincodeSerializer,
+) -> Option<Hash> {
+    if !matches!(item, OrderItem::Order(_)) {
+        return None;
+    }
+
+    serialize_order_item_for_id(item, nonce, account, signer, serializer).ok()?;
+    Some(Hash::from_wincode_bytes(serializer.as_bytes()))
+}
+
+/// Compute order ID for a limit order.
 #[inline]
 pub fn compute_limit_order_id(
     nonce: u64,
@@ -56,46 +73,19 @@ pub fn compute_limit_order_id(
     tif: TimeInForce,
     reduce_only: bool,
 ) -> Hash {
-    let mut buffer = Vec::with_capacity(128);
-
-    // nonce: u64 LE
-    buffer.extend_from_slice(&nonce.to_le_bytes());
-
-    // market: u32 length + UTF-8
-    write_string(&mut buffer, market);
-
-    // owner: raw 32 bytes
-    buffer.extend_from_slice(owner.as_bytes());
-
-    // side: u8 (0=Buy, 1=Sell)
-    buffer.push(if is_buy { 0 } else { 1 });
-
-    // amount: fixed-point u64 LE
-    buffer.extend_from_slice(&to_fixed_point(amount).to_le_bytes());
-
-    // price: fixed-point u64 LE
-    buffer.extend_from_slice(&to_fixed_point(price).to_le_bytes());
-
-    // tif: u32 enum (GTC=0, IOC=1, ALO=2)
-    buffer.extend_from_slice(&tif.discriminant().to_le_bytes());
-
-    // reduce_only: u8
-    buffer.push(if reduce_only { 1 } else { 0 });
-
-    // SHA256
-    let hash: [u8; 32] = Sha256::digest(&buffer).into();
-    Hash::from_bytes(hash)
+    let order = Order {
+        symbol: market.to_string(),
+        is_buy,
+        price,
+        size: amount,
+        order_type: OrderType::Limit { tif },
+        reduce_only,
+        client_id: None,
+    };
+    compute_order_id(&order, nonce, owner)
 }
 
-/// Compute order ID for a market order
-///
-/// Serialization format:
-/// - nonce: u64 LE (8 bytes)
-/// - market: u32 length + UTF-8 (4 + len bytes)
-/// - owner: raw 32 bytes
-/// - side: u8 (0=Buy, 1=Sell)
-/// - amount: fixed-point u64 LE (8 bytes)
-/// - reduce_only: u8 (0/1)
+/// Compute order ID for a market order.
 #[inline]
 pub fn compute_market_order_id(
     nonce: u64,
@@ -105,66 +95,57 @@ pub fn compute_market_order_id(
     amount: f64,
     reduce_only: bool,
 ) -> Hash {
-    let mut buffer = Vec::with_capacity(96);
-
-    // nonce: u64 LE
-    buffer.extend_from_slice(&nonce.to_le_bytes());
-
-    // market: u32 length + UTF-8
-    write_string(&mut buffer, market);
-
-    // owner: raw 32 bytes
-    buffer.extend_from_slice(owner.as_bytes());
-
-    // side: u8 (0=Buy, 1=Sell)
-    buffer.push(if is_buy { 0 } else { 1 });
-
-    // amount: fixed-point u64 LE
-    buffer.extend_from_slice(&to_fixed_point(amount).to_le_bytes());
-
-    // reduce_only: u8
-    buffer.push(if reduce_only { 1 } else { 0 });
-
-    // SHA256
-    let hash: [u8; 32] = Sha256::digest(&buffer).into();
-    Hash::from_bytes(hash)
+    let order = Order {
+        symbol: market.to_string(),
+        is_buy,
+        price: 0.0,
+        size: amount,
+        order_type: OrderType::Trigger {
+            is_market: true,
+            trigger_px: 0.0,
+        },
+        reduce_only,
+        client_id: None,
+    };
+    compute_order_id(&order, nonce, owner)
 }
 
-/// Compute order ID for an Order (auto-detects limit vs market)
-///
-/// Returns `Some(Hash)` for Order items, `None` for Cancel/CancelAll
-pub fn compute_order_item_id(item: &OrderItem, nonce: u64, owner: &Pubkey) -> Option<Hash> {
-    match item {
-        OrderItem::Order(order) => Some(compute_order_id(order, nonce, owner)),
-        OrderItem::Modify(_) => None,
-        OrderItem::Cancel(_) => None,
-        OrderItem::CancelAll(_) => None,
-    }
+/// Compute order ID for an order with explicit account and signer.
+#[inline]
+pub fn compute_order_id_with_signer(
+    order: &Order,
+    nonce: u64,
+    account: &Pubkey,
+    signer: &Pubkey,
+) -> Hash {
+    let normalized = match &order.order_type {
+        OrderType::Limit { .. } => order.clone(),
+        // Trigger orders in this API are represented as market orders.
+        OrderType::Trigger { .. } => Order {
+            symbol: order.symbol.clone(),
+            is_buy: order.is_buy,
+            price: order.price,
+            size: order.size,
+            order_type: OrderType::Trigger {
+                is_market: true,
+                trigger_px: 0.0,
+            },
+            reduce_only: order.reduce_only,
+            client_id: order.client_id,
+        },
+    };
+
+    let item = OrderItem::Order(normalized);
+    let mut serializer = WincodeSerializer::new();
+
+    compute_order_item_id_with_serializer(&item, nonce, account, signer, &mut serializer)
+        .unwrap_or_else(|| unreachable!("normalized order serialization should always succeed"))
 }
 
-/// Compute order ID for an Order
+/// Compute order ID for an order assuming `signer == owner`.
 #[inline]
 pub fn compute_order_id(order: &Order, nonce: u64, owner: &Pubkey) -> Hash {
-    match &order.order_type {
-        OrderType::Limit { tif } => compute_limit_order_id(
-            nonce,
-            &order.symbol,
-            owner,
-            order.is_buy,
-            order.size,
-            order.price,
-            *tif,
-            order.reduce_only,
-        ),
-        OrderType::Trigger { .. } => compute_market_order_id(
-            nonce,
-            &order.symbol,
-            owner,
-            order.is_buy,
-            order.size,
-            order.reduce_only,
-        ),
-    }
+    compute_order_id_with_signer(order, nonce, owner, owner)
 }
 
 // ============================================================================
@@ -176,23 +157,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fixed_point_conversion() {
-        // Basic conversions
-        assert_eq!(to_fixed_point(1.0), 100_000_000);
-        assert_eq!(to_fixed_point(0.1), 10_000_000);
-        assert_eq!(to_fixed_point(100000.0), 10_000_000_000_000);
-
-        // The key test: float precision issues should produce same result
-        // 0.917 and 0.91700000000000004 should both round to 91700000
-        assert_eq!(to_fixed_point(0.917), 91_700_000);
-        assert_eq!(to_fixed_point(0.91700000000000004), 91_700_000);
-
-        // Edge cases
-        assert_eq!(to_fixed_point(0.0), 0);
-        assert_eq!(to_fixed_point(0.00000001), 1); // 1 satoshi
-    }
-
-    #[test]
     fn test_limit_order_id_deterministic() {
         let owner = Pubkey::from_bytes([1u8; 32]);
         let nonce = 1234567890u64;
@@ -201,7 +165,7 @@ mod tests {
             nonce,
             "BTC-USD",
             &owner,
-            true, // buy
+            true,
             0.1,
             100000.0,
             TimeInForce::Gtc,
@@ -219,7 +183,6 @@ mod tests {
             false,
         );
 
-        // Same inputs = same ID
         assert_eq!(id1, id2);
     }
 
@@ -249,7 +212,6 @@ mod tests {
             false,
         );
 
-        // Different nonces = different IDs
         assert_ne!(id1, id2);
     }
 
@@ -271,91 +233,7 @@ mod tests {
 
         let market_id = compute_market_order_id(nonce, "BTC-USD", &owner, true, 0.1, false);
 
-        // Different order types = different IDs
         assert_ne!(limit_id, market_id);
-    }
-
-    #[test]
-    fn test_float_precision_determinism() {
-        let owner = Pubkey::from_bytes([42u8; 32]);
-        let nonce = 9999u64;
-
-        // These might be represented differently in memory due to float precision
-        let price1 = 0.917;
-        let price2 = 0.91700000000000004;
-        let amount1 = 1.234;
-        let amount2 = 1.2340000000000002;
-
-        let id1 = compute_limit_order_id(
-            nonce,
-            "ETH-USD",
-            &owner,
-            false,
-            amount1,
-            price1,
-            TimeInForce::Ioc,
-            true,
-        );
-
-        let id2 = compute_limit_order_id(
-            nonce,
-            "ETH-USD",
-            &owner,
-            false,
-            amount2,
-            price2,
-            TimeInForce::Ioc,
-            true,
-        );
-
-        // Fixed-point conversion ensures same hash!
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_market_order_id_deterministic() {
-        let owner = Pubkey::from_bytes([7u8; 32]);
-        let nonce = 5555u64;
-
-        let id1 = compute_market_order_id(nonce, "SOL-USD", &owner, true, 10.0, false);
-        let id2 = compute_market_order_id(nonce, "SOL-USD", &owner, true, 10.0, false);
-
-        assert_eq!(id1, id2);
-    }
-
-    #[test]
-    fn test_compute_order_id_limit() {
-        let owner = Pubkey::from_bytes([1u8; 32]);
-        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
-
-        let id = compute_order_id(&order, 1234567890, &owner);
-
-        // Should match direct limit computation
-        let expected = compute_limit_order_id(
-            1234567890,
-            "BTC-USD",
-            &owner,
-            true,
-            0.1,
-            100000.0,
-            TimeInForce::Gtc,
-            false,
-        );
-
-        assert_eq!(id, expected);
-    }
-
-    #[test]
-    fn test_compute_order_id_market() {
-        let owner = Pubkey::from_bytes([1u8; 32]);
-        let order = Order::market("BTC-USD", true, 0.1);
-
-        let id = compute_order_id(&order, 1234567890, &owner);
-
-        // Should match direct market computation
-        let expected = compute_market_order_id(1234567890, "BTC-USD", &owner, true, 0.1, false);
-
-        assert_eq!(id, expected);
     }
 
     #[test]
@@ -373,6 +251,7 @@ mod tests {
             TimeInForce::Gtc,
             false,
         );
+
         let ioc_id = compute_limit_order_id(
             nonce,
             "BTC-USD",
@@ -383,6 +262,7 @@ mod tests {
             TimeInForce::Ioc,
             false,
         );
+
         let alo_id = compute_limit_order_id(
             nonce,
             "BTC-USD",
@@ -394,9 +274,89 @@ mod tests {
             false,
         );
 
-        // Different TIF = different IDs
         assert_ne!(gtc_id, ioc_id);
-        assert_ne!(gtc_id, alo_id);
         assert_ne!(ioc_id, alo_id);
+        assert_ne!(gtc_id, alo_id);
+    }
+
+    #[test]
+    fn test_compute_order_id_limit() {
+        let owner = Pubkey::from_bytes([42u8; 32]);
+        let order = Order::limit("BTC-USD", true, 50000.0, 0.5, TimeInForce::Gtc);
+
+        let id = compute_order_id(&order, 1234567890, &owner);
+
+        let expected = compute_limit_order_id(
+            1234567890,
+            "BTC-USD",
+            &owner,
+            true,
+            0.5,
+            50000.0,
+            TimeInForce::Gtc,
+            false,
+        );
+
+        assert_eq!(id, expected);
+    }
+
+    #[test]
+    fn test_compute_order_id_market() {
+        let owner = Pubkey::from_bytes([42u8; 32]);
+        let order = Order::market("BTC-USD", true, 0.1);
+
+        let id = compute_order_id(&order, 1234567890, &owner);
+
+        let expected = compute_market_order_id(1234567890, "BTC-USD", &owner, true, 0.1, false);
+
+        assert_eq!(id, expected);
+    }
+
+    #[test]
+    fn test_compute_order_item_id_only_for_order_items() {
+        let owner = Pubkey::from_bytes([1u8; 32]);
+        let cancel = OrderItem::Cancel(Cancel::new("BTC-USD", Hash::random()));
+
+        assert!(compute_order_item_id(&cancel, 123, &owner).is_none());
+    }
+
+    #[test]
+    fn test_compute_order_item_matches_wincode_hash() {
+        let owner = Pubkey::from_bytes([11u8; 32]);
+        let signer = Pubkey::from_bytes([22u8; 32]);
+        let nonce = 987654321u64;
+
+        let item = OrderItem::Order(Order::limit(
+            "ETH-USD",
+            false,
+            3200.5,
+            1.25,
+            TimeInForce::Ioc,
+        ));
+
+        let id = compute_order_item_id_with_signer(&item, nonce, &owner, &signer).unwrap();
+
+        let mut serializer = WincodeSerializer::new();
+        serializer.write_u64(1);
+        serializer.write_order_item_action(&item).unwrap();
+        serializer.write_u64(nonce);
+        serializer.write_pubkey(&owner);
+        serializer.write_pubkey(&signer);
+        let expected = Hash::from_wincode_bytes(serializer.as_bytes());
+
+        assert_eq!(id, expected);
+    }
+
+    #[test]
+    fn test_signer_affects_order_id() {
+        let owner = Pubkey::from_bytes([1u8; 32]);
+        let signer_a = Pubkey::from_bytes([2u8; 32]);
+        let signer_b = Pubkey::from_bytes([3u8; 32]);
+        let order = Order::market("SOL-USD", true, 10.0);
+
+        let id_a = compute_order_id_with_signer(&order, 42, &owner, &signer_a);
+        let id_b = compute_order_id_with_signer(&order, 42, &owner, &signer_b);
+
+        assert_ne!(id_a, id_b);
     }
 }

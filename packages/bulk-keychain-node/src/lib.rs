@@ -5,8 +5,8 @@
 
 use bulk_keychain::{
     prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
-    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, Order, OrderItem, OrderType,
-    PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
+    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OraclePrice, Order, OrderItem,
+    OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer, TimeInForce, UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -308,6 +308,77 @@ impl NativeSigner {
         Ok(signed.into())
     }
 
+    /// Sign one or more oracle price updates (`px`)
+    #[napi]
+    pub fn sign_oracle_prices(
+        &mut self,
+        oracles: Vec<OraclePriceInput>,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let oracle_prices: Vec<OraclePrice> = oracles
+            .into_iter()
+            .map(|o| OraclePrice {
+                timestamp: o.timestamp as u64,
+                asset: o.asset,
+                price: o.price,
+            })
+            .collect();
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_oracle_prices(oracle_prices, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign a batch Pyth oracle update (`o`)
+    #[napi]
+    pub fn sign_pyth_oracle(
+        &mut self,
+        oracles: Vec<PythOraclePriceInput>,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let pyth_oracles: Vec<PythOraclePrice> = oracles
+            .into_iter()
+            .map(|o| PythOraclePrice {
+                timestamp: o.timestamp as u64,
+                feed_index: o.feed_index as u64,
+                price: o.price as u64,
+                exponent: o.exponent as i16,
+            })
+            .collect();
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_pyth_oracle(pyth_oracles, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
+    #[napi]
+    pub fn sign_whitelist_faucet(
+        &mut self,
+        target_pubkey: String,
+        whitelist: bool,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let target =
+            Pubkey::from_base58(&target_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_whitelist_faucet(target, whitelist, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
     // ========================================================================
     // Legacy methods (deprecated, kept for backward compatibility)
     // ========================================================================
@@ -385,6 +456,24 @@ pub struct OrderTypeInput {
 pub struct LeverageSetting {
     pub symbol: String,
     pub leverage: f64,
+}
+
+#[napi(object)]
+#[derive(Debug)]
+pub struct OraclePriceInput {
+    pub timestamp: f64,
+    pub asset: String,
+    pub price: f64,
+}
+
+#[napi(object)]
+#[derive(Debug)]
+pub struct PythOraclePriceInput {
+    pub timestamp: f64,
+    #[napi(js_name = "feedIndex")]
+    pub feed_index: f64,
+    pub price: f64,
+    pub exponent: i32,
 }
 
 #[napi(object)]

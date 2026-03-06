@@ -140,6 +140,34 @@ async function main() {
   ]);
   const settingsActions = JSON.parse(signedSettings.actions);
   console.log(`Settings action tag: ${Object.keys(settingsActions[0])[0]}`);
+  console.log();
+
+  // 11. Sign oracle price update(s)
+  console.log("--- Oracle Prices (px) ---");
+  const signedOracle = signer.signOraclePrices([
+    { timestamp: 1704067200000, asset: "BTC-USD", price: 102500.0 },
+    { timestamp: 1704067200000, asset: "ETH-USD", price: 3250.0 },
+  ]);
+  const oracleActions = JSON.parse(signedOracle.actions);
+  console.log(`Oracle action tag: ${Object.keys(oracleActions[0])[0]}`);
+  console.log();
+
+  // 12. Sign Pyth oracle batch update
+  console.log("--- Pyth Oracle (o) ---");
+  const signedPyth = signer.signPythOracle([
+    { timestamp: 1704067200000, feedIndex: 0, price: 10250000000000, exponent: -8 },
+    { timestamp: 1704067200000, feedIndex: 1, price: 325000000000, exponent: -8 },
+  ]);
+  const pythActions = JSON.parse(signedPyth.actions);
+  console.log(`Pyth action tag: ${Object.keys(pythActions[0])[0]}`);
+  console.log();
+
+  // 13. Sign whitelist faucet admin action
+  console.log("--- Whitelist Faucet ---");
+  const target = new NativeKeypair().pubkey;
+  const signedWhitelist = signer.signWhitelistFaucet(target, true);
+  const whitelistActions = JSON.parse(signedWhitelist.actions);
+  console.log(`Whitelist action tag: ${Object.keys(whitelistActions[0])[0]}`);
 
   console.log("\n=== Done ===");
 }

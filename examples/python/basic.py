@@ -143,6 +143,34 @@ def main():
     ])
     settings_tag = next(iter(signed_settings["actions"][0].keys()))
     print(f"Settings action tag: {settings_tag}")
+    print()
+
+    # 11. Sign oracle price update(s)
+    print("--- Oracle Prices (px) ---")
+    signed_oracle = signer.sign_oracle_prices([
+        (1704067200000000000, "BTC-USD", 102500.0),
+        (1704067200000000000, "ETH-USD", 3250.0),
+    ])
+    oracle_tag = next(iter(signed_oracle["actions"][0].keys()))
+    print(f"Oracle action tag: {oracle_tag}")
+    print()
+
+    # 12. Sign Pyth oracle batch update
+    print("--- Pyth Oracle (o) ---")
+    signed_pyth = signer.sign_pyth_oracle([
+        (1704067200000000000, 0, 10250000000000, -8),
+        (1704067200000000000, 1, 325000000000, -8),
+    ])
+    pyth_tag = next(iter(signed_pyth["actions"][0].keys()))
+    print(f"Pyth action tag: {pyth_tag}")
+    print()
+
+    # 13. Sign whitelist faucet admin action
+    print("--- Whitelist Faucet ---")
+    target = Keypair().pubkey
+    signed_whitelist = signer.sign_whitelist_faucet(target, True)
+    whitelist_tag = next(iter(signed_whitelist["actions"][0].keys()))
+    print(f"Whitelist action tag: {whitelist_tag}")
 
     print("\n=== Done ===")
 

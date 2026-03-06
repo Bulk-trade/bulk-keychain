@@ -39,6 +39,8 @@ class ModifyItem(TypedDict):
     amount: float
 
 OrderItemType = OrderItem | CancelItem | CancelAllItem | ModifyItem
+OraclePriceEntry = tuple[int, str, float]      # (timestamp, asset, price)
+PythOraclePriceEntry = tuple[int, int, int, int]  # (timestamp, feed_index, price, exponent)
 
 class SignedTransaction(TypedDict):
     actions: list[dict[str, Any]]
@@ -181,6 +183,31 @@ class Signer:
         nonce: int | None = None
     ) -> SignedTransaction:
         """Sign user settings update"""
+        ...
+
+    def sign_oracle_prices(
+        self,
+        oracles: list[OraclePriceEntry],
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign one or more oracle price updates (`px`)"""
+        ...
+
+    def sign_pyth_oracle(
+        self,
+        oracles: list[PythOraclePriceEntry],
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign a batch Pyth oracle update (`o`)"""
+        ...
+
+    def sign_whitelist_faucet(
+        self,
+        target_pubkey: str,
+        whitelist: bool,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)"""
         ...
 
     # ========================================================================

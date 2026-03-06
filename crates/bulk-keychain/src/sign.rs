@@ -1,6 +1,6 @@
 //! Transaction signing.
 
-use crate::order_id::compute_order_item_id;
+use crate::order_id::{compute_order_item_id_with_serializer, compute_order_item_id_with_signer};
 use crate::serialize::WincodeSerializer;
 use crate::types::*;
 use crate::{Error, Keypair, NonceManager, Result};
@@ -122,12 +122,12 @@ impl Signer {
             .serialize_for_signing(action, nonce, account, &signer_pubkey)?;
 
         let order_id = if self.compute_order_id {
-            self.compute_action_order_id(action, nonce, account)
+            self.compute_action_order_id(action, nonce, account, &signer_pubkey)
         } else {
             None
         };
         let order_ids = if self.compute_batch_order_ids {
-            self.compute_action_order_ids(action, nonce, account)
+            self.compute_action_order_ids(action, nonce, account, &signer_pubkey)
         } else {
             None
         };
@@ -203,7 +203,8 @@ impl Signer {
         let account = self.keypair.pubkey();
         let signer_pubkey = self.keypair.pubkey();
         let order_id = if self.compute_order_id {
-            compute_order_item_id(&item, nonce, &account).map(|h| h.to_base58())
+            compute_order_item_id_with_signer(&item, nonce, &account, &signer_pubkey)
+                .map(|h| h.to_base58())
         } else {
             None
         };
@@ -253,6 +254,50 @@ impl Signer {
     ) -> Result<SignedTransaction> {
         let nonce = nonce.unwrap_or_else(|| self.next_nonce());
         let action = Action::UpdateUserSettings(settings);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign one or more oracle price updates (`px` actions).
+    pub fn sign_oracle_prices(
+        &mut self,
+        oracles: Vec<OraclePrice>,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        if oracles.is_empty() {
+            return Err(Error::InvalidOrder(
+                "oracle prices array cannot be empty".to_string(),
+            ));
+        }
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::Oracle { oracles };
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a batch Pyth oracle update (`o` action).
+    pub fn sign_pyth_oracle(
+        &mut self,
+        oracles: Vec<PythOraclePrice>,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        if oracles.is_empty() {
+            return Err(Error::InvalidOrder(
+                "pyth oracle array cannot be empty".to_string(),
+            ));
+        }
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::PythOracle { oracles };
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign whitelist faucet access update (admin).
+    pub fn sign_whitelist_faucet(
+        &mut self,
+        target: Pubkey,
+        whitelist: bool,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::WhitelistFaucet(WhitelistFaucet { target, whitelist });
         self.sign_action_self(&action, nonce)
     }
 
@@ -308,15 +353,24 @@ impl Signer {
         let account = self.keypair.pubkey();
         let signer_pubkey = self.keypair.pubkey();
         let order_id = if self.compute_order_id && orders.len() == 1 {
-            compute_order_item_id(&orders[0], nonce, &account).map(|h| h.to_base58())
+            compute_order_item_id_with_signer(&orders[0], nonce, &account, &signer_pubkey)
+                .map(|h| h.to_base58())
         } else {
             None
         };
         let order_ids = if self.compute_batch_order_ids && orders.len() > 1 {
+            let mut id_serializer = WincodeSerializer::new();
             let ids: Vec<String> = orders
                 .iter()
                 .filter_map(|item| {
-                    compute_order_item_id(item, nonce, &account).map(|h| h.to_base58())
+                    compute_order_item_id_with_serializer(
+                        item,
+                        nonce,
+                        &account,
+                        &signer_pubkey,
+                        &mut id_serializer,
+                    )
+                    .map(|h| h.to_base58())
                 })
                 .collect();
             if ids.is_empty() {
@@ -350,10 +404,12 @@ impl Signer {
         action: &Action,
         nonce: u64,
         account: &Pubkey,
+        signer: &Pubkey,
     ) -> Option<String> {
         match action {
             Action::Order { orders } if orders.len() == 1 => {
-                compute_order_item_id(&orders[0], nonce, account).map(|h| h.to_base58())
+                compute_order_item_id_with_signer(&orders[0], nonce, account, signer)
+                    .map(|h| h.to_base58())
             }
             _ => None,
         }
@@ -364,13 +420,22 @@ impl Signer {
         action: &Action,
         nonce: u64,
         account: &Pubkey,
+        signer: &Pubkey,
     ) -> Option<Vec<String>> {
         match action {
             Action::Order { orders } if orders.len() > 1 => {
+                let mut id_serializer = WincodeSerializer::new();
                 let ids: Vec<String> = orders
                     .iter()
                     .filter_map(|item| {
-                        compute_order_item_id(item, nonce, account).map(|h| h.to_base58())
+                        compute_order_item_id_with_serializer(
+                            item,
+                            nonce,
+                            account,
+                            signer,
+                            &mut id_serializer,
+                        )
+                        .map(|h| h.to_base58())
                     })
                     .collect();
                 if ids.is_empty() {
@@ -422,6 +487,20 @@ impl Signer {
                     })
                 })
                 .collect()),
+            Action::PythOracle { oracles } => {
+                let entries: Vec<_> = oracles
+                    .iter()
+                    .map(|o| {
+                        json!({
+                            "t": o.timestamp,
+                            "fi": o.feed_index,
+                            "px": o.price,
+                            "e": o.exponent
+                        })
+                    })
+                    .collect();
+                Ok(vec![json!({ "o": { "oracles": entries } })])
+            }
             Action::WhitelistFaucet(action) => Ok(vec![json!({
                 "whitelistFaucet": {
                     "target": action.target.to_base58(),
@@ -530,6 +609,8 @@ mod tests {
         assert_eq!(signed.len(), 20);
         for (i, tx) in signed.iter().enumerate() {
             assert_eq!(tx.nonce, 1000000 + i as u64);
+            assert!(tx.order_id.is_some());
+            assert!(tx.order_ids.is_none());
         }
     }
 
@@ -575,6 +656,55 @@ mod tests {
         let mut signer = Signer::new(keypair);
         let result = signer.sign_group(vec![], Some(1234567890));
         assert!(matches!(result, Err(Error::EmptyOrders)));
+    }
+
+    #[test]
+    fn test_sign_oracle_prices() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_oracle_prices(
+                vec![OraclePrice {
+                    timestamp: 1704067200000000000,
+                    asset: "BTC".to_string(),
+                    price: 102500.0,
+                }],
+                Some(1234567890),
+            )
+            .unwrap();
+        assert_eq!(signed.actions.len(), 1);
+        assert!(signed.actions[0].get("px").is_some());
+    }
+
+    #[test]
+    fn test_sign_pyth_oracle() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_pyth_oracle(
+                vec![PythOraclePrice {
+                    timestamp: 1704067200000000000,
+                    feed_index: 1,
+                    price: 10250000000000,
+                    exponent: -8,
+                }],
+                Some(1234567890),
+            )
+            .unwrap();
+        assert_eq!(signed.actions.len(), 1);
+        assert!(signed.actions[0].get("o").is_some());
+    }
+
+    #[test]
+    fn test_sign_whitelist_faucet() {
+        let keypair = Keypair::generate();
+        let target = Keypair::generate().pubkey();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_whitelist_faucet(target, true, Some(1234567890))
+            .unwrap();
+        assert_eq!(signed.actions.len(), 1);
+        assert!(signed.actions[0].get("whitelistFaucet").is_some());
     }
 
     #[test]
@@ -628,5 +758,20 @@ mod tests {
         let batches = vec![vec![order.into()]];
         let many = signer.sign_orders_batch(batches, Some(200)).unwrap();
         assert_eq!(many.len(), 1);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn test_legacy_batch_order_ids_enabled() {
+        let keypair = Keypair::generate();
+        let signer = Signer::new(keypair).with_batch_order_ids();
+        let batches = vec![vec![
+            Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
+            Order::limit("BTC-USD", false, 110000.0, 0.1, TimeInForce::Gtc).into(),
+        ]];
+
+        let signed = signer.sign_orders_batch(batches, Some(300)).unwrap();
+        assert_eq!(signed.len(), 1);
+        assert_eq!(signed[0].order_ids.as_ref().map(Vec::len), Some(2));
     }
 }

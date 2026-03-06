@@ -60,7 +60,8 @@ pub use error::{Error, Result};
 pub use keypair::Keypair;
 pub use nonce::{NonceManager, NonceStrategy};
 pub use order_id::{
-    compute_limit_order_id, compute_market_order_id, compute_order_id, compute_order_item_id,
+    compute_limit_order_id, compute_market_order_id, compute_order_id,
+    compute_order_id_with_signer, compute_order_item_id, compute_order_item_id_with_signer,
 };
 pub use prepare::{
     finalize_all, finalize_transaction, finalize_transaction_bytes, prepare_action,

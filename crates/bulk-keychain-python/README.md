@@ -156,8 +156,15 @@ signed = signer.sign_group([order1, order2], nonce=None)
 signed = signer.sign_faucet(nonce=None)
 signed = signer.sign_agent_wallet(agent_pubkey, delete=False, nonce=None)
 signed = signer.sign_user_settings(max_leverage=[("BTC-USD", 5.0)], nonce=None)
+signed = signer.sign_oracle_prices([(1704067200000000000, "BTC-USD", 102500.0)], nonce=None)
+signed = signer.sign_pyth_oracle([(1704067200000000000, 1, 10250000000000, -8)], nonce=None)
+signed = signer.sign_whitelist_faucet(target_pubkey, whitelist=True, nonce=None)
 signed_list = signer.sign_all(orders, base_nonce=None)
 ```
+
+Tuple formats:
+- `sign_oracle_prices`: `(timestamp, asset, price)`
+- `sign_pyth_oracle`: `(timestamp, feed_index, price, exponent)`
 
 ### Utilities
 

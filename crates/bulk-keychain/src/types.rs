@@ -107,14 +107,10 @@ impl Hash {
         Self(bytes)
     }
 
-    /// Compute SHA256 hash from arbitrary bytes
+    /// Compute SHA256 hash from canonical bytes.
     ///
-    /// **Note**: For computing order IDs, use `compute_order_id()` or
-    /// `compute_limit_order_id()` / `compute_market_order_id()` instead.
-    /// Those functions use the correct fixed-point serialization format
-    /// that matches BULK's server-side order ID generation.
-    ///
-    /// This method is primarily used internally for legacy compatibility.
+    /// This is the core primitive used by order-ID helpers after canonical
+    /// wincode serialization.
     #[inline]
     pub fn from_wincode_bytes(wincode_bytes: &[u8]) -> Self {
         use sha2::{Digest, Sha256};
@@ -527,6 +523,19 @@ pub struct OraclePrice {
     pub price: f64,
 }
 
+/// Pyth oracle price entry (admin `o` action)
+#[derive(Debug, Clone, PartialEq)]
+pub struct PythOraclePrice {
+    /// Timestamp
+    pub timestamp: u64,
+    /// Feed index
+    pub feed_index: u64,
+    /// Raw price integer
+    pub price: u64,
+    /// Decimal exponent
+    pub exponent: i16,
+}
+
 /// Whitelist/un-whitelist an account for faucet access (admin)
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhitelistFaucet {
@@ -545,8 +554,10 @@ pub struct WhitelistFaucet {
 pub enum Action {
     /// Order operations (place, cancel, cancel all)
     Order { orders: Vec<OrderItem> },
-    /// Oracle price updates
+    /// Oracle price updates (`px`)
     Oracle { oracles: Vec<OraclePrice> },
+    /// Batch Pyth oracle updates (`o`)
+    PythOracle { oracles: Vec<PythOraclePrice> },
     /// Request testnet funds
     Faucet(Faucet),
     /// Update user settings
@@ -563,6 +574,7 @@ impl Action {
         match self {
             Self::Order { .. } => 0,  // container variant, not a wire discriminant
             Self::Oracle { .. } => 5, // px
+            Self::PythOracle { .. } => 6,
             Self::Faucet(_) => 7,
             Self::UpdateUserSettings(_) => 9,
             Self::AgentWalletCreation(_) => 8,
@@ -575,6 +587,7 @@ impl Action {
         match self {
             Self::Order { .. } => "order",
             Self::Oracle { .. } => "px",
+            Self::PythOracle { .. } => "o",
             Self::Faucet(_) => "faucet",
             Self::UpdateUserSettings(_) => "updateUserSettings",
             Self::AgentWalletCreation(_) => "agentWalletCreation",
