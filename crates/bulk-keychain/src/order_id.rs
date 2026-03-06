@@ -38,6 +38,21 @@ pub fn compute_order_item_id_with_signer(
     compute_order_item_id_with_serializer(item, nonce, account, signer, &mut serializer)
 }
 
+/// Compute order ID for an order item using account and optional signer.
+///
+/// If `signer` is `None`, `account` is used as signer.
+/// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
+#[inline]
+pub fn compute_order_item_id_for_account(
+    item: &OrderItem,
+    nonce: u64,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+) -> Option<Hash> {
+    let signer_pubkey = signer.unwrap_or(account);
+    compute_order_item_id_with_signer(item, nonce, account, signer_pubkey)
+}
+
 /// Compute order ID for an order item, assuming `signer == owner`.
 ///
 /// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
@@ -141,6 +156,20 @@ pub fn compute_order_id_with_signer(
 
     compute_order_item_id_with_serializer(&item, nonce, account, signer, &mut serializer)
         .unwrap_or_else(|| unreachable!("normalized order serialization should always succeed"))
+}
+
+/// Compute order ID for an order using account and optional signer.
+///
+/// If `signer` is `None`, `account` is used as signer.
+#[inline]
+pub fn compute_order_id_for_account(
+    order: &Order,
+    nonce: u64,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+) -> Hash {
+    let signer_pubkey = signer.unwrap_or(account);
+    compute_order_id_with_signer(order, nonce, account, signer_pubkey)
 }
 
 /// Compute order ID for an order assuming `signer == owner`.
@@ -359,5 +388,33 @@ mod tests {
         let id_b = compute_order_id_with_signer(&order, 42, &owner, &signer_b);
 
         assert_ne!(id_a, id_b);
+    }
+
+    #[test]
+    fn test_compute_order_item_id_for_account_uses_account_as_default_signer() {
+        let owner = Pubkey::from_bytes([9u8; 32]);
+        let item = OrderItem::Order(Order::limit(
+            "BTC-USD",
+            true,
+            100000.0,
+            0.1,
+            TimeInForce::Gtc,
+        ));
+
+        let direct = compute_order_item_id_with_signer(&item, 123, &owner, &owner);
+        let optional = compute_order_item_id_for_account(&item, 123, &owner, None);
+
+        assert_eq!(optional, direct);
+    }
+
+    #[test]
+    fn test_compute_order_id_for_account_uses_account_as_default_signer() {
+        let owner = Pubkey::from_bytes([7u8; 32]);
+        let order = Order::market("ETH-USD", false, 2.0);
+
+        let direct = compute_order_id_with_signer(&order, 77, &owner, &owner);
+        let optional = compute_order_id_for_account(&order, 77, &owner, None);
+
+        assert_eq!(optional, direct);
     }
 }

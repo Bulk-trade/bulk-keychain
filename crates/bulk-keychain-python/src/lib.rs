@@ -3,9 +3,10 @@
 //! This module provides high-performance Python bindings using PyO3.
 
 use bulk_keychain::{
-    prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
-    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OraclePrice, Order, OrderItem,
-    OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer, TimeInForce, UserSettings,
+    compute_order_item_id_for_account, prepare_agent_wallet, prepare_all, prepare_faucet,
+    prepare_group, prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager,
+    NonceStrategy, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
+    PythOraclePrice, Signer, TimeInForce, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -542,6 +543,146 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
     }
 }
 
+fn parse_order_item_for_id(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
+    let dict = obj.downcast::<PyDict>()?;
+    if dict.get_item("type")?.is_some() {
+        return parse_order_item(obj);
+    }
+    parse_compact_order_item(dict)
+}
+
+fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
+    if let Some(limit_obj) = dict.get_item("l")? {
+        let limit = limit_obj.downcast::<PyDict>()?;
+        let symbol: String = limit
+            .get_item("c")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'l.c'"))?
+            .extract()?;
+        let is_buy: bool = limit
+            .get_item("b")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'l.b'"))?
+            .extract()?;
+        let price: f64 = limit
+            .get_item("px")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'l.px'"))?
+            .extract()?;
+        let size: f64 = limit
+            .get_item("sz")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'l.sz'"))?
+            .extract()?;
+        let reduce_only: bool = limit
+            .get_item("r")?
+            .map(|v| v.extract().unwrap_or(false))
+            .unwrap_or(false);
+        let tif_str: String = limit
+            .get_item("tif")?
+            .map(|v| v.extract().unwrap_or("GTC".to_string()))
+            .unwrap_or_else(|| "GTC".to_string());
+        let tif = match tif_str.to_uppercase().as_str() {
+            "GTC" => TimeInForce::Gtc,
+            "IOC" => TimeInForce::Ioc,
+            "ALO" => TimeInForce::Alo,
+            _ => return Err(PyValueError::new_err(format!("Invalid l.tif: {}", tif_str))),
+        };
+        let client_id = if let Some(cloid) = limit.get_item("cloid")? {
+            let cloid_str: String = cloid.extract()?;
+            Some(Hash::from_base58(&cloid_str).map_err(|e| PyValueError::new_err(e.to_string()))?)
+        } else {
+            None
+        };
+
+        return Ok(OrderItem::Order(Order {
+            symbol,
+            is_buy,
+            price,
+            size,
+            reduce_only,
+            order_type: OrderType::Limit { tif },
+            client_id,
+        }));
+    }
+
+    if let Some(market_obj) = dict.get_item("m")? {
+        let market = market_obj.downcast::<PyDict>()?;
+        let symbol: String = market
+            .get_item("c")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'm.c'"))?
+            .extract()?;
+        let is_buy: bool = market
+            .get_item("b")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'm.b'"))?
+            .extract()?;
+        let size: f64 = market
+            .get_item("sz")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'm.sz'"))?
+            .extract()?;
+        let reduce_only: bool = market
+            .get_item("r")?
+            .map(|v| v.extract().unwrap_or(false))
+            .unwrap_or(false);
+
+        return Ok(OrderItem::Order(Order {
+            symbol,
+            is_buy,
+            price: 0.0,
+            size,
+            reduce_only,
+            order_type: OrderType::Trigger {
+                is_market: true,
+                trigger_px: 0.0,
+            },
+            client_id: None,
+        }));
+    }
+
+    if let Some(cancel_obj) = dict.get_item("cx")? {
+        let cancel = cancel_obj.downcast::<PyDict>()?;
+        let symbol: String = cancel
+            .get_item("c")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'cx.c'"))?
+            .extract()?;
+        let order_id_str: String = cancel
+            .get_item("oid")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'cx.oid'"))?
+            .extract()?;
+        let order_id =
+            Hash::from_base58(&order_id_str).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        return Ok(OrderItem::Cancel(Cancel::new(symbol, order_id)));
+    }
+
+    if let Some(mod_obj) = dict.get_item("mod")? {
+        let modify = mod_obj.downcast::<PyDict>()?;
+        let symbol: String = modify
+            .get_item("symbol")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'mod.symbol'"))?
+            .extract()?;
+        let order_id_str: String = modify
+            .get_item("oid")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'mod.oid'"))?
+            .extract()?;
+        let amount: f64 = modify
+            .get_item("amount")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'mod.amount'"))?
+            .extract()?;
+        let order_id =
+            Hash::from_base58(&order_id_str).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        return Ok(OrderItem::Modify(Modify::new(order_id, symbol, amount)));
+    }
+
+    if let Some(cancel_all_obj) = dict.get_item("cxa")? {
+        let cancel_all = cancel_all_obj.downcast::<PyDict>()?;
+        let symbols: Vec<String> = cancel_all
+            .get_item("c")?
+            .map(|v| v.extract().unwrap_or_default())
+            .unwrap_or_default();
+        return Ok(OrderItem::CancelAll(CancelAll::for_symbols(symbols)));
+    }
+
+    Err(PyValueError::new_err(
+        "Invalid order JSON. Expected simplified {'type': ...} or compact {'l'|'m'|'cx'|'mod'|'cxa'}",
+    ))
+}
+
 fn signed_to_py(py: Python<'_>, signed: &bulk_keychain::SignedTransaction) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
     dict.set_item(
@@ -629,6 +770,35 @@ fn validate_hash(s: &str) -> bool {
 #[pyfunction]
 fn compute_order_id(wincode_bytes: &[u8]) -> String {
     Hash::from_wincode_bytes(wincode_bytes).to_base58()
+}
+
+/// Compute order ID from an order JSON object without a private key.
+///
+/// Supports:
+/// - Simplified shape: {"type": "order", ...}
+/// - Compact API shape: {"l": {...}} / {"m": {...}}
+///
+/// Returns `None` for non-order actions (cancel/modify/cancel-all).
+#[pyfunction]
+#[pyo3(signature = (order, nonce, account, signer=None))]
+fn compute_order_id_from_order(
+    order: &Bound<'_, PyAny>,
+    nonce: u64,
+    account: &str,
+    signer: Option<&str>,
+) -> PyResult<Option<String>> {
+    let item = parse_order_item_for_id(order)?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Ok(
+        compute_order_item_id_for_account(&item, nonce, &account_pk, signer_pk.as_ref())
+            .map(|h| h.to_base58()),
+    )
 }
 
 // ============================================================================
@@ -877,6 +1047,96 @@ fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyR
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_order_id_from_order_simplified_matches_core() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let order = PyDict::new(py);
+            order.set_item("type", "order").unwrap();
+            order.set_item("symbol", "BTC-USD").unwrap();
+            order.set_item("is_buy", true).unwrap();
+            order.set_item("price", 100000.0).unwrap();
+            order.set_item("size", 0.1).unwrap();
+            order.set_item("reduce_only", false).unwrap();
+
+            let nonce = 1704067200000u64;
+            let account = Keypair::generate().pubkey().to_base58();
+
+            let got = compute_order_id_from_order(order.as_any(), nonce, &account, None).unwrap();
+            assert!(got.is_some());
+
+            let account_pk = Pubkey::from_base58(&account).unwrap();
+            let expected = bulk_keychain::compute_order_id_for_account(
+                &Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc),
+                nonce,
+                &account_pk,
+                None,
+            )
+            .to_base58();
+
+            assert_eq!(got.unwrap(), expected);
+        });
+    }
+
+    #[test]
+    fn test_compute_order_id_from_order_compact_matches_simplified() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let simplified = PyDict::new(py);
+            simplified.set_item("type", "order").unwrap();
+            simplified.set_item("symbol", "ETH-USD").unwrap();
+            simplified.set_item("is_buy", false).unwrap();
+            simplified.set_item("price", 3250.0).unwrap();
+            simplified.set_item("size", 2.0).unwrap();
+            simplified.set_item("reduce_only", true).unwrap();
+
+            let compact = PyDict::new(py);
+            let l = PyDict::new(py);
+            l.set_item("c", "ETH-USD").unwrap();
+            l.set_item("b", false).unwrap();
+            l.set_item("px", 3250.0).unwrap();
+            l.set_item("sz", 2.0).unwrap();
+            l.set_item("r", true).unwrap();
+            l.set_item("tif", "GTC").unwrap();
+            compact.set_item("l", l).unwrap();
+
+            let nonce = 1704067200001u64;
+            let account = Keypair::generate().pubkey().to_base58();
+
+            let id_simplified =
+                compute_order_id_from_order(simplified.as_any(), nonce, &account, None)
+                    .unwrap()
+                    .unwrap();
+            let id_compact = compute_order_id_from_order(compact.as_any(), nonce, &account, None)
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(id_simplified, id_compact);
+        });
+    }
+
+    #[test]
+    fn test_compute_order_id_from_order_returns_none_for_non_order_action() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let cancel = PyDict::new(py);
+            cancel.set_item("type", "cancel").unwrap();
+            cancel.set_item("symbol", "BTC-USD").unwrap();
+            cancel
+                .set_item("order_id", Hash::random().to_base58())
+                .unwrap();
+
+            let account = Keypair::generate().pubkey().to_base58();
+            let id = compute_order_id_from_order(cancel.as_any(), 42, &account, None).unwrap();
+            assert!(id.is_none());
+        });
+    }
+}
+
 // ============================================================================
 // Module definition
 // ============================================================================
@@ -891,6 +1151,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_pubkey, m)?)?;
     m.add_function(wrap_pyfunction!(validate_hash, m)?)?;
     m.add_function(wrap_pyfunction!(compute_order_id, m)?)?;
+    m.add_function(wrap_pyfunction!(compute_order_id_from_order, m)?)?;
     // External wallet support
     m.add_function(wrap_pyfunction!(py_prepare_order, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_all_orders, m)?)?;

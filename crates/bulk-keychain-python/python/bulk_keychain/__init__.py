@@ -33,6 +33,7 @@ from bulk_keychain._native import (
     validate_pubkey,
     validate_hash,
     compute_order_id,
+    compute_order_id_from_order,
     # External wallet support
     py_prepare_order as prepare_order,
     py_prepare_all_orders as prepare_all_orders,
@@ -50,6 +51,7 @@ __all__ = [
     "validate_pubkey",
     "validate_hash",
     "compute_order_id",
+    "compute_order_id_from_order",
     # External wallet support
     "prepare_order",
     "prepare_all_orders",
@@ -59,4 +61,4 @@ __all__ = [
     "finalize_transaction",
 ]
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"

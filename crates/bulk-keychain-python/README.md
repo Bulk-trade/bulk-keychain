@@ -181,3 +181,23 @@ ts = current_timestamp()
 is_valid = validate_pubkey("pubkey-base58")
 is_valid = validate_hash("hash-base58")
 ```
+
+Compute order ID without a signer/private key:
+
+```python
+from bulk_keychain import compute_order_id_from_order
+
+order_id = compute_order_id_from_order(
+    {"type": "order", "symbol": "BTC-USD", "is_buy": True, "price": 100000.0, "size": 0.1},
+    nonce=1704067200000,
+    account="your-account-pubkey",
+)
+
+# Compact API order JSON and optional signer are supported too:
+order_id_compact = compute_order_id_from_order(
+    {"l": {"c": "BTC-USD", "b": True, "px": 100000.0, "sz": 0.1, "r": False, "tif": "GTC"}},
+    nonce=1704067200000,
+    account="your-account-pubkey",
+    signer="optional-agent-or-wallet-pubkey",
+)
+```

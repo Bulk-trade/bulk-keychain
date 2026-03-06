@@ -142,6 +142,36 @@ let signed = signer.sign(order.into(), None)?;
 println!("Order ID: {:?}", signed.order_id);
 ```
 
+### Without Signer/Private Key
+
+You can compute an order ID directly from order fields + nonce + account:
+
+```rust
+use bulk_keychain::{compute_order_id_for_account, Order, Pubkey, TimeInForce};
+
+let account = Pubkey::from_base58("your-account-pubkey")?;
+let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+let order_id = compute_order_id_for_account(&order, 1704067200000, &account, None).to_base58();
+```
+
+```python
+from bulk_keychain import compute_order_id_from_order
+
+order_id = compute_order_id_from_order(
+    {"type": "order", "symbol": "BTC-USD", "is_buy": True, "price": 100000.0, "size": 0.1},
+    nonce=1704067200000,
+    account="your-account-pubkey",
+)
+
+# Compact API order JSON is also supported:
+order_id_compact = compute_order_id_from_order(
+    {"l": {"c": "BTC-USD", "b": True, "px": 100000.0, "sz": 0.1, "r": False, "tif": "GTC"}},
+    nonce=1704067200000,
+    account="your-account-pubkey",
+    signer="optional-agent-or-wallet-pubkey",
+)
+```
+
 For multi-order transactions (`signGroup` / grouped batches), optional `order_ids` are available when batch order ID computation is enabled.
 
 ### Enable Batch Order IDs (Optional)

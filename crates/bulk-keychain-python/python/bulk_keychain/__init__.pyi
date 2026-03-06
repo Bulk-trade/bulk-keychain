@@ -254,6 +254,21 @@ def compute_order_id(wincode_bytes: bytes) -> str:
     """
     ...
 
+def compute_order_id_from_order(
+    order: OrderItemType | dict[str, Any],
+    nonce: int,
+    account: str,
+    signer: str | None = None
+) -> str | None:
+    """Compute order ID from order JSON without a private key.
+
+    Supports simplified order objects (`{"type": "order", ...}`) and compact
+    API order objects (`{"l": {...}}` / `{"m": {...}}`).
+
+    Returns None for non-order actions.
+    """
+    ...
+
 # ============================================================================
 # External Wallet Support - Prepare/Finalize API
 # ============================================================================
