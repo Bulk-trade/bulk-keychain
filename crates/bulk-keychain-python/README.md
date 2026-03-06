@@ -24,20 +24,26 @@ print(f"Public key: {keypair.pubkey}")
 signer = Signer(keypair)
 
 # Sign a limit order
-signed = signer.sign_order([{
+signed = signer.sign({
     "type": "order",
     "symbol": "BTC-USD",
     "is_buy": True,
     "price": 100000.0,
     "size": 0.1,
     "order_type": {"type": "limit", "tif": "GTC"}
-}])
+})
 
 # Submit to API
 import requests
 response = requests.post(
     "https://api.bulk.exchange/api/v1/order",
-    json=signed
+    json={
+        "actions": signed["actions"],
+        "nonce": signed["nonce"],
+        "account": signed["account"],
+        "signer": signed["signer"],
+        "signature": signed["signature"],
+    }
 )
 ```
 
@@ -93,11 +99,16 @@ response = requests.post(
 For high-frequency trading, sign many transactions in parallel:
 
 ```python
-# Create batches (each inner list becomes one transaction)
-batches = [[order] for order in orders]
+# Sign all at once - each order becomes one transaction
+signed_txs = signer.sign_all(orders)
+```
 
-# Sign all at once - parallelizes automatically when > 10 batches
-signed_txs = signer.sign_orders_batch(batches)
+For multi-order atomic transactions, batch `order_ids` are optional:
+
+```python
+signer.set_compute_batch_order_ids(True)  # default False for max performance
+grouped = signer.sign_group([entry_order, stop_loss, take_profit])
+print(grouped.get("order_ids"))
 ```
 
 ## API Reference
@@ -133,12 +144,19 @@ signer = Signer.with_nonce_manager(keypair, "timestamp")     # Use timestamp
 signer = Signer.with_nonce_manager(keypair, "counter")       # Use counter
 signer = Signer.with_nonce_manager(keypair, "high_frequency") # Timestamp + counter
 
+# Optional ID computation controls
+signer.set_compute_order_id(True)            # default True
+signer.set_compute_batch_order_ids(False)    # default False
+signer.computes_order_id()
+signer.computes_batch_order_ids()
+
 # Sign operations
-signed = signer.sign_order(orders, nonce=None)
+signed = signer.sign(order, nonce=None)
+signed = signer.sign_group([order1, order2], nonce=None)
 signed = signer.sign_faucet(nonce=None)
 signed = signer.sign_agent_wallet(agent_pubkey, delete=False, nonce=None)
 signed = signer.sign_user_settings(max_leverage=[("BTC-USD", 5.0)], nonce=None)
-signed_list = signer.sign_orders_batch(batches, base_nonce=None)
+signed_list = signer.sign_all(orders, base_nonce=None)
 ```
 
 ### Utilities
@@ -156,4 +174,3 @@ ts = current_timestamp()
 is_valid = validate_pubkey("pubkey-base58")
 is_valid = validate_hash("hash-base58")
 ```
-

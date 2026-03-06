@@ -1,53 +1,51 @@
-//! Wincode binary serialization
-//!
-//! The BULK exchange uses a custom binary format called "wincode" for signing.
-//! This module implements zero-copy serialization optimized for signing performance.
+//! Wincode binary serialization for BULK transaction signing.
 
 use crate::types::*;
+use crate::{Error, Result};
 
-/// Pre-allocated buffer size for typical transactions
+/// Pre-allocated buffer size for typical transactions.
 const DEFAULT_BUFFER_SIZE: usize = 512;
 
-/// Wincode serializer with pre-allocated buffer
+/// Wincode serializer with a reusable pre-allocated buffer.
 pub struct WincodeSerializer {
     buffer: Vec<u8>,
 }
 
 impl WincodeSerializer {
-    /// Create a new serializer with default buffer size
+    /// Create a serializer with a default capacity.
     pub fn new() -> Self {
         Self {
             buffer: Vec::with_capacity(DEFAULT_BUFFER_SIZE),
         }
     }
 
-    /// Create a new serializer with specific capacity
+    /// Create a serializer with a custom capacity.
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             buffer: Vec::with_capacity(capacity),
         }
     }
 
-    /// Reset buffer for reuse (avoids reallocation)
+    /// Clear the internal buffer for reuse.
     #[inline]
     pub fn reset(&mut self) {
         self.buffer.clear();
     }
 
-    /// Get the serialized bytes
+    /// Borrow the serialized bytes.
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         &self.buffer
     }
 
-    /// Consume and return the buffer
+    /// Consume the serializer and return the serialized bytes.
     #[inline]
     pub fn into_bytes(self) -> Vec<u8> {
         self.buffer
     }
 
     // ========================================================================
-    // Primitive writers (all little-endian)
+    // Primitive writers (little-endian)
     // ========================================================================
 
     #[inline]
@@ -57,6 +55,11 @@ impl WincodeSerializer {
 
     #[inline]
     pub fn write_u64(&mut self, value: u64) {
+        self.buffer.extend_from_slice(&value.to_le_bytes());
+    }
+
+    #[inline]
+    pub fn write_i16(&mut self, value: i16) {
         self.buffer.extend_from_slice(&value.to_le_bytes());
     }
 
@@ -75,14 +78,14 @@ impl WincodeSerializer {
         self.buffer.extend_from_slice(bytes);
     }
 
-    /// Write a string (u64 length prefix + UTF-8 bytes)
+    /// Write a string as `u64 length + utf8 bytes`.
     #[inline]
     pub fn write_string(&mut self, s: &str) {
         self.write_u64(s.len() as u64);
         self.buffer.extend_from_slice(s.as_bytes());
     }
 
-    /// Write Option<T> (1 byte discriminant + T if Some)
+    /// Write `Option<T>` as `bool + payload`.
     #[inline]
     pub fn write_option<T, F>(&mut self, opt: &Option<T>, write_fn: F)
     where
@@ -93,98 +96,110 @@ impl WincodeSerializer {
                 self.write_bool(true);
                 write_fn(self, value);
             }
-            None => {
-                self.write_bool(false);
-            }
+            None => self.write_bool(false),
         }
     }
 
-    // ========================================================================
-    // Type serializers
-    // ========================================================================
-
-    /// Write a Pubkey (raw 32 bytes)
     #[inline]
     pub fn write_pubkey(&mut self, pubkey: &Pubkey) {
         self.write_bytes(pubkey.as_bytes());
     }
 
-    /// Write a Hash (raw 32 bytes)
     #[inline]
     pub fn write_hash(&mut self, hash: &Hash) {
         self.write_bytes(hash.as_bytes());
     }
 
-    /// Write an Order
-    pub fn write_order(&mut self, order: &Order) {
-        // symbol (string)
-        self.write_string(&order.symbol);
-        // is_buy (bool)
-        self.write_bool(order.is_buy);
-        // price (f64)
-        self.write_f64(order.price);
-        // size (f64)
-        self.write_f64(order.size);
-        // reduce_only (bool)
-        self.write_bool(order.reduce_only);
+    // ========================================================================
+    // Action serializers (wire format from bulk-api http-readme.md)
+    // ========================================================================
 
-        // order_type (discriminant + data)
-        self.write_u32(order.order_type.discriminant());
-        match &order.order_type {
-            OrderType::Limit { tif } => {
-                self.write_u32(tif.discriminant());
-            }
-            OrderType::Trigger {
-                is_market,
-                trigger_px,
-            } => {
-                self.write_bool(*is_market);
-                self.write_f64(*trigger_px);
-            }
-        }
-
-        // client_id (Option<Hash>)
-        self.write_option(&order.client_id, |s, h| s.write_hash(h));
-    }
-
-    /// Write a Cancel
-    pub fn write_cancel(&mut self, cancel: &Cancel) {
-        self.write_string(&cancel.symbol);
-        self.write_hash(&cancel.order_id);
-    }
-
-    /// Write a CancelAll
-    pub fn write_cancel_all(&mut self, cancel_all: &CancelAll) {
-        self.write_u64(cancel_all.symbols.len() as u64);
-        for symbol in &cancel_all.symbols {
-            self.write_string(symbol);
-        }
-    }
-
-    /// Write an OrderItem
-    pub fn write_order_item(&mut self, item: &OrderItem) {
-        self.write_u32(item.discriminant());
+    /// Serialize one wire action (already flattened).
+    pub fn write_order_item_action(&mut self, item: &OrderItem) -> Result<()> {
         match item {
-            OrderItem::Order(order) => self.write_order(order),
-            OrderItem::Cancel(cancel) => self.write_cancel(cancel),
-            OrderItem::CancelAll(cancel_all) => self.write_cancel_all(cancel_all),
+            OrderItem::Order(order) => match &order.order_type {
+                OrderType::Limit { tif } => {
+                    // l => discriminant 1
+                    self.write_u32(1);
+                    self.write_string(&order.symbol);
+                    self.write_bool(order.is_buy);
+                    self.write_f64(order.price);
+                    self.write_f64(order.size);
+                    self.write_u32(tif.discriminant());
+                    self.write_bool(order.reduce_only);
+                    Ok(())
+                }
+                OrderType::Trigger {
+                    is_market,
+                    trigger_px: _,
+                } => {
+                    if !is_market {
+                        return Err(Error::InvalidOrder(
+                            "trigger orders are not supported by BULK API; use limit or market"
+                                .to_string(),
+                        ));
+                    }
+                    // m => discriminant 0
+                    self.write_u32(0);
+                    self.write_string(&order.symbol);
+                    self.write_bool(order.is_buy);
+                    self.write_f64(order.size);
+                    self.write_bool(order.reduce_only);
+                    Ok(())
+                }
+            },
+            OrderItem::Modify(modify) => {
+                // mod => discriminant 2
+                self.write_u32(2);
+                self.write_hash(&modify.order_id);
+                self.write_string(&modify.symbol);
+                self.write_f64(modify.amount);
+                Ok(())
+            }
+            OrderItem::Cancel(cancel) => {
+                // cx => discriminant 3
+                self.write_u32(3);
+                self.write_string(&cancel.symbol);
+                self.write_hash(&cancel.order_id);
+                Ok(())
+            }
+            OrderItem::CancelAll(cancel_all) => {
+                // cxa => discriminant 4
+                self.write_u32(4);
+                self.write_u64(cancel_all.symbols.len() as u64);
+                for symbol in &cancel_all.symbols {
+                    self.write_string(symbol);
+                }
+                Ok(())
+            }
         }
     }
 
-    /// Write a Faucet
-    pub fn write_faucet(&mut self, faucet: &Faucet) {
+    /// Serialize a compact `px` action (discriminant 5).
+    pub fn write_price_action(&mut self, price: &OraclePrice) {
+        self.write_u32(5);
+        self.write_u64(price.timestamp);
+        self.write_string(&price.asset);
+        self.write_f64(price.price);
+    }
+
+    /// Serialize a compact `faucet` action (discriminant 7).
+    pub fn write_faucet_action(&mut self, faucet: &Faucet) {
+        self.write_u32(7);
         self.write_pubkey(&faucet.user);
         self.write_option(&faucet.amount, |s, &a| s.write_f64(a));
     }
 
-    /// Write an AgentWallet
-    pub fn write_agent_wallet(&mut self, agent: &AgentWallet) {
+    /// Serialize a compact `agentWalletCreation` action (discriminant 8).
+    pub fn write_agent_wallet_action(&mut self, agent: &AgentWallet) {
+        self.write_u32(8);
         self.write_pubkey(&agent.agent);
         self.write_bool(agent.delete);
     }
 
-    /// Write UserSettings
-    pub fn write_user_settings(&mut self, settings: &UserSettings) {
+    /// Serialize a compact `updateUserSettings` action (discriminant 9).
+    pub fn write_user_settings_action(&mut self, settings: &UserSettings) {
+        self.write_u32(9);
         self.write_u64(settings.max_leverage.len() as u64);
         for (symbol, leverage) in &settings.max_leverage {
             self.write_string(symbol);
@@ -192,59 +207,59 @@ impl WincodeSerializer {
         }
     }
 
-    /// Write Oracle prices
-    pub fn write_oracles(&mut self, oracles: &[OraclePrice]) {
-        self.write_u64(oracles.len() as u64);
-        for oracle in oracles {
-            self.write_u64(oracle.timestamp);
-            self.write_string(&oracle.asset);
-            self.write_f64(oracle.price);
-        }
+    /// Serialize a compact `whitelistFaucet` action (discriminant 10).
+    pub fn write_whitelist_faucet_action(&mut self, action: &WhitelistFaucet) {
+        self.write_u32(10);
+        self.write_pubkey(&action.target);
+        self.write_bool(action.whitelist);
     }
 
-    /// Serialize a complete transaction for signing
-    ///
-    /// Format: action_discriminant(u32) + action_data + nonce(u64) + account(32) + signer(32)
+    /// Serialize a complete transaction message for signing:
+    /// `actions + nonce + account + signer`.
     pub fn serialize_for_signing(
         &mut self,
         action: &Action,
         nonce: u64,
         account: &Pubkey,
         signer: &Pubkey,
-    ) {
-        // 1. Action discriminant
-        self.write_u32(action.discriminant());
+    ) -> Result<()> {
+        // 1) action count
+        let action_count = match action {
+            Action::Order { orders } => orders.len() as u64,
+            Action::Oracle { oracles } => oracles.len() as u64,
+            _ => 1,
+        };
 
-        // 2. Action-specific data
+        if action_count == 0 {
+            return Err(Error::EmptyOrders);
+        }
+
+        self.write_u64(action_count);
+
+        // 2) action bodies
         match action {
             Action::Order { orders } => {
-                self.write_u64(orders.len() as u64);
                 for item in orders {
-                    self.write_order_item(item);
+                    self.write_order_item_action(item)?;
                 }
             }
             Action::Oracle { oracles } => {
-                self.write_oracles(oracles);
+                for price in oracles {
+                    self.write_price_action(price);
+                }
             }
-            Action::Faucet(faucet) => {
-                self.write_faucet(faucet);
-            }
-            Action::UpdateUserSettings(settings) => {
-                self.write_user_settings(settings);
-            }
-            Action::AgentWalletCreation(agent) => {
-                self.write_agent_wallet(agent);
-            }
+            Action::Faucet(faucet) => self.write_faucet_action(faucet),
+            Action::UpdateUserSettings(settings) => self.write_user_settings_action(settings),
+            Action::AgentWalletCreation(agent) => self.write_agent_wallet_action(agent),
+            Action::WhitelistFaucet(action) => self.write_whitelist_faucet_action(action),
         }
 
-        // 3. Nonce
+        // 3) trailing transaction fields
         self.write_u64(nonce);
-
-        // 4. Account pubkey (raw 32 bytes)
         self.write_pubkey(account);
-
-        // 5. Signer pubkey (raw 32 bytes)
         self.write_pubkey(signer);
+
+        Ok(())
     }
 }
 
@@ -276,16 +291,23 @@ mod tests {
 
         s.reset();
         s.write_string("BTC-USD");
-        assert_eq!(s.as_bytes().len(), 8 + 7); // u64 length + "BTC-USD"
+        assert_eq!(s.as_bytes().len(), 8 + 7);
     }
 
     #[test]
-    fn test_serialize_order() {
+    fn test_serialize_limit_order_action() {
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
-        let mut s = WincodeSerializer::new();
-        s.write_order(&order);
+        let action = Action::Order {
+            orders: vec![order.into()],
+        };
+        let account = Pubkey::from_bytes([1u8; 32]);
 
-        // Should not panic and produce some bytes
+        let mut s = WincodeSerializer::new();
+        s.serialize_for_signing(&action, 123, &account, &account)
+            .unwrap();
+
         assert!(!s.as_bytes().is_empty());
+        // first 8 bytes are action count = 1
+        assert_eq!(&s.as_bytes()[..8], &1u64.to_le_bytes());
     }
 }

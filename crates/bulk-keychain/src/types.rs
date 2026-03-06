@@ -117,7 +117,7 @@ impl Hash {
     /// This method is primarily used internally for legacy compatibility.
     #[inline]
     pub fn from_wincode_bytes(wincode_bytes: &[u8]) -> Self {
-        use sha2::{Sha256, Digest};
+        use sha2::{Digest, Sha256};
         let hash: [u8; 32] = Sha256::digest(wincode_bytes).into();
         Self(hash)
     }
@@ -324,6 +324,29 @@ impl Cancel {
     }
 }
 
+/// Modify an existing order
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Modify {
+    /// Order ID to modify
+    #[serde(rename = "oid")]
+    pub order_id: Hash,
+    /// Market symbol
+    pub symbol: String,
+    /// New amount/size
+    pub amount: f64,
+}
+
+impl Modify {
+    /// Create a new modify request
+    pub fn new(order_id: Hash, symbol: impl Into<String>, amount: f64) -> Self {
+        Self {
+            order_id,
+            symbol: symbol.into(),
+            amount,
+        }
+    }
+}
+
 // ============================================================================
 // Cancel All
 // ============================================================================
@@ -358,6 +381,8 @@ impl CancelAll {
 pub enum OrderItem {
     /// Place a new order
     Order(Order),
+    /// Modify an existing order size
+    Modify(Modify),
     /// Cancel a specific order
     Cancel(Cancel),
     /// Cancel all orders
@@ -368,9 +393,13 @@ impl OrderItem {
     /// Get the discriminant for wincode serialization
     pub const fn discriminant(&self) -> u32 {
         match self {
-            Self::Order(_) => 0,
-            Self::Cancel(_) => 1,
-            Self::CancelAll(_) => 2,
+            Self::Order(order) => match order.order_type {
+                OrderType::Limit { .. } => 1,   // l
+                OrderType::Trigger { .. } => 0, // m
+            },
+            Self::Modify(_) => 2,    // mod
+            Self::Cancel(_) => 3,    // cx
+            Self::CancelAll(_) => 4, // cxa
         }
     }
 }
@@ -384,6 +413,12 @@ impl From<Order> for OrderItem {
 impl From<Cancel> for OrderItem {
     fn from(cancel: Cancel) -> Self {
         Self::Cancel(cancel)
+    }
+}
+
+impl From<Modify> for OrderItem {
+    fn from(modify: Modify) -> Self {
+        Self::Modify(modify)
     }
 }
 
@@ -484,12 +519,21 @@ impl UserSettings {
 /// Oracle price update (permissioned)
 #[derive(Debug, Clone, PartialEq)]
 pub struct OraclePrice {
-    /// Timestamp in milliseconds
+    /// Timestamp
     pub timestamp: u64,
     /// Asset symbol (e.g., "BTC")
     pub asset: String,
     /// Price
     pub price: f64,
+}
+
+/// Whitelist/un-whitelist an account for faucet access (admin)
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhitelistFaucet {
+    /// Target account pubkey
+    pub target: Pubkey,
+    /// true = whitelist, false = un-whitelist
+    pub whitelist: bool,
 }
 
 // ============================================================================
@@ -509,17 +553,20 @@ pub enum Action {
     UpdateUserSettings(UserSettings),
     /// Agent wallet management
     AgentWalletCreation(AgentWallet),
+    /// Whitelist faucet access for an account (admin)
+    WhitelistFaucet(WhitelistFaucet),
 }
 
 impl Action {
     /// Get the discriminant for wincode serialization
     pub const fn discriminant(&self) -> u32 {
         match self {
-            Self::Order { .. } => 0,
-            Self::Oracle { .. } => 1,
-            Self::Faucet(_) => 2,
-            Self::UpdateUserSettings(_) => 3,
-            Self::AgentWalletCreation(_) => 4,
+            Self::Order { .. } => 0,  // container variant, not a wire discriminant
+            Self::Oracle { .. } => 5, // px
+            Self::Faucet(_) => 7,
+            Self::UpdateUserSettings(_) => 9,
+            Self::AgentWalletCreation(_) => 8,
+            Self::WhitelistFaucet(_) => 10,
         }
     }
 
@@ -527,10 +574,11 @@ impl Action {
     pub const fn type_str(&self) -> &'static str {
         match self {
             Self::Order { .. } => "order",
-            Self::Oracle { .. } => "oracle",
+            Self::Oracle { .. } => "px",
             Self::Faucet(_) => "faucet",
             Self::UpdateUserSettings(_) => "updateUserSettings",
             Self::AgentWalletCreation(_) => "agentWalletCreation",
+            Self::WhitelistFaucet(_) => "whitelistFaucet",
         }
     }
 }
@@ -542,18 +590,24 @@ impl Action {
 /// A signed transaction ready to submit to the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
-    /// The action being performed
-    pub action: serde_json::Value,
+    /// Actions to execute atomically (compact tagged format)
+    pub actions: Vec<serde_json::Value>,
+    /// Transaction nonce
+    pub nonce: u64,
     /// Account public key (base58)
     pub account: String,
     /// Signer public key (base58)
     pub signer: String,
     /// Signature (base58)
     pub signature: String,
-    /// Pre-computed order/transaction ID (base58)
-    /// This matches BULK's server-side ID generation: SHA256(wincode_bytes)
-    #[serde(rename = "orderId", skip_serializing_if = "Option::is_none")]
+    /// Optional pre-computed order ID for client-side optimistic tracking.
+    /// This is not part of the API request payload.
+    #[serde(skip_serializing, skip_deserializing, default)]
     pub order_id: Option<String>,
+    /// Optional pre-computed order IDs for multi-order transactions.
+    /// This is not part of the API request payload.
+    #[serde(skip_serializing, skip_deserializing, default)]
+    pub order_ids: Option<Vec<String>>,
 }
 
 impl SignedTransaction {

@@ -136,6 +136,7 @@ pub fn compute_market_order_id(
 pub fn compute_order_item_id(item: &OrderItem, nonce: u64, owner: &Pubkey) -> Option<Hash> {
     match item {
         OrderItem::Order(order) => Some(compute_order_id(order, nonce, owner)),
+        OrderItem::Modify(_) => None,
         OrderItem::Cancel(_) => None,
         OrderItem::CancelAll(_) => None,
     }
@@ -268,14 +269,7 @@ mod tests {
             false,
         );
 
-        let market_id = compute_market_order_id(
-            nonce,
-            "BTC-USD",
-            &owner,
-            true,
-            0.1,
-            false,
-        );
+        let market_id = compute_market_order_id(nonce, "BTC-USD", &owner, true, 0.1, false);
 
         // Different order types = different IDs
         assert_ne!(limit_id, market_id);
@@ -359,14 +353,7 @@ mod tests {
         let id = compute_order_id(&order, 1234567890, &owner);
 
         // Should match direct market computation
-        let expected = compute_market_order_id(
-            1234567890,
-            "BTC-USD",
-            &owner,
-            true,
-            0.1,
-            false,
-        );
+        let expected = compute_market_order_id(1234567890, "BTC-USD", &owner, true, 0.1, false);
 
         assert_eq!(id, expected);
     }
@@ -377,13 +364,34 @@ mod tests {
         let nonce = 1234567890u64;
 
         let gtc_id = compute_limit_order_id(
-            nonce, "BTC-USD", &owner, true, 0.1, 100000.0, TimeInForce::Gtc, false
+            nonce,
+            "BTC-USD",
+            &owner,
+            true,
+            0.1,
+            100000.0,
+            TimeInForce::Gtc,
+            false,
         );
         let ioc_id = compute_limit_order_id(
-            nonce, "BTC-USD", &owner, true, 0.1, 100000.0, TimeInForce::Ioc, false
+            nonce,
+            "BTC-USD",
+            &owner,
+            true,
+            0.1,
+            100000.0,
+            TimeInForce::Ioc,
+            false,
         );
         let alo_id = compute_limit_order_id(
-            nonce, "BTC-USD", &owner, true, 0.1, 100000.0, TimeInForce::Alo, false
+            nonce,
+            "BTC-USD",
+            &owner,
+            true,
+            0.1,
+            100000.0,
+            TimeInForce::Alo,
+            false,
         );
 
         // Different TIF = different IDs

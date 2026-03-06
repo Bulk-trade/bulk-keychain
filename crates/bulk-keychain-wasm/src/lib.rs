@@ -4,10 +4,9 @@
 //! enabling high-performance transaction signing in browser environments.
 
 use bulk_keychain::{
-    Cancel, CancelAll, Hash, Keypair, NonceManager, NonceStrategy, Order, OrderItem,
-    OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
-    finalize_transaction, prepare_all, prepare_group, prepare_message,
-    prepare_agent_wallet, prepare_faucet,
+    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
+    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, Order,
+    OrderItem, OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -123,12 +122,19 @@ impl WasmSigner {
 
     /// Create a signer with nonce management
     #[wasm_bindgen(js_name = withNonceManager)]
-    pub fn with_nonce_manager(keypair: &WasmKeypair, strategy: &str) -> Result<WasmSigner, JsError> {
+    pub fn with_nonce_manager(
+        keypair: &WasmKeypair,
+        strategy: &str,
+    ) -> Result<WasmSigner, JsError> {
         let nonce_strategy = match strategy {
             "timestamp" => NonceStrategy::Timestamp,
             "counter" => NonceStrategy::Counter,
             "highFrequency" => NonceStrategy::TimestampWithCounter,
-            _ => return Err(JsError::new("Invalid nonce strategy. Use 'timestamp', 'counter', or 'highFrequency'")),
+            _ => {
+                return Err(JsError::new(
+                    "Invalid nonce strategy. Use 'timestamp', 'counter', or 'highFrequency'",
+                ))
+            }
         };
         let nonce_manager = NonceManager::new(nonce_strategy);
         Ok(Self {
@@ -142,6 +148,30 @@ impl WasmSigner {
         self.inner.pubkey().to_base58()
     }
 
+    /// Enable/disable single-order ID computation.
+    #[wasm_bindgen(js_name = setComputeOrderId)]
+    pub fn set_compute_order_id(&mut self, enabled: bool) {
+        self.inner.set_order_id(enabled);
+    }
+
+    /// Enable/disable batch order ID computation for multi-order transactions.
+    #[wasm_bindgen(js_name = setComputeBatchOrderIds)]
+    pub fn set_compute_batch_order_ids(&mut self, enabled: bool) {
+        self.inner.set_batch_order_ids(enabled);
+    }
+
+    /// Whether single-order ID computation is enabled.
+    #[wasm_bindgen(js_name = computesOrderId)]
+    pub fn computes_order_id(&self) -> bool {
+        self.inner.computes_order_id()
+    }
+
+    /// Whether batch order ID computation is enabled.
+    #[wasm_bindgen(js_name = computesBatchOrderIds)]
+    pub fn computes_batch_order_ids(&self) -> bool {
+        self.inner.computes_batch_order_ids()
+    }
+
     // ========================================================================
     // Simplified API
     // ========================================================================
@@ -152,7 +182,9 @@ impl WasmSigner {
         let order_input: OrderInput =
             serde_wasm_bindgen::from_value(order).map_err(|e| JsError::new(&e.to_string()))?;
 
-        let order_item: OrderItem = order_input.try_into().map_err(|e: String| JsError::new(&e))?;
+        let order_item: OrderItem = order_input
+            .try_into()
+            .map_err(|e: String| JsError::new(&e))?;
         let nonce_val = nonce.map(|n| n as u64);
 
         let signed = self
@@ -276,8 +308,8 @@ impl WasmSigner {
     ) -> Result<JsValue, JsError> {
         #[allow(deprecated)]
         {
-            let batch_inputs: Vec<Vec<OrderInput>> =
-                serde_wasm_bindgen::from_value(batches).map_err(|e| JsError::new(&e.to_string()))?;
+            let batch_inputs: Vec<Vec<OrderInput>> = serde_wasm_bindgen::from_value(batches)
+                .map_err(|e| JsError::new(&e.to_string()))?;
 
             let order_batches: Result<Vec<Vec<OrderItem>>, String> = batch_inputs
                 .into_iter()
@@ -313,6 +345,7 @@ struct OrderInput {
     order_type: Option<OrderTypeInput>,
     client_id: Option<String>,
     order_id: Option<String>,
+    amount: Option<f64>,
     symbols: Option<Vec<String>>,
 }
 
@@ -393,6 +426,14 @@ impl TryFrom<OrderInput> for OrderItem {
                     .map_err(|e| format!("Invalid orderId: {}", e))?;
 
                 Ok(OrderItem::Cancel(Cancel::new(symbol, order_id)))
+            }
+            "modify" => {
+                let symbol = input.symbol.ok_or("modify.symbol is required")?;
+                let order_id_str = input.order_id.ok_or("modify.orderId is required")?;
+                let amount = input.amount.ok_or("modify.amount is required")?;
+                let order_id = Hash::from_base58(&order_id_str)
+                    .map_err(|e| format!("Invalid orderId: {}", e))?;
+                Ok(OrderItem::Modify(Modify::new(order_id, symbol, amount)))
             }
             "cancelAll" => {
                 let symbols = input.symbols.unwrap_or_default();
@@ -479,16 +520,22 @@ impl WasmPreparedMessage {
         self.inner.message_hex()
     }
 
-    /// Get the pre-computed order ID
+    /// Get the pre-computed order ID (single-order tx only)
     #[wasm_bindgen(getter, js_name = orderId)]
-    pub fn order_id(&self) -> String {
+    pub fn order_id(&self) -> Option<String> {
         self.inner.order_id.clone()
     }
 
-    /// Get the action JSON
+    /// Get pre-computed order IDs (multi-order tx only)
+    #[wasm_bindgen(getter, js_name = orderIds)]
+    pub fn order_ids(&self) -> Option<Vec<String>> {
+        self.inner.order_ids.clone()
+    }
+
+    /// Get the actions JSON
     #[wasm_bindgen(getter)]
-    pub fn action(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.inner.action).unwrap_or(JsValue::NULL)
+    pub fn actions(&self) -> JsValue {
+        serde_wasm_bindgen::to_value(&self.inner.actions).unwrap_or(JsValue::NULL)
     }
 
     /// Get the account public key (base58)
@@ -554,13 +601,18 @@ struct PrepareOptions {
 /// const signed = prepared.finalize(signature);
 /// ```
 #[wasm_bindgen(js_name = prepareOrder)]
-pub fn wasm_prepare_order(order: JsValue, options: JsValue) -> Result<WasmPreparedMessage, JsError> {
+pub fn wasm_prepare_order(
+    order: JsValue,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
     let order_input: OrderInput =
         serde_wasm_bindgen::from_value(order).map_err(|e| JsError::new(&e.to_string()))?;
     let opts: PrepareOptions =
         serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
 
-    let order_item: OrderItem = order_input.try_into().map_err(|e: String| JsError::new(&e))?;
+    let order_item: OrderItem = order_input
+        .try_into()
+        .map_err(|e: String| JsError::new(&e))?;
     let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
     let signer = opts
         .signer
@@ -581,7 +633,10 @@ pub fn wasm_prepare_order(order: JsValue, options: JsValue) -> Result<WasmPrepar
 /// @param options - { account: string, signer?: string, nonce?: number }
 /// @returns Array of PreparedMessage
 #[wasm_bindgen(js_name = prepareAll)]
-pub fn wasm_prepare_all(orders: JsValue, options: JsValue) -> Result<Vec<WasmPreparedMessage>, JsError> {
+pub fn wasm_prepare_all(
+    orders: JsValue,
+    options: JsValue,
+) -> Result<Vec<WasmPreparedMessage>, JsError> {
     let order_inputs: Vec<OrderInput> =
         serde_wasm_bindgen::from_value(orders).map_err(|e| JsError::new(&e.to_string()))?;
     let opts: PrepareOptions =
@@ -602,7 +657,10 @@ pub fn wasm_prepare_all(orders: JsValue, options: JsValue) -> Result<Vec<WasmPre
     let prepared = prepare_all(order_items, &account, signer.as_ref(), base_nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
-    Ok(prepared.into_iter().map(|p| WasmPreparedMessage { inner: p }).collect())
+    Ok(prepared
+        .into_iter()
+        .map(|p| WasmPreparedMessage { inner: p })
+        .collect())
 }
 
 /// Prepare multiple orders as ONE atomic transaction
@@ -613,7 +671,10 @@ pub fn wasm_prepare_all(orders: JsValue, options: JsValue) -> Result<Vec<WasmPre
 /// @param options - { account: string, signer?: string, nonce?: number }
 /// @returns Single PreparedMessage containing all orders
 #[wasm_bindgen(js_name = prepareGroup)]
-pub fn wasm_prepare_group(orders: JsValue, options: JsValue) -> Result<WasmPreparedMessage, JsError> {
+pub fn wasm_prepare_group(
+    orders: JsValue,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
     let order_inputs: Vec<OrderInput> =
         serde_wasm_bindgen::from_value(orders).map_err(|e| JsError::new(&e.to_string()))?;
     let opts: PrepareOptions =

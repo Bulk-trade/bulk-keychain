@@ -18,6 +18,7 @@ async function main() {
 
   // 2. Create a signer
   const signer = new NativeSigner(keypair);
+  signer.setComputeBatchOrderIds(true);
   console.log(`Signer pubkey: ${signer.pubkey}`);
   console.log();
 
@@ -44,7 +45,7 @@ async function main() {
     size: 1.0,
     orderType: { type: "market", isMarket: true, triggerPx: 0 },
   });
-  console.log(`Action: ${signedMarket.action}`);
+  console.log(`Actions: ${signedMarket.actions}`);
   console.log();
 
   // 5. Sign multiple orders atomically (signGroup)
@@ -75,8 +76,9 @@ async function main() {
       orderType: { type: "limit", tif: "GTC" }, // Take profit
     },
   ]);
-  const bracketAction = JSON.parse(signedBracket.action);
-  console.log(`Bracket order: ${bracketAction.orders.length} orders in 1 tx`);
+  const bracketActions = JSON.parse(signedBracket.actions);
+  console.log(`Bracket order: ${bracketActions.length} actions in 1 tx`);
+  console.log(`Bracket order IDs: ${signedBracket.orderIds ?? []}`);
   console.log();
 
   // 6. Cancel order
@@ -126,8 +128,8 @@ async function main() {
   // 9. Sign faucet request
   console.log("--- Faucet Request ---");
   const signedFaucet = signer.signFaucet();
-  const faucetAction = JSON.parse(signedFaucet.action);
-  console.log(`Faucet action type: ${faucetAction.type}`);
+  const faucetActions = JSON.parse(signedFaucet.actions);
+  console.log(`Faucet action tag: ${Object.keys(faucetActions[0])[0]}`);
   console.log();
 
   // 10. Sign user settings
@@ -136,8 +138,8 @@ async function main() {
     { symbol: "BTC-USD", leverage: 5.0 },
     { symbol: "ETH-USD", leverage: 3.0 },
   ]);
-  const settingsAction = JSON.parse(signedSettings.action);
-  console.log(`Settings action type: ${settingsAction.type}`);
+  const settingsActions = JSON.parse(signedSettings.actions);
+  console.log(`Settings action tag: ${Object.keys(settingsActions[0])[0]}`);
 
   console.log("\n=== Done ===");
 }

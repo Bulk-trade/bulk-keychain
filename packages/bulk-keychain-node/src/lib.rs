@@ -4,9 +4,9 @@
 //! It's significantly faster than pure JavaScript or WASM implementations.
 
 use bulk_keychain::{
-    Cancel, CancelAll, Hash, Keypair, NonceManager, NonceStrategy, Order, OrderItem,
-    OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
-    prepare_all, prepare_group, prepare_message, prepare_agent_wallet, prepare_faucet,
+    prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
+    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, Order, OrderItem, OrderType,
+    PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -35,16 +35,14 @@ impl NativeKeypair {
     /// Create from base58-encoded secret key or full keypair
     #[napi(factory)]
     pub fn from_base58(s: String) -> Result<Self> {
-        let inner = Keypair::from_base58(&s)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let inner = Keypair::from_base58(&s).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(Self { inner })
     }
 
     /// Create from raw bytes (32-byte secret or 64-byte full keypair)
     #[napi(factory)]
     pub fn from_bytes(bytes: Buffer) -> Result<Self> {
-        let inner = Keypair::from_bytes(&bytes)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let inner = Keypair::from_bytes(&bytes).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(Self { inner })
     }
 
@@ -110,8 +108,7 @@ impl NativeSigner {
     /// Create a signer from base58-encoded secret key
     #[napi(factory)]
     pub fn from_base58(s: String) -> Result<Self> {
-        let keypair = Keypair::from_base58(&s)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let keypair = Keypair::from_base58(&s).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(Self {
             inner: Signer::new(keypair),
         })
@@ -124,9 +121,11 @@ impl NativeSigner {
             "timestamp" => NonceStrategy::Timestamp,
             "counter" => NonceStrategy::Counter,
             "highFrequency" => NonceStrategy::TimestampWithCounter,
-            _ => return Err(Error::from_reason(
-                "Invalid nonce strategy. Use 'timestamp', 'counter', or 'highFrequency'",
-            )),
+            _ => {
+                return Err(Error::from_reason(
+                    "Invalid nonce strategy. Use 'timestamp', 'counter', or 'highFrequency'",
+                ))
+            }
         };
         let nonce_manager = NonceManager::new(nonce_strategy);
         Ok(Self {
@@ -138,6 +137,30 @@ impl NativeSigner {
     #[napi(getter)]
     pub fn pubkey(&self) -> String {
         self.inner.pubkey().to_base58()
+    }
+
+    /// Enable/disable single-order ID computation.
+    #[napi(js_name = setComputeOrderId)]
+    pub fn set_compute_order_id(&mut self, enabled: bool) {
+        self.inner.set_order_id(enabled);
+    }
+
+    /// Enable/disable batch order ID computation for multi-order transactions.
+    #[napi(js_name = setComputeBatchOrderIds)]
+    pub fn set_compute_batch_order_ids(&mut self, enabled: bool) {
+        self.inner.set_batch_order_ids(enabled);
+    }
+
+    /// Whether single-order ID computation is enabled.
+    #[napi(js_name = computesOrderId)]
+    pub fn computes_order_id(&self) -> bool {
+        self.inner.computes_order_id()
+    }
+
+    /// Whether batch order ID computation is enabled.
+    #[napi(js_name = computesBatchOrderIds)]
+    pub fn computes_batch_order_ids(&self) -> bool {
+        self.inner.computes_batch_order_ids()
     }
 
     // ========================================================================
@@ -160,7 +183,7 @@ impl NativeSigner {
     ) -> Result<SignedTransactionOutput> {
         let order_item: OrderItem = order.try_into()?;
         let nonce_val = nonce.map(|n| n as u64);
-        
+
         let signed = self
             .inner
             .sign(order_item, nonce_val)
@@ -185,7 +208,8 @@ impl NativeSigner {
         orders: Vec<OrderInput>,
         base_nonce: Option<f64>,
     ) -> Result<Vec<SignedTransactionOutput>> {
-        let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
+        let order_items: Result<Vec<OrderItem>> =
+            orders.into_iter().map(|o| o.try_into()).collect();
         let order_items = order_items?;
 
         let base = base_nonce.map(|n| n as u64);
@@ -213,7 +237,8 @@ impl NativeSigner {
         orders: Vec<OrderInput>,
         nonce: Option<f64>,
     ) -> Result<SignedTransactionOutput> {
-        let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
+        let order_items: Result<Vec<OrderItem>> =
+            orders.into_iter().map(|o| o.try_into()).collect();
         let order_items = order_items?;
 
         let nonce_val = nonce.map(|n| n as u64);
@@ -249,8 +274,8 @@ impl NativeSigner {
         delete: bool,
         nonce: Option<f64>,
     ) -> Result<SignedTransactionOutput> {
-        let agent = Pubkey::from_base58(&agent_pubkey)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+        let agent =
+            Pubkey::from_base58(&agent_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
         let nonce_val = nonce.map(|n| n as u64);
 
         let signed = self
@@ -341,6 +366,7 @@ pub struct OrderInput {
     pub order_type: Option<OrderTypeInput>,
     pub client_id: Option<String>,
     pub order_id: Option<String>,
+    pub amount: Option<f64>,
     pub symbols: Option<Vec<String>>,
 }
 
@@ -364,8 +390,10 @@ pub struct LeverageSetting {
 #[napi(object)]
 #[derive(Debug)]
 pub struct SignedTransactionOutput {
-    /// Action JSON as string
-    pub action: String,
+    /// Actions JSON as string
+    pub actions: String,
+    /// Nonce
+    pub nonce: f64,
     /// Account public key (base58)
     pub account: String,
     /// Signer public key (base58)
@@ -376,16 +404,20 @@ pub struct SignedTransactionOutput {
     /// This is SHA256(wincode_bytes), matching BULK's server-side ID generation.
     /// Available before server response for optimistic tracking.
     pub order_id: Option<String>,
+    /// Optional pre-computed order IDs for multi-order transactions.
+    pub order_ids: Option<Vec<String>>,
 }
 
 impl From<bulk_keychain::SignedTransaction> for SignedTransactionOutput {
     fn from(tx: bulk_keychain::SignedTransaction) -> Self {
         Self {
-            action: serde_json::to_string(&tx.action).unwrap_or_default(),
+            actions: serde_json::to_string(&tx.actions).unwrap_or_default(),
+            nonce: tx.nonce as f64,
             account: tx.account,
             signer: tx.signer,
             signature: tx.signature,
             order_id: tx.order_id,
+            order_ids: tx.order_ids,
         }
     }
 }
@@ -396,10 +428,18 @@ impl TryFrom<OrderInput> for OrderItem {
     fn try_from(input: OrderInput) -> Result<Self> {
         match input.item_type.as_str() {
             "order" => {
-                let symbol = input.symbol.ok_or_else(|| Error::from_reason("order.symbol is required"))?;
-                let is_buy = input.is_buy.ok_or_else(|| Error::from_reason("order.isBuy is required"))?;
-                let price = input.price.ok_or_else(|| Error::from_reason("order.price is required"))?;
-                let size = input.size.ok_or_else(|| Error::from_reason("order.size is required"))?;
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("order.symbol is required"))?;
+                let is_buy = input
+                    .is_buy
+                    .ok_or_else(|| Error::from_reason("order.isBuy is required"))?;
+                let price = input
+                    .price
+                    .ok_or_else(|| Error::from_reason("order.price is required"))?;
+                let size = input
+                    .size
+                    .ok_or_else(|| Error::from_reason("order.size is required"))?;
                 let reduce_only = input.reduce_only.unwrap_or(false);
 
                 let order_type = match input.order_type {
@@ -410,7 +450,12 @@ impl TryFrom<OrderInput> for OrderItem {
                                 "GTC" => TimeInForce::Gtc,
                                 "IOC" => TimeInForce::Ioc,
                                 "ALO" => TimeInForce::Alo,
-                                _ => return Err(Error::from_reason(format!("Invalid tif: {}", tif_str))),
+                                _ => {
+                                    return Err(Error::from_reason(format!(
+                                        "Invalid tif: {}",
+                                        tif_str
+                                    )))
+                                }
                             };
                             OrderType::limit(tif)
                         }
@@ -418,7 +463,12 @@ impl TryFrom<OrderInput> for OrderItem {
                             is_market: ot.is_market.unwrap_or(true),
                             trigger_px: ot.trigger_px.unwrap_or(0.0),
                         },
-                        _ => return Err(Error::from_reason(format!("Invalid orderType: {}", ot.type_name))),
+                        _ => {
+                            return Err(Error::from_reason(format!(
+                                "Invalid orderType: {}",
+                                ot.type_name
+                            )))
+                        }
                     },
                     None => OrderType::limit(TimeInForce::Gtc),
                 };
@@ -445,18 +495,39 @@ impl TryFrom<OrderInput> for OrderItem {
                 Ok(OrderItem::Order(order))
             }
             "cancel" => {
-                let symbol = input.symbol.ok_or_else(|| Error::from_reason("cancel.symbol is required"))?;
-                let order_id_str = input.order_id.ok_or_else(|| Error::from_reason("cancel.orderId is required"))?;
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("cancel.symbol is required"))?;
+                let order_id_str = input
+                    .order_id
+                    .ok_or_else(|| Error::from_reason("cancel.orderId is required"))?;
                 let order_id = Hash::from_base58(&order_id_str)
                     .map_err(|e| Error::from_reason(format!("Invalid orderId: {}", e)))?;
 
                 Ok(OrderItem::Cancel(Cancel::new(symbol, order_id)))
             }
+            "modify" => {
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("modify.symbol is required"))?;
+                let order_id_str = input
+                    .order_id
+                    .ok_or_else(|| Error::from_reason("modify.orderId is required"))?;
+                let amount = input
+                    .amount
+                    .ok_or_else(|| Error::from_reason("modify.amount is required"))?;
+                let order_id = Hash::from_base58(&order_id_str)
+                    .map_err(|e| Error::from_reason(format!("Invalid orderId: {}", e)))?;
+                Ok(OrderItem::Modify(Modify::new(order_id, symbol, amount)))
+            }
             "cancelAll" => {
                 let symbols = input.symbols.unwrap_or_default();
                 Ok(OrderItem::CancelAll(CancelAll::for_symbols(symbols)))
             }
-            _ => Err(Error::from_reason(format!("Invalid item type: {}", input.item_type))),
+            _ => Err(Error::from_reason(format!(
+                "Invalid item type: {}",
+                input.item_type
+            ))),
         }
     }
 }
@@ -526,9 +597,11 @@ pub struct PreparedMessageOutput {
     /// Message as hex string
     pub message_hex: String,
     /// Pre-computed order ID (base58)
-    pub order_id: String,
-    /// Action JSON as string
-    pub action: String,
+    pub order_id: Option<String>,
+    /// Optional pre-computed order IDs for multi-order transactions.
+    pub order_ids: Option<Vec<String>>,
+    /// Actions JSON as string
+    pub actions: String,
     /// Account public key (base58)
     pub account: String,
     /// Signer public key (base58)
@@ -545,7 +618,8 @@ impl From<PreparedMessage> for PreparedMessageOutput {
             message_base64: p.message_base64(),
             message_hex: p.message_hex(),
             order_id: p.order_id,
-            action: serde_json::to_string(&p.action).unwrap_or_default(),
+            order_ids: p.order_ids,
+            actions: serde_json::to_string(&p.actions).unwrap_or_default(),
             account: p.account,
             signer: p.signer,
             nonce: p.nonce as f64,
@@ -567,8 +641,8 @@ impl From<PreparedMessage> for PreparedMessageOutput {
 #[napi]
 pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<PreparedMessageOutput> {
     let order_item: OrderItem = order.try_into()?;
-    let account = Pubkey::from_base58(&options.account)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
         .signer
         .map(|s| Pubkey::from_base58(&s))
@@ -600,8 +674,8 @@ pub fn prepare_all_orders(
     let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
     let order_items = order_items?;
 
-    let account = Pubkey::from_base58(&options.account)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
         .signer
         .map(|s| Pubkey::from_base58(&s))
@@ -634,8 +708,8 @@ pub fn prepare_order_group(
     let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
     let order_items = order_items?;
 
-    let account = Pubkey::from_base58(&options.account)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
         .signer
         .map(|s| Pubkey::from_base58(&s))
@@ -663,10 +737,10 @@ pub fn prepare_agent_wallet_auth(
     delete: bool,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
-    let agent = Pubkey::from_base58(&agent_pubkey)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
-    let account = Pubkey::from_base58(&options.account)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let agent =
+        Pubkey::from_base58(&agent_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
         .signer
         .map(|s| Pubkey::from_base58(&s))
@@ -683,8 +757,8 @@ pub fn prepare_agent_wallet_auth(
 /// Prepare faucet request for external signing
 #[napi]
 pub fn prepare_faucet_request(options: PrepareOptions) -> Result<PreparedMessageOutput> {
-    let account = Pubkey::from_base58(&options.account)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
         .signer
         .map(|s| Pubkey::from_base58(&s))
@@ -716,13 +790,16 @@ pub fn finalize_prepared_transaction(
     signature: String,
 ) -> SignedTransactionOutput {
     // Reconstruct the PreparedMessage (we only need the fields for finalization)
-    let action: serde_json::Value = serde_json::from_str(&prepared.action).unwrap_or_default();
+    let actions: Vec<serde_json::Value> =
+        serde_json::from_str(&prepared.actions).unwrap_or_default();
     let signed = bulk_keychain::SignedTransaction {
-        action,
+        actions,
+        nonce: prepared.nonce as u64,
         account: prepared.account,
         signer: prepared.signer,
         signature,
-        order_id: Some(prepared.order_id),
+        order_id: prepared.order_id,
+        order_ids: prepared.order_ids,
     };
     signed.into()
 }

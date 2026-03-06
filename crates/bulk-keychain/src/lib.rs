@@ -15,7 +15,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use bulk_keychain::{Keypair, Signer, Order, OrderType, TimeInForce};
+//! use bulk_keychain::{Keypair, Signer, Order, TimeInForce};
 //!
 //! // Generate a new keypair
 //! let keypair = Keypair::generate();
@@ -25,7 +25,7 @@
 //!
 //! // Sign the transaction
 //! let mut signer = Signer::new(keypair);
-//! let signed_tx = signer.sign_order(vec![order.into()], None).unwrap();
+//! let signed_tx = signer.sign(order.into(), None).unwrap();
 //! ```
 //!
 //! ## Batch Signing
@@ -36,15 +36,15 @@
 //! use bulk_keychain::{Keypair, Signer, Order, TimeInForce};
 //!
 //! let keypair = Keypair::generate();
-//! let signer = Signer::new(keypair);
+//! let mut signer = Signer::new(keypair);
 //!
-//! // Create many orders
+//! // Create many independent orders
 //! let orders: Vec<_> = (0..1000)
-//!     .map(|i| vec![Order::limit("BTC-USD", i % 2 == 0, 100000.0 + i as f64, 0.1, TimeInForce::Gtc).into()])
+//!     .map(|i| Order::limit("BTC-USD", i % 2 == 0, 100000.0 + i as f64, 0.1, TimeInForce::Gtc).into())
 //!     .collect();
 //!
 //! // Sign all at once - automatically uses parallel signing for large batches
-//! let signed_txs = signer.sign_orders_batch(orders, None).unwrap();
+//! let signed_txs = signer.sign_all(orders, None).unwrap();
 //! ```
 
 mod error;
@@ -60,13 +60,12 @@ pub use error::{Error, Result};
 pub use keypair::Keypair;
 pub use nonce::{NonceManager, NonceStrategy};
 pub use order_id::{
-    compute_limit_order_id, compute_market_order_id, compute_order_id,
-    compute_order_item_id,
+    compute_limit_order_id, compute_market_order_id, compute_order_id, compute_order_item_id,
 };
 pub use prepare::{
-    finalize_all, finalize_transaction, finalize_transaction_bytes,
-    prepare_action, prepare_agent_wallet, prepare_all, prepare_faucet,
-    prepare_group, prepare_message, prepare_user_settings, PreparedMessage,
+    finalize_all, finalize_transaction, finalize_transaction_bytes, prepare_action,
+    prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message,
+    prepare_user_settings, PreparedMessage,
 };
 pub use sign::Signer;
 pub use types::*;

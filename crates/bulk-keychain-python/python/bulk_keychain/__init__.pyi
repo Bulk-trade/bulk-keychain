@@ -32,14 +32,22 @@ class CancelAllItem(TypedDict):
     type: Literal["cancel_all"]
     symbols: NotRequired[list[str]]
 
-OrderItemType = OrderItem | CancelItem | CancelAllItem
+class ModifyItem(TypedDict):
+    type: Literal["modify"]
+    symbol: str
+    order_id: str
+    amount: float
+
+OrderItemType = OrderItem | CancelItem | CancelAllItem | ModifyItem
 
 class SignedTransaction(TypedDict):
-    action: dict[str, Any]
+    actions: list[dict[str, Any]]
+    nonce: int
     account: str
     signer: str
     signature: str
-    order_id: NotRequired[str]  # Pre-computed order ID (SHA256 of wincode bytes)
+    order_id: NotRequired[str]  # Optional pre-computed order ID (single-order tx only)
+    order_ids: NotRequired[list[str]]  # Optional pre-computed order IDs (multi-order tx only)
 
 class Keypair:
     """Ed25519 keypair for signing transactions"""
@@ -98,6 +106,22 @@ class Signer:
     @property
     def pubkey(self) -> str:
         """Get the signer's public key"""
+        ...
+
+    def set_compute_order_id(self, enabled: bool) -> None:
+        """Enable/disable single-order ID computation"""
+        ...
+
+    def set_compute_batch_order_ids(self, enabled: bool) -> None:
+        """Enable/disable batch order ID computation for multi-order transactions"""
+        ...
+
+    def computes_order_id(self) -> bool:
+        """Whether single-order ID computation is enabled"""
+        ...
+
+    def computes_batch_order_ids(self) -> bool:
+        """Whether batch order ID computation is enabled"""
         ...
 
     # ========================================================================
@@ -213,13 +237,14 @@ class PreparedMessage(TypedDict):
     message_base58: str       # Base58 encoded message
     message_base64: str       # Base64 encoded message
     message_hex: str          # Hex encoded message
-    order_id: str             # Pre-computed order ID
-    action: dict[str, Any]    # Action JSON for API
+    order_id: NotRequired[str]  # Optional pre-computed order ID
+    order_ids: NotRequired[list[str]]  # Optional pre-computed order IDs for multi-order tx
+    actions: list[dict[str, Any]]  # Compact tagged actions for API
     account: str              # Account public key (base58)
     signer: str               # Signer public key (base58)
     nonce: int                # Nonce used
 
-def py_prepare_order(
+def prepare_order(
     order: OrderItemType,
     account: str,
     signer: str | None = None,
@@ -231,13 +256,13 @@ def py_prepare_order(
     to sign with an external wallet.
     
     Example:
-        prepared = py_prepare_order(order, "account_pubkey")
+        prepared = prepare_order(order, "account_pubkey")
         signature = wallet.sign_message(prepared["message_bytes"])
-        signed = py_finalize_transaction(prepared, signature)
+        signed = finalize_transaction(prepared, signature)
     """
     ...
 
-def py_prepare_all_orders(
+def prepare_all_orders(
     orders: list[OrderItemType],
     account: str,
     signer: str | None = None,
@@ -246,7 +271,7 @@ def py_prepare_all_orders(
     """Prepare multiple orders - each becomes its own transaction (parallel)"""
     ...
 
-def py_prepare_order_group(
+def prepare_order_group(
     orders: list[OrderItemType],
     account: str,
     signer: str | None = None,
@@ -258,7 +283,7 @@ def py_prepare_order_group(
     """
     ...
 
-def py_prepare_agent_wallet_auth(
+def prepare_agent_wallet(
     agent_pubkey: str,
     delete: bool,
     account: str,
@@ -268,7 +293,7 @@ def py_prepare_agent_wallet_auth(
     """Prepare agent wallet creation for external signing"""
     ...
 
-def py_prepare_faucet_request(
+def prepare_faucet(
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -276,7 +301,7 @@ def py_prepare_faucet_request(
     """Prepare faucet request for external signing"""
     ...
 
-def py_finalize_transaction(
+def finalize_transaction(
     prepared: PreparedMessage,
     signature: str
 ) -> SignedTransaction:

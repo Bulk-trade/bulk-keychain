@@ -3,9 +3,9 @@
 //! This module provides high-performance Python bindings using PyO3.
 
 use bulk_keychain::{
-    Cancel, CancelAll, Hash, Keypair, NonceManager, NonceStrategy, Order, OrderItem,
-    OrderType, PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
-    prepare_all, prepare_group, prepare_message, prepare_agent_wallet, prepare_faucet,
+    prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
+    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, Order, OrderItem, OrderType,
+    PreparedMessage, Pubkey, Signer, TimeInForce, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -129,6 +129,26 @@ impl PySigner {
         self.inner.pubkey().to_base58()
     }
 
+    /// Enable/disable single-order ID computation.
+    fn set_compute_order_id(&mut self, enabled: bool) {
+        self.inner.set_order_id(enabled);
+    }
+
+    /// Enable/disable batch order ID computation for multi-order transactions.
+    fn set_compute_batch_order_ids(&mut self, enabled: bool) {
+        self.inner.set_batch_order_ids(enabled);
+    }
+
+    /// Whether single-order ID computation is enabled.
+    fn computes_order_id(&self) -> bool {
+        self.inner.computes_order_id()
+    }
+
+    /// Whether batch order ID computation is enabled.
+    fn computes_batch_order_ids(&self) -> bool {
+        self.inner.computes_batch_order_ids()
+    }
+
     // ========================================================================
     // Simplified API
     // ========================================================================
@@ -160,10 +180,8 @@ impl PySigner {
     ///     signed_txs = signer.sign_all([order1, order2, order3])  # Returns list
     #[pyo3(signature = (orders, base_nonce=None))]
     fn sign_all(&self, orders: &Bound<'_, PyList>, base_nonce: Option<u64>) -> PyResult<PyObject> {
-        let order_items: PyResult<Vec<OrderItem>> = orders
-            .iter()
-            .map(|item| parse_order_item(&item))
-            .collect();
+        let order_items: PyResult<Vec<OrderItem>> =
+            orders.iter().map(|item| parse_order_item(&item)).collect();
         let order_items = order_items?;
 
         let signed = self
@@ -190,10 +208,8 @@ impl PySigner {
     ///     signed = signer.sign_group(bracket)  # Single transaction
     #[pyo3(signature = (orders, nonce=None))]
     fn sign_group(&mut self, orders: &Bound<'_, PyList>, nonce: Option<u64>) -> PyResult<PyObject> {
-        let order_items: PyResult<Vec<OrderItem>> = orders
-            .iter()
-            .map(|item| parse_order_item(&item))
-            .collect();
+        let order_items: PyResult<Vec<OrderItem>> =
+            orders.iter().map(|item| parse_order_item(&item)).collect();
         let order_items = order_items?;
 
         let signed = self
@@ -394,7 +410,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
 
             let client_id = if let Some(cid) = dict.get_item("client_id")? {
                 let cid_str: String = cid.extract()?;
-                Some(Hash::from_base58(&cid_str).map_err(|e| PyValueError::new_err(e.to_string()))?)
+                Some(
+                    Hash::from_base58(&cid_str)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))?,
+                )
             } else {
                 None
             };
@@ -423,6 +442,23 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
 
             Ok(OrderItem::Cancel(Cancel::new(symbol, order_id)))
         }
+        "modify" => {
+            let symbol: String = dict
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                .extract()?;
+            let order_id_str: String = dict
+                .get_item("order_id")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'order_id'"))?
+                .extract()?;
+            let amount: f64 = dict
+                .get_item("amount")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'amount'"))?
+                .extract()?;
+            let order_id = Hash::from_base58(&order_id_str)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            Ok(OrderItem::Modify(Modify::new(order_id, symbol, amount)))
+        }
         "cancel_all" => {
             let symbols: Vec<String> = dict
                 .get_item("symbols")?
@@ -440,13 +476,21 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
 
 fn signed_to_py(py: Python<'_>, signed: &bulk_keychain::SignedTransaction) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
-    dict.set_item("action", json_to_py(py, &signed.action)?)?;
+    dict.set_item(
+        "actions",
+        json_to_py(py, &serde_json::Value::Array(signed.actions.clone()))?,
+    )?;
+    dict.set_item("nonce", signed.nonce)?;
     dict.set_item("account", &signed.account)?;
     dict.set_item("signer", &signed.signer)?;
     dict.set_item("signature", &signed.signature)?;
-    // Include order_id if computed (SHA256 of wincode bytes, matches BULK's server-side ID)
+    // Include order_id if available (single order transactions)
     if let Some(ref order_id) = signed.order_id {
         dict.set_item("order_id", order_id)?;
+    }
+    // Include order_ids if available (multi-order transactions)
+    if let Some(ref order_ids) = signed.order_ids {
+        dict.set_item("order_ids", order_ids)?;
     }
     Ok(dict.into())
 }
@@ -526,14 +570,25 @@ fn compute_order_id(wincode_bytes: &[u8]) -> String {
 fn prepared_to_py(py: Python<'_>, prepared: &PreparedMessage) -> PyResult<PyObject> {
     let dict = PyDict::new(py);
     // Raw bytes as Python bytes
-    dict.set_item("message_bytes", pyo3::types::PyBytes::new(py, &prepared.message_bytes))?;
+    dict.set_item(
+        "message_bytes",
+        pyo3::types::PyBytes::new(py, &prepared.message_bytes),
+    )?;
     // Format helpers
     dict.set_item("message_base58", &prepared.message_base58())?;
     dict.set_item("message_base64", &prepared.message_base64())?;
     dict.set_item("message_hex", &prepared.message_hex())?;
     // Metadata
-    dict.set_item("order_id", &prepared.order_id)?;
-    dict.set_item("action", json_to_py(py, &prepared.action)?)?;
+    if let Some(ref order_id) = prepared.order_id {
+        dict.set_item("order_id", order_id)?;
+    }
+    if let Some(ref order_ids) = prepared.order_ids {
+        dict.set_item("order_ids", order_ids)?;
+    }
+    dict.set_item(
+        "actions",
+        json_to_py(py, &serde_json::Value::Array(prepared.actions.clone()))?,
+    )?;
     dict.set_item("account", &prepared.account)?;
     dict.set_item("signer", &prepared.signer)?;
     dict.set_item("nonce", prepared.nonce)?;
@@ -567,7 +622,8 @@ fn py_prepare_order(
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
     let order_item = parse_order_item(order)?;
-    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
         .map(|s| Pubkey::from_base58(s))
         .transpose()
@@ -593,13 +649,12 @@ fn py_prepare_all_orders(
     signer: Option<&str>,
     base_nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    let order_items: PyResult<Vec<OrderItem>> = orders
-        .iter()
-        .map(|item| parse_order_item(&item))
-        .collect();
+    let order_items: PyResult<Vec<OrderItem>> =
+        orders.iter().map(|item| parse_order_item(&item)).collect();
     let order_items = order_items?;
 
-    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
         .map(|s| Pubkey::from_base58(s))
         .transpose()
@@ -632,13 +687,12 @@ fn py_prepare_order_group(
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    let order_items: PyResult<Vec<OrderItem>> = orders
-        .iter()
-        .map(|item| parse_order_item(&item))
-        .collect();
+    let order_items: PyResult<Vec<OrderItem>> =
+        orders.iter().map(|item| parse_order_item(&item)).collect();
     let order_items = order_items?;
 
-    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
         .map(|s| Pubkey::from_base58(s))
         .transpose()
@@ -663,8 +717,10 @@ fn py_prepare_agent_wallet_auth(
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    let agent = Pubkey::from_base58(agent_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let agent =
+        Pubkey::from_base58(agent_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
         .map(|s| Pubkey::from_base58(s))
         .transpose()
@@ -684,7 +740,8 @@ fn py_prepare_faucet_request(
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    let account_pk = Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
         .map(|s| Pubkey::from_base58(s))
         .transpose()
@@ -719,21 +776,35 @@ fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyR
         .get_item("signer")?
         .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
         .extract()?;
-    let order_id: String = prepared
-        .get_item("order_id")?
-        .ok_or_else(|| PyValueError::new_err("Missing 'order_id'"))?
+    let nonce: u64 = prepared
+        .get_item("nonce")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'nonce'"))?
         .extract()?;
-    let action = prepared
-        .get_item("action")?
-        .ok_or_else(|| PyValueError::new_err("Missing 'action'"))?;
+    let actions = prepared
+        .get_item("actions")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
+    let order_id: Option<String> = prepared
+        .get_item("order_id")?
+        .map(|v| v.extract())
+        .transpose()?;
+    let order_ids: Option<Vec<String>> = prepared
+        .get_item("order_ids")?
+        .map(|v| v.extract())
+        .transpose()?;
 
     Python::with_gil(|py| {
         let dict = PyDict::new(py);
-        dict.set_item("action", action)?;
+        dict.set_item("actions", actions)?;
+        dict.set_item("nonce", nonce)?;
         dict.set_item("account", &account)?;
         dict.set_item("signer", &signer)?;
         dict.set_item("signature", signature)?;
-        dict.set_item("order_id", &order_id)?;
+        if let Some(order_id) = order_id {
+            dict.set_item("order_id", &order_id)?;
+        }
+        if let Some(order_ids) = order_ids {
+            dict.set_item("order_ids", &order_ids)?;
+        }
         Ok(dict.into())
     })
 }

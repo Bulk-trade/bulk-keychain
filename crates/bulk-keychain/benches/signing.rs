@@ -24,7 +24,14 @@ fn bench_batch_sign(c: &mut Criterion) {
     // Create 100 order batches
     let batches: Vec<Vec<OrderItem>> = (0..100)
         .map(|i| {
-            vec![Order::limit("BTC-USD", i % 2 == 0, 100000.0 + i as f64, 0.1, TimeInForce::Gtc).into()]
+            vec![Order::limit(
+                "BTC-USD",
+                i % 2 == 0,
+                100000.0 + i as f64,
+                0.1,
+                TimeInForce::Gtc,
+            )
+            .into()]
         })
         .collect();
 
@@ -57,12 +64,14 @@ fn bench_serialization(c: &mut Criterion) {
         let mut serializer = WincodeSerializer::new();
         b.iter(|| {
             serializer.reset();
-            serializer.serialize_for_signing(
-                black_box(&action),
-                1234567890,
-                black_box(&account),
-                black_box(&signer_key),
-            );
+            serializer
+                .serialize_for_signing(
+                    black_box(&action),
+                    1234567890,
+                    black_box(&account),
+                    black_box(&signer_key),
+                )
+                .unwrap();
             black_box(serializer.as_bytes())
         })
     });

@@ -20,7 +20,7 @@ Get information about all available markets.
 
 **Request:**
 ```bash
-curl http://localhost:12001/api/v1/exchangeInfo
+curl http://localhost:12000/api/v1/exchangeInfo
 ```
 
 **Response:**
@@ -53,7 +53,7 @@ Get 24-hour statistics for a specific symbol.
 
 **Request:**
 ```bash
-curl http://localhost:12001/api/v1/ticker/BTC-USD
+curl http://localhost:12000/api/v1/ticker/BTC-USD
 ```
 
 **Response:**
@@ -70,9 +70,38 @@ curl http://localhost:12001/api/v1/ticker/BTC-USD
   "markPrice": 102780.0,
   "oraclePrice": 102775.0,
   "openInterest": 5432.1,
-  "fundingRate": 0.0001
+  "fundingRate": 0.0001,
+  "regime": 1,
+  "regimeDt": 93,
+  "regimeVol": 0.35,
+  "regimeMv": 0.02,
+  "fairBookPx": 102779.0,
+  "fairVol": 0.28,
+  "fairBias": 0.001,
+  "timestamp": 1704067200000000000
 }
 ```
+
+**Ticker Fields:**
+- `priceChange`: Absolute price change over 24h
+- `priceChangePercent`: Percentage price change over 24h
+- `lastPrice`: Last traded price
+- `highPrice`: 24h high
+- `lowPrice`: 24h low
+- `volume`: 24h base asset volume
+- `quoteVolume`: 24h quote asset volume
+- `markPrice`: Current fair/mark price
+- `oraclePrice`: Oracle-reported price
+- `openInterest`: Total open interest
+- `fundingRate`: Current funding rate
+- `regime`: Market regime indicator (-1, 0, 1)
+- `regimeDt`: Regime duration in 10s intervals
+- `regimeVol`: Regime-adjusted volatility
+- `regimeMv`: Regime mean value
+- `fairBookPx`: Fair price derived from order book
+- `fairVol`: Fair volatility estimate
+- `fairBias`: Fair price bias
+- `timestamp`: Timestamp (nanoseconds)
 
 ---
 
@@ -82,31 +111,16 @@ Get OHLCV candlestick data for charting.
 
 **Endpoint:** `GET /klines`
 
-**Request Body:**
-```json
-{
-  "symbol": "BTC-USD",
-  "interval": "1m",
-  "startTime": 1699564800000,
-  "endTime": 1699651200000
-}
-```
+**Query Parameters:**
+- `symbol` (String, required): Market symbol
+- `interval` (String, required): Timeframe (10s, 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w, 1M)
+- `startTime` (Number, optional): Start timestamp in milliseconds
+- `endTime` (Number, optional): End timestamp in milliseconds
 
 **Request:**
 ```bash
-curl -X GET http://localhost:12001/api/v1/klines \
-  -H "Content-Type: application/json" \
-  -d '{
-    "symbol": "BTC-USD",
-    "interval": "1m"
-  }'
+curl "http://localhost:12000/api/v1/klines?symbol=BTC-USD&interval=1m"
 ```
-
-**Parameters:**
-- `symbol` (String, required): Market symbol
-- `interval` (String, required): Timeframe (10s, 1m, 5m, 15m, 1h, 4h, 1d)
-- `startTime` (Number, optional): Start timestamp in milliseconds
-- `endTime` (Number, optional): End timestamp in milliseconds
 
 **Response:**
 ```json
@@ -120,16 +134,6 @@ curl -X GET http://localhost:12001/api/v1/klines \
     "c": 101950.0,
     "v": 1.6,
     "n": 3
-  },
-  {
-    "t": 1699564860000,
-    "T": 1699564920000,
-    "o": 101950.0,
-    "h": 102050.0,
-    "l": 101900.0,
-    "c": 102020.0,
-    "v": 2.1,
-    "n": 5
   }
 ]
 ```
@@ -146,7 +150,135 @@ curl -X GET http://localhost:12001/api/v1/klines \
 
 ---
 
-### 4. Get L2 Order Book
+### 4. Get Exchange Stats
+
+Get aggregate exchange statistics across all markets.
+
+**Endpoint:** `GET /stats`
+
+**Query Parameters:**
+- `period` (String, optional): Time period - "1d", "7d", "30d", "90d", "1y", "all" (default: "1d")
+- `period` aliases accepted: `24h`, `1w`, `1m`, `3m`, `365d` (echoed back as canonical value)
+- `symbol` (String, optional): Filter to single market (e.g., "BTC-USD")
+
+**Request:**
+```bash
+curl http://localhost:12000/api/v1/stats
+```
+
+**Request (filtered):**
+```bash
+curl "http://localhost:12000/api/v1/stats?symbol=BTC-USD&period=7d"
+```
+
+**Request (alias period):**
+```bash
+curl "http://localhost:12000/api/v1/stats?period=24h"
+```
+
+**Response:**
+```json
+{
+  "timestamp": 1704067200000,
+  "period": "1d",
+  "volume": {
+    "totalUsd": 126543210.0
+  },
+  "openInterest": {
+    "totalUsd": 54321000.0
+  },
+  "funding": {
+    "rates": {
+      "BTC-USD": {
+        "current": 0.0001,
+        "annualized": 0.1095
+      },
+      "ETH-USD": {
+        "current": 0.00008,
+        "annualized": 0.0876
+      }
+    }
+  },
+  "markets": [
+    {
+      "symbol": "BTC-USD",
+      "volume": 1234.56,
+      "quoteVolume": 126543210.0,
+      "openInterest": 50000000.0,
+      "fundingRate": 0.0001,
+      "fundingRateAnnualized": 0.1095,
+      "lastPrice": 102500.0,
+      "markPrice": 102480.0
+    }
+  ]
+}
+```
+
+**Behavior Notes:**
+- Aggregate queries (`symbol` omitted) are cached with a 600s TTL.
+- Symbol-specific queries bypass cache.
+- `period` is echoed in the response (`1d`, `7d`, `30d`, `90d`, `1y`, `all`).
+- Unknown `symbol` returns `200` with empty `markets` and zero totals (not `404`).
+
+---
+
+### 5. Runtime Metrics
+
+Get the runtime metrics snapshot JSON.
+
+**Endpoints:** `GET /metrics` and `GET /api/v1/metrics`
+
+**Request:**
+```bash
+curl http://localhost:12000/metrics
+```
+
+**Response:**
+```json
+{
+  "node_id": 0,
+  "timestamp_unix_ms": 1704067200000,
+  "latency_stats": { "count": 100, "p95_ms": 3.2 }
+}
+```
+
+If callback wiring is disabled:
+```json
+{"error":"metrics not configured"}
+```
+
+---
+
+### 6. Verification
+
+Compare ledger verification values with committed metrics values.
+
+**Endpoints:** `GET /verify` and `GET /api/v1/verify`
+
+**Request:**
+```bash
+curl http://localhost:12000/verify
+```
+
+**Response:**
+```json
+{
+  "ledger": {
+    "tx_count": 1200,
+    "tx_xor": "0f3a9b10e3a319ab",
+    "latest_round": 245
+  },
+  "metrics": {
+    "committed_count": 1200,
+    "committed_xor": "0f3a9b10e3a319ab"
+  },
+  "match": true
+}
+```
+
+---
+
+### 7. Get L2 Order Book
 
 Get current order book snapshot with optional filtering.
 
@@ -158,24 +290,9 @@ Get current order book snapshot with optional filtering.
 - `nlevels` (Number, optional): Number of price levels to return
 - `aggregation` (Number, optional): Price increment for aggregation
 
-**Request (Basic):**
+**Request:**
 ```bash
-curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD"
-```
-
-**Request (Top 10 levels):**
-```bash
-curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10"
-```
-
-**Request (Aggregated to $0.5):**
-```bash
-curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD&aggregation=0.5"
-```
-
-**Request (Top 10 levels, $1 aggregation):**
-```bash
-curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10&aggregation=1.0"
+curl "http://localhost:12000/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10&aggregation=0.5"
 ```
 
 **Response:**
@@ -186,15 +303,14 @@ curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10&a
   "levels": [
     [
       {"px": 102777.0, "sz": 1.5, "n": 3},
-      {"px": 102776.5, "sz": 2.3, "n": 5},
-      {"px": 102776.0, "sz": 0.8, "n": 2}
+      {"px": 102776.5, "sz": 2.3, "n": 5}
     ],
     [
       {"px": 102780.0, "sz": 2.0, "n": 4},
-      {"px": 102780.5, "sz": 1.2, "n": 3},
-      {"px": 102781.0, "sz": 1.8, "n": 2}
+      {"px": 102780.5, "sz": 1.2, "n": 3}
     ]
-  ]
+  ],
+  "timestamp": 1704067200000000000
 }
 ```
 
@@ -209,313 +325,224 @@ curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10&a
 
 ---
 
-## Order Endpoints
+## Transaction Endpoint
 
-All order operations (placing orders, canceling single orders, and canceling all orders) use the **same transaction type** (`"type": "order"`) and are submitted to the same endpoint (`POST /order`).
-
-**Transaction Structure:**
-```json
-{
-  "action": {
-    "type": "order",
-    "orders": [
-      {"order": {...}},      // Place a new order
-      {"cancel": {...}},     // Cancel a specific order by ID
-      {"cancelAll": {...}}   // Cancel all orders (by symbol or all)
-    ],
-    "nonce": 1704067200000
-  },
-  "account": "...",
-  "signer": "...",
-  "signature": "..."
-}
-```
-
-The `orders` array can contain **any combination** of `order`, `cancel`, and `cancelAll` items, allowing you to batch multiple operations in a single atomic transaction.
-
-**Mixed Batch Example:**
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [
-        {
-          "cancel": {
-            "c": "BTC-USD",
-            "oid": "old_order_hash_base58"
-          }
-        },
-        {
-          "order": {
-            "c": "BTC-USD",
-            "b": true,
-            "px": 100000.0,
-            "sz": 0.1,
-            "r": false,
-            "t": {"limit": {"tif": "GTC"}}
-          }
-        }
-      ],
-      "nonce": 1704067200000
-    },
-    "account": "...",
-    "signer": "...",
-    "signature": "..."
-  }'
-```
-
-This example cancels an existing order and places a new one in a single transaction.
-
----
-
-### 5. Place Order
-
-Place a new order (limit, IOC, ALO, or market order).
+All state-mutating operations use a **unified transaction model** submitted to a single endpoint.
 
 **Endpoint:** `POST /order`
 
-**Request Body:**
+### Transaction Structure
+
 ```json
 {
-  "action": {
-    "type": "order",
-    "orders": [
-      {
-        "order": {
-          "c": "BTC-USD",
-          "b": true,
-          "px": 100000.0,
-          "sz": 0.1,
-          "r": false,
-          "t": {
-            "limit": {
-              "tif": "GTC"
-            }
-          },
-          "cloid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"
-        }
-      }
-    ],
-    "nonce": 1704067200000
-  },
-  "account": "9J8T...base58...",
-  "signer": "9J8T...base58...",
-  "signature": "5j7s...base58..."
+  "actions": [Action, ...],
+  "nonce": 1704067200000,
+  "account": "base58_pubkey",
+  "signer": "base58_pubkey",
+  "signature": "base58_signature"
 }
 ```
 
-**Request:**
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "order": {
-          "c": "BTC-USD",
-          "b": true,
-          "px": 100000.0,
-          "sz": 0.1,
-          "r": false,
-          "t": {"limit": {"tif": "GTC"}}
-        }
-      }],
-      "nonce": 1704067200000
-    },
-    "account": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
-    "signer": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
-    "signature": "5j7sVt3k2YxPqH4w..."
-  }'
+**Fields:**
+- `actions`: Array of actions to execute atomically (see Action Types below)
+- `nonce`: Unique integer for replay protection (use timestamp in nanoseconds or incrementing counter)
+- `account`: Account public key (base58) - the account performing the action
+- `signer`: Signer public key (base58) - who is signing (usually same as account, or authorized agent)
+- `signature`: Ed25519 signature (base58)
+
+### Action Types
+
+Each action in the `actions` array is a tagged object. The key is the compact action tag, and the value contains the action fields.
+
+#### `l` (LimitOrder)
+
+Place a resting limit order.
+
+```json
+{"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.1, "tif": "GTC", "r": false}}
 ```
 
-**Transaction Fields:**
-- `action`: Order action object
-  - `type`: Must be "order"
-  - `orders`: Array of orders (supports batch)
-  - `nonce`: Unique integer for replay protection (use timestamp in ms or incrementing counter)
-- `account`: Account public key (base58) - the account placing the order
-- `signer`: Signer public key (base58) - who's signing (usually same as account, or agent)
-- `signature`: Ed25519 signature (base58) - signature of `action + account + signer`
+| Field | Type | Description |
+|-------|------|-------------|
+| `c` | String | Symbol (e.g., "BTC-USD") |
+| `b` | bool | true = buy, false = sell |
+| `px` | f64 | Limit price |
+| `sz` | f64 | Size / quantity |
+| `tif` | String | Time in force: "GTC", "IOC", or "ALO" |
+| `r` | bool | Reduce only |
 
-**Order Fields:**
-- Each item in the `orders` array must be wrapped in an `"order"` object (camelCase) due to the externally tagged enum format
-- `order`: Order object containing:
-  - `c`: Coin/Symbol (e.g., "BTC-USD")
-  - `b`: is_buy (true for buy, false for sell)
-  - `px`: Price
-  - `sz`: Size/Quantity
-  - `r`: reduce_only (true to only reduce position)
-  - `t`: Order type object
-  - `cloid`: Client order ID (optional, base58 hash) - allows you to track orders with your own identifier. If not provided, this field can be omitted entirely from the request.
-
-**Time In Force (tif):**
+**Time In Force:**
 - `GTC` - Good Till Cancel (rests on book)
-- `IOC` - Immediate or Cancel (fill or kill)
-- `ALO` - Add Liquidity Only (post-only, maker)
+- `IOC` - Immediate or Cancel (fill or kill, no resting)
+- `ALO` - Add Liquidity Only (post-only, maker; rejects if would cross)
 
-**Response (Order Placed and Resting):**
+#### `m` (MarketOrder)
+
+Execute at market price immediately.
+
+```json
+{"m": {"c": "BTC-USD", "b": true, "sz": 0.1, "r": false}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `c` | String | Symbol |
+| `b` | bool | true = buy, false = sell |
+| `sz` | f64 | Size / quantity |
+| `r` | bool | Reduce only |
+
+#### `mod` (ModifyOrder)
+
+Modify the size of an existing resting order.
+
+```json
+{"mod": {"oid": "base58_hash", "symbol": "BTC-USD", "amount": 0.05}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `oid` | String | Order ID (base58 hash) |
+| `symbol` | String | Symbol |
+| `amount` | f64 | New order size |
+
+#### `cx` (Cancel)
+
+Cancel a specific order by ID.
+
+```json
+{"cx": {"c": "BTC-USD", "oid": "base58_hash"}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `c` | String | Symbol |
+| `oid` | String | Order ID (base58 hash) |
+
+#### `cxa` (CancelAll)
+
+Cancel all orders, optionally filtered by symbol.
+
+```json
+{"cxa": {"c": ["BTC-USD"]}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `c` | String[] | Symbols to cancel. Empty array `[]` cancels all symbols |
+
+#### Faucet
+
+Request testnet funds.
+
+```json
+{"faucet": {"u": "base58_pubkey", "amount": 10000.0}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `u` | String | Recipient public key (base58) |
+| `amount` | f64? | Amount to deposit (optional) |
+
+#### AgentWalletCreation
+
+Register or remove an agent wallet for automated trading.
+
+```json
+{"agentWalletCreation": {"a": "base58_pubkey", "d": false}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `a` | String | Agent public key (base58) |
+| `d` | bool | true = remove agent, false = add agent |
+
+#### UpdateUserSettings
+
+Update per-symbol leverage settings.
+
+```json
+{"updateUserSettings": {"m": [["BTC-USD", 5.0], ["ETH-USD", 3.0]]}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m` | [String, f64][] | Array of `[symbol, max_leverage]` tuples |
+
+---
+
+### Admin Action Types
+
+These actions require admin privileges and are used for exchange operations.
+
+#### WhitelistFaucet
+
+Whitelist or un-whitelist an account for faucet access.
+
+```json
+{"whitelistFaucet": {"target": "base58_pubkey", "whitelist": true}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `target` | String | Target account public key (base58) |
+| `whitelist` | bool | true = whitelist, false = un-whitelist |
+
+#### `px` (Price)
+
+Submit a price update (admin/oracle feeder only).
+
+```json
+{"px": {"t": 1704067200000000000, "c": "BTC-USD", "px": 102500.0}}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `t` | u64 | Timestamp (nanoseconds) |
+| `c` | String | Asset symbol |
+| `px` | f64 | Oracle price |
+
+#### `o` (PythOracle)
+
+Submit a batch of Pyth oracle price updates (admin/oracle feeder only).
+
+```json
+{"o": {"oracles": [{"t": 1704067200000000000, "fi": 1, "px": 10250000000000, "e": -8}]}}
+```
+
+**PythOracle Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `oracles` | PythPrice[] | Array of Pyth price updates |
+
+**PythPrice Fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `t` | u64 | Timestamp (nanoseconds) |
+| `fi` | u64 | Pyth feed ID |
+| `px` | u64 | Price (raw integer, apply exponent) |
+| `e` | i16 | Price exponent (e.g., -8 means price * 10^-8) |
+
+---
+
+### Response Format
+
+All transaction submissions return an `OrderResponse`:
+
 ```json
 {
   "status": "ok",
   "response": {
     "type": "order",
     "data": {
-      "statuses": [
-        {
-          "resting": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"
-          }
-        }
-      ]
+      "statuses": [Status, ...]
     }
   }
 }
 ```
 
-**Response (Order Filled Immediately):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "filled": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F",
-            "totalSz": 0.1,
-            "avgPx": 102500.0
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Response (Order Partially Filled):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "partiallyfilled": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F",
-            "totalSz": 0.05,
-            "avgPx": 102500.0
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Response (Order Error):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "error": {
-            "message": "Insufficient margin"
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Response (Order Working - Partial Fill, Still Resting):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "working": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F",
-            "filledSz": 0.05,
-            "remainingSz": 0.05,
-            "vwap": 102500.0
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Response (Cancelled Due to Risk Limit):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "cancelledRiskLimit": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F",
-            "reason": "Position would exceed max leverage"
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Response (IOC Expired Without Full Fill):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "cancelledIOC": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F",
-            "filledSz": 0.03
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Response (Post-Only Rejected for Crossing):**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "rejectedCrossing": {
-            "oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"
-          }
-        }
-      ]
-    }
-  }
-}
-```
+One status is returned per execution event. Batch actions may produce multiple statuses.
 
 **Status Types:**
 
@@ -524,74 +551,25 @@ curl -X POST http://localhost:12001/api/v1/order \
 | `resting` | No | Order placed and resting on book | `{oid}` |
 | `working` | No | Order has partial fills, still resting | `{oid, filledSz, remainingSz, vwap}` |
 | `filled` | Yes | Order fully filled | `{oid, totalSz, avgPx}` |
-| `partiallyFilled` | Yes | Order partially filled and terminal | `{oid, totalSz, avgPx}` |
-| `cancelled` | Yes | Order cancelled by user | `{oid}` |
+| `partiallyFilled` | Yes | Partially filled then terminal | `{oid, totalSz, avgPx}` |
+| `cancelled` | Yes | Cancelled by user | `{oid}` |
 | `cancelledRiskLimit` | Yes | Cancelled due to risk limit | `{oid, reason?}` |
 | `cancelledSelfCrossing` | Yes | Cancelled due to self-crossing | `{oid}` |
-| `cancelledReduceOnly` | Yes | Cancelled - would not reduce position | `{oid}` |
+| `cancelledReduceOnly` | Yes | Would not reduce position | `{oid}` |
 | `cancelledIOC` | Yes | IOC expired without full fill | `{oid, filledSz}` |
 | `rejectedCrossing` | Yes | Post-only rejected for crossing | `{oid}` |
 | `rejectedDuplicate` | Yes | Duplicate order ID | `{oid}` |
-| `rejectedRiskLimit` | Yes | Rejected due to risk limit on submission | `{oid, reason?}` |
+| `rejectedRiskLimit` | Yes | Rejected due to risk limit | `{oid, reason?}` |
 | `rejectedInvalid` | Yes | Invalid order parameters | `{oid, reason?}` |
+| `deposit` | Yes | Faucet deposit succeeded | `{amount}` |
+| `depositFailed` | Yes | Faucet deposit failed | `{message}` |
+| `agentWallet` | Yes | Agent wallet registered | `{agentWallet}` |
+| `agentWalletFailed` | Yes | Agent wallet failed | `{message}` |
+| `cancelOneRejected` | Yes | Cancel rejected | `{oid, reason}` |
+| `cancelAllRejected` | Yes | Cancel all rejected | `{reason}` |
 | `error` | Yes | Generic error | `{message}` |
 
----
-
-### 6. Cancel Order
-
-Cancel an existing order by order ID. Uses the same `POST /order` endpoint with a `cancel` item.
-
-**Endpoint:** `POST /order`
-
-**Request Body:**
-```json
-{
-  "action": {
-    "type": "order",
-    "orders": [
-      {
-        "cancel": {
-        "c": "BTC-USD",
-        "oid": "order_id_hash_base58"
-        }
-      }
-    ],
-    "nonce": 1704067200000
-  },
-  "account": "9J8T...base58...",
-  "signer": "9J8T...base58...",
-  "signature": "5j7s...base58..."
-}
-```
-
-**Request:**
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "cancel": {
-        "c": "BTC-USD",
-          "oid": "order_hash_base58"
-        }
-      }],
-      "nonce": 1704067200000
-    },
-    "account": "...",
-    "signer": "...",
-    "signature": "..."
-  }'
-```
-
-**Cancel Fields:**
-- `cancel`: Cancel order object (part of orders array)
-- `c`: Coin/Symbol
-- `oid`: Order ID (Hash in base58 format)
-
-**Response:**
+**Example - Order Resting:**
 ```json
 {
   "status": "ok",
@@ -599,11 +577,37 @@ curl -X POST http://localhost:12001/api/v1/order \
     "type": "order",
     "data": {
       "statuses": [
-        {
-          "cancelled": {
-            "oid": "order_hash_base58"
-          }
-        }
+        {"resting": {"oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"}}
+      ]
+    }
+  }
+}
+```
+
+**Example - Order Filled:**
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "order",
+    "data": {
+      "statuses": [
+        {"filled": {"oid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F", "totalSz": 0.1, "avgPx": 102500.0}}
+      ]
+    }
+  }
+}
+```
+
+**Example - Faucet Deposit:**
+```json
+{
+  "status": "ok",
+  "response": {
+    "type": "order",
+    "data": {
+      "statuses": [
+        {"deposit": {"amount": 10000.0}}
       ]
     }
   }
@@ -612,154 +616,38 @@ curl -X POST http://localhost:12001/api/v1/order \
 
 ---
 
-### 6a. Cancel All Orders
+## Account Endpoint
 
-Cancel all orders for a specific symbol or all orders across all symbols.
-
-**Endpoint:** `POST /order`
-
-**Cancel All Orders in a Symbol:**
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [
-        {
-          "cancelAll": {
-            "c": ["BTC-USD"]
-          }
-        }
-      ],
-      "nonce": 1704067200000
-    },
-    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signature": "rpkxJezRft2xqfFxaqYRCTRtoobV4Z2Btqj6P52bEcAKczLn5Rgf2Yfm37UN4HGJwywR4QkuDjJUkwZ93DB2Fw9"
-  }'
-```
-
-**Cancel All Orders Across All Symbols:**
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [
-        {
-          "cancelAll": {
-            "c": []
-          }
-        }
-      ],
-      "nonce": 1704067200001
-    },
-    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signature": "rpkxJezRft2xqfFxaqYRCTRtoobV4Z2Btqj6P52bEcAKczLn5Rgf2Yfm37UN4HGJwywR4QkuDjJUkwZ93DB2Fw9"
-  }'
-```
-
-**Cancel All Fields:**
-- `cancelAll`: Cancel all order object (part of orders array, uses camelCase)
-  - `c`: Array of symbol strings
-  - To cancel all orders in specific symbols: `["BTC-USD", "ETH-USD"]`
-  - To cancel all orders across all symbols: `[]` (empty array)
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "cancelled": {
-            "oid": "order_hash_base58"
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Note:** The response will contain one `cancelled` status for each order that was cancelled.
-
----
-
-### 6b. Update User Settings (Leverage)
-
-Update user settings, including maximum leverage per symbol.
-
-**Endpoint:** `POST /user-settings`
-
-**Request:**
-```bash
-curl -X POST http://localhost:12001/api/v1/user-settings \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "updateUserSettings",
-      "settings": {
-        "m": [
-          ["BTC-USD", 5.0],
-          ["ETH-USD", 3.0]
-        ]
-      },
-      "nonce": 1704067200000
-    },
-    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signature": "5JXWgp1fW6px2Gjhw6YHhQ4wEqb6FqMam6m4yg4uRcCksH9WxSv9dVjizGfD4StGtv1z9gR71unZY6tQ6dNDdJ3K"
-  }'
-```
-
-**Settings Fields:**
-- `type`: Must be `"updateUserSettings"`
-- `settings`: Settings object
-  - `m`: Array of `[symbol, max_leverage]` tuples
-    - `symbol`: Market symbol (e.g., "BTC-USD")
-    - `max_leverage`: Maximum leverage (1.0 to 50.0)
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": []
-    }
-  }
-}
-```
-
-**Note:** Leverage settings are clamped between 1.0 and 50.0. The maximum leverage for a symbol cannot exceed the market's configured maximum leverage.
-
----
-
-## Account Endpoints
-
-### 7. Query Account
-
-Query account information including positions, orders, and fill history.
+Query account information including positions, orders, and history.
 
 **Endpoint:** `POST /account`
 
-#### 7a. Get Full Account
+**Request Body (JSON):**
+```json
+{
+  "type": "fullAccount",
+  "user": "base58_pubkey"
+}
+```
+
+**Account Query Types:**
+
+| Type | Description |
+|------|-------------|
+| `fullAccount` | Complete account state (margin + positions + orders + leverage) |
+| `openOrders` | Only resting orders |
+| `fills` | Trade history (last 5000) |
+| `positions` | Closed position history (last 5000) |
+| `fundingHistory` | Funding payment history (last 5000) |
+| `orderHistory` | Terminal order history (last 5000) |
+
+### Full Account
 
 **Request:**
 ```bash
-curl -X POST http://localhost:12001/api/v1/account \
+curl -X POST http://localhost:12000/api/v1/account \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "fullAccount",
-    "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"
-  }'
+  -d '{"type": "fullAccount", "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"}'
 ```
 
 **Response:**
@@ -767,13 +655,33 @@ curl -X POST http://localhost:12001/api/v1/account \
 [
   {
     "fullAccount": {
+      "margin": {
+        "totalBalance": 100000.0,
+        "availableBalance": 95000.0,
+        "marginUsed": 5000.0,
+        "notional": 50000.0,
+        "realizedPnl": 1234.0,
+        "unrealizedPnl": 500.0,
+        "fees": 12.5,
+        "funding": -5.0
+      },
       "positions": [
         {
-          "coin": "BTC-USD",
+          "symbol": "BTC-USD",
           "size": 0.5,
           "price": 100000.0,
-          "realizedPnl": 1234,
-          "leverage": 5
+          "fairPrice": 100050.0,
+          "notional": 50000.0,
+          "realizedPnl": 1234.0,
+          "unrealizedPnl": 500.0,
+          "leverage": 5.0,
+          "liquidationPrice": 80000.0,
+          "fees": 12.5,
+          "funding": -5.0,
+          "maintenanceMargin": 2500.0,
+          "lambda": 0.05,
+          "riskAllocation": 0.8,
+          "allocMargin": 4000.0
         }
       ],
       "openOrders": [
@@ -789,45 +697,53 @@ curl -X POST http://localhost:12001/api/v1/account \
           "maker": true,
           "reduceOnly": false,
           "tif": "gtc",
-          "status": "placed",
-          "timestamp": 1763316177219383423
+          "status": "resting",
+          "timestamp": 1704067200000000000
         }
       ],
-      "marginSummary": {
-        "positions": [
-          {
-            "coin": "USDC",
-            "size": 100000.0
-          }
-        ]
-      },
-      "settings": {
-        "maxLeverage": [
-          ["BTC-USD", 5.0],
-          ["ETH-USD", 3.0]
-        ]
-      }
+      "leverageSettings": [
+        {"symbol": "BTC-USD", "leverage": 5.0},
+        {"symbol": "ETH-USD", "leverage": 3.0}
+      ]
     }
   }
 ]
 ```
 
-**Account Settings Fields:**
-- `settings`: User account settings
-  - `maxLeverage`: Array of `[symbol, max_leverage]` tuples
-    - `symbol`: Market symbol
-    - `max_leverage`: Maximum leverage setting for that symbol (1.0 to 50.0)
+**Margin Fields:**
+- `totalBalance`: Total account equity
+- `availableBalance`: Balance available for new orders (totalBalance - marginUsed)
+- `marginUsed`: Total maintenance margin requirement
+- `notional`: Total position notional value
+- `realizedPnl`: Total realized profit/loss
+- `unrealizedPnl`: Total unrealized profit/loss
+- `fees`: Total fees paid
+- `funding`: Total funding payments
 
-#### 7b. Get Open Orders Only
+**Position Fields:**
+- `symbol`: Market symbol
+- `size`: Position size (positive = long, negative = short)
+- `price`: Volume-weighted average entry price
+- `fairPrice`: Current fair/mark price
+- `notional`: Position notional value
+- `realizedPnl`: Realized PnL for this position
+- `unrealizedPnl`: Unrealized PnL at current fair price
+- `leverage`: Effective leverage
+- `liquidationPrice`: Estimated liquidation price
+- `fees`: Fees paid on this position
+- `funding`: Funding payments for this position
+- `maintenanceMargin`: Maintenance margin requirement
+- `lambda`: Risk lambda parameter
+- `riskAllocation`: Fraction of portfolio risk allocated
+- `allocMargin`: Allocated margin
+
+### Open Orders
 
 **Request:**
 ```bash
-curl -X POST http://localhost:12001/api/v1/account \
+curl -X POST http://localhost:12000/api/v1/account \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "openOrders",
-    "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"
-  }'
+  -d '{"type": "openOrders", "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"}'
 ```
 
 **Response:**
@@ -846,25 +762,22 @@ curl -X POST http://localhost:12001/api/v1/account \
       "maker": true,
       "reduceOnly": false,
       "tif": "gtc",
-      "status": "placed",
-      "timestamp": 1699564800000
+      "status": "resting",
+      "timestamp": 1699564800000000000
     }
   }
 ]
 ```
 
-#### 7c. Get Fill History
+### Fill History
 
-Returns up to 5000 recent fills (trades).
+Returns up to 5000 recent fills.
 
 **Request:**
 ```bash
-curl -X POST http://localhost:12001/api/v1/account \
+curl -X POST http://localhost:12000/api/v1/account \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "fills",
-    "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"
-  }'
+  -d '{"type": "fills", "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"}'
 ```
 
 **Response:**
@@ -880,7 +793,7 @@ curl -X POST http://localhost:12001/api/v1/account \
       "symbol": "BTC-USD",
       "amount": 0.1,
       "price": 100000.0,
-      "liquidation": false,
+      "reason": "normal",
       "slot": 12345,
       "timestamp": 1699564800000
     }
@@ -888,18 +801,15 @@ curl -X POST http://localhost:12001/api/v1/account \
 ]
 ```
 
-#### 7d. Get Closed Position History
+### Closed Position History
 
-Returns up to 5000 closed positions (position history).
+Returns up to 5000 closed positions.
 
 **Request:**
 ```bash
-curl -X POST http://localhost:12001/api/v1/account \
+curl -X POST http://localhost:12000/api/v1/account \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "positions",
-    "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"
-  }'
+  -d '{"type": "positions", "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"}'
 ```
 
 **Response:**
@@ -924,32 +834,17 @@ curl -X POST http://localhost:12001/api/v1/account \
 ]
 ```
 
-**Position Fields:**
-- `owner`: Owner public key (base58)
-- `symbol`: Market symbol
-- `maxQuantity`: Maximum position size reached (positive=long, negative=short)
-- `totalVolume`: Total traded volume over position lifetime
-- `avgOpenPrice`: Volume-weighted average entry price
-- `avgClosePrice`: Volume-weighted average exit price
-- `realizedPnl`: Total realized profit/loss
-- `fees`: Total fees paid
-- `funding`: Total funding payments (positive=received, negative=paid)
-- `openTime`: Position open timestamp (nanoseconds)
-- `closeTime`: Position close timestamp (nanoseconds)
-- `closeReason`: Reason for closure (`normal`, `liquidation`, `adl`)
+**Close Reasons:** `normal`, `liquidation`, `adl`
 
-#### 7e. Get Funding History
+### Funding History
 
-Returns up to 5000 funding payments for an account.
+Returns up to 5000 funding payments.
 
 **Request:**
 ```bash
-curl -X POST http://localhost:12001/api/v1/account \
+curl -X POST http://localhost:12000/api/v1/account \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "fundingHistory",
-    "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"
-  }'
+  -d '{"type": "fundingHistory", "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"}'
 ```
 
 **Response:**
@@ -970,28 +865,15 @@ curl -X POST http://localhost:12001/api/v1/account \
 ]
 ```
 
-**Funding Payment Fields:**
-- `owner`: Owner public key (base58)
-- `symbol`: Market symbol
-- `size`: Position size at time of funding (positive=long, negative=short)
-- `payment`: Funding payment amount in USD (positive=received, negative=paid)
-- `fundingRate`: Applied funding rate
-- `markPrice`: Fair price at time of funding
-- `slot`: Slot number when funding was applied
-- `timestamp`: Timestamp (nanoseconds)
+### Order History
 
-#### 7f. Get Order History
-
-Returns up to 5000 terminal orders (filled, cancelled, rejected) for an account.
+Returns up to 5000 terminal orders.
 
 **Request:**
 ```bash
-curl -X POST http://localhost:12001/api/v1/account \
+curl -X POST http://localhost:12000/api/v1/account \
   -H "Content-Type: application/json" \
-  -d '{
-    "type": "orderHistory",
-    "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"
-  }'
+  -d '{"type": "orderHistory", "user": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"}'
 ```
 
 **Response:**
@@ -1013,179 +895,8 @@ curl -X POST http://localhost:12001/api/v1/account \
       "slot": 12345,
       "timestamp": 1699564800000000000
     }
-  },
-  {
-    "orderHistory": {
-      "orderId": "ABC123...",
-      "symbol": "BTC-USD",
-      "side": "sell",
-      "orderType": "limit",
-      "tif": "ioc",
-      "price": 105000.0,
-      "vwap": 0.0,
-      "originalSize": 0.5,
-      "executedSize": 0.0,
-      "reduceOnly": false,
-      "status": "cancelledIOC",
-      "slot": 12346,
-      "timestamp": 1699564900000000000
-    }
   }
 ]
-```
-
-**Order History Fields:**
-- `orderId`: Order ID (base58)
-- `symbol`: Market symbol
-- `side`: Order side (`buy` or `sell`)
-- `orderType`: Order type (`limit` or `market`)
-- `tif`: Time in force (`gtc`, `ioc`, or `postOnly`)
-- `price`: Order price
-- `vwap`: Volume-weighted average fill price (0 if no fills)
-- `originalSize`: Original order size
-- `executedSize`: Amount filled
-- `reduceOnly`: Whether order was reduce-only
-- `status`: Terminal status (see below)
-- `reason`: Rejection/cancellation reason (optional)
-- `slot`: Slot number when order became terminal
-- `timestamp`: Timestamp (nanoseconds)
-
-**Order History Status Values:**
-- `filled`: Order fully filled
-- `partiallyFilled`: Order partially filled then terminal
-- `cancelled`: Order cancelled by user
-- `cancelledRiskLimit`: Cancelled due to risk limit
-- `cancelledSelfCrossing`: Cancelled due to self-crossing
-- `cancelledReduceOnly`: Cancelled - would not reduce position
-- `cancelledIOC`: IOC expired without full fill
-- `rejectedInvalid`: Invalid order parameters
-- `rejectedRiskLimit`: Rejected due to risk limit
-- `rejectedCrossing`: Post-only rejected for crossing
-- `rejectedDuplicate`: Duplicate order ID
-
-**Account Query Types:**
-- `fullAccount`: Complete account state (positions + orders + margin)
-- `openOrders`: Only resting orders
-- `fills`: Trade history (last 5000 fills)
-- `positions`: Closed position history (last 5000 positions)
-- `fundingHistory`: Funding payment history (last 5000 payments)
-- `orderHistory`: Terminal order history (last 5000 orders)
-
----
-
-## Private Endpoints
-
-Private endpoints require special authorization.
-
-### 8. Request Faucet
-
-Request testnet funds (10,000 mock USD, once per hour).
-
-**Endpoint:** `POST /api/v1/private/faucet`
-
-**Request Body:**
-```json
-{
-  "action": {
-    "type": "faucet",
-    "faucet": {
-      "u": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a"
-    },
-    "nonce": 1704067200000
-  },
-  "account": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-  "signer": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-  "signature": "rpkxJezRft2xqfFxaqYRCTRtoobV4Z2Btqj6P52bEcAKczLn5Rgf2Yfm37UN4HGJwywR4QkuDjJUkwZ93DB2Fw9"
-}
-```
-
-**Faucet Fields:**
-- `u`: User public key to receive funds (base58)
-- `nonce`: Unique integer for replay protection
-
-**Request:**
-```bash
-curl -X POST http://localhost:12001/api/v1/private/faucet \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {"type": "faucet", "faucet": {"u": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a"}, "nonce": 1704067200000},
-    "account": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-    "signer": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-    "signature": "rpkxJezRft2xqfFxaqYRCTRtoobV4Z2Btqj6P52bEcAKczLn5Rgf2Yfm37UN4HGJwywR4QkuDjJUkwZ93DB2Fw9"
-  }'
-```
-
-**Response:**
-```json
-{
-  "success": true
-}
-```
-
-Or on error:
-```json
-{
-  "error": "Account already funded"
-}
-```
-
----
-
-### 9. Send Oracle Data
-
-Submit oracle price updates (permissioned).
-
-**Endpoint:** `POST /api/v1/private/oracle`
-
-**Request Body:**
-```json
-{
-  "action": {
-    "type": "oracle",
-    "oracles": [
-      {
-        "t": 1699564800000,
-        "c": "BTC",
-        "px": 100000.0
-      }
-    ],
-    "nonce": 1704067200000
-  },
-  "signature": "5j7s...base58...",
-  "account": "oracle_pubkey_base58",
-  "signer": "oracle_pubkey_base58"
-}
-```
-
-**Oracle Fields:**
-- `t`: Timestamp (milliseconds)
-- `c`: Asset symbol (e.g., "BTC")
-- `px`: Price
-- `nonce`: Unique integer for replay protection
-
-**Request:**
-```bash
-curl -X POST http://localhost:12001/api/v1/private/oracle \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "oracle",
-      "oracles": [{
-        "t": 1699564800000,
-        "c": "BTC",
-        "px": 100000.0
-      }],
-      "nonce": 1704067200000
-    },
-    "account": "...",
-    "signer": "...",
-    "signature": "..." 
-  }'
-```
-
-**Response:**
-```
-200 OK
 ```
 
 ---
@@ -1195,516 +906,316 @@ curl -X POST http://localhost:12001/api/v1/private/oracle \
 ### Example 1: Get Market Data
 ```bash
 # Get all markets
-curl http://localhost:12001/api/v1/exchangeInfo
+curl http://localhost:12000/api/v1/exchangeInfo
 
 # Get BTC ticker
-curl http://localhost:12001/api/v1/ticker/BTC-USD
+curl http://localhost:12000/api/v1/ticker/BTC-USD
 
 # Get 1-minute candles
-curl "http://localhost:12001/api/v1/klines?symbol=BTC-USD&interval=1m"
+curl "http://localhost:12000/api/v1/klines?symbol=BTC-USD&interval=1m"
+
+# Get weekly candles
+curl "http://localhost:12000/api/v1/klines?symbol=BTC-USD&interval=1w"
 
 # Get order book (top 10, $0.5 aggregation)
-curl "http://localhost:12001/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10&aggregation=0.5"
+curl "http://localhost:12000/api/v1/l2book?type=l2Book&coin=BTC-USD&nlevels=10&aggregation=0.5"
+
+# Get exchange stats for 7 days
+curl "http://localhost:12000/api/v1/stats?period=7d"
 ```
 
-### Example 2: Trading Flow
+### Example 2: Place a Limit Buy Order
 ```bash
-# Step 1: Request faucet funds
-curl -X POST http://localhost:12001/api/v1/private/faucet \
+curl -X POST http://localhost:12000/api/v1/order \
   -H "Content-Type: application/json" \
   -d '{
-    "action": {
-      "type": "faucet",
-      "faucet": {"u": "YOUR_PUBKEY"},
-      "nonce": 1704067200000
-    },
-    "account": "YOUR_PUBKEY",
-    "signer": "YOUR_PUBKEY",
-    "signature": "YOUR_SIGNATURE" 
-  }'
-
-# Step 2: Place a limit buy order
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "order": {
-          "c": "BTC-USD",
-          "b": true,
-          "px": 100000.0,
-          "sz": 0.1,
-          "r": false,
-          "t": {"limit": {"tif": "GTC"}}
-        }
-      }],
-      "nonce": 1704067200001
-    },
-    "account": "YOUR_PUBKEY",
-    "signer": "YOUR_PUBKEY",
-    "signature": "YOUR_SIGNATURE" 
-  }'
-
-# Step 3: Cancel the order
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "cancel": {
-        "c": "BTC-USD",
-        "oid": "ORDER_ID"
-        }
-      }],
-      "nonce": 1704067200002
-    },
-    "account": "YOUR_PUBKEY",
-    "signer": "YOUR_PUBKEY",
-    "signature": "YOUR_SIGNATURE" 
-  }'
-```
-
-### Example 3: Place Multiple Orders (Batch)
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [
-        {
-          "order": {
-            "c": "BTC-USD",
-            "b": true,
-            "px": 100000.0,
-            "sz": 0.05,
-            "r": false,
-            "t": {"limit": {"tif": "GTC"}}
-          }
-        },
-        {
-          "order": {
-            "c": "BTC-USD",
-            "b": false,
-            "px": 105000.0,
-            "sz": 0.05,
-            "r": false,
-            "t": {"limit": {"tif": "GTC"}}
-          }
-        }
-      ],
-      "nonce": 1704067200000
-    },
-    "account": "...",
-    "signer": "...",
-    "signature": "..." 
-  }'
-```
-
-### Example 4: Place Market Order
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "order": {
-          "c": "BTC-USD",
-          "b": true,
-          "px": 0.0,
-          "sz": 0.1,
-          "r": false,
-          "t": {
-            "trigger": {
-              "is_market": true,
-              "triggerPx": 0.0
-            }
-          }
-        }
-      }],
-      "nonce": 1704067200000
-    },
-    "account": "...",
-    "signer": "...",
-    "signature": "..." 
-  }'
-```
-
-**Market Order Fields:**
-- `px`: Price (set to `0.0` for market orders)
-- `t.trigger.is_market`: Must be `true` for market execution
-- `t.trigger.triggerPx`: Set to `0.0` for immediate market execution
-
-**Note:** Market orders execute immediately at the best available price. Use IOC limit orders with aggressive prices as an alternative.
-
-### Example 5: Place IOC Order (Market Execution)
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "order": {
-          "c": "BTC-USD",
-          "b": true,
-          "px": 999999.0,
-          "sz": 0.1,
-          "r": false,
-          "t": {"limit": {"tif": "IOC"}}
-        }
-      }],
-      "nonce": 1704067200000
-    },
-    "account": "...",
-    "signer": "...",
-    "signature": "..." 
-  }'
-```
-
-### Example 6: Cancel All Orders in a Symbol
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [
-        {
-          "cancelAll": {
-            "c": ["BTC-USD"]
-          }
-        }
-      ],
-      "nonce": 1704067200000
-    },
-    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signature": "rpkxJezRft2xqfFxaqYRCTRtoobV4Z2Btqj6P52bEcAKczLn5Rgf2Yfm37UN4HGJwywR4QkuDjJUkwZ93DB2Fw9"
-  }'
-```
-
-### Example 7: Cancel All Orders Across All Symbols
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [
-        {
-          "cancelAll": {
-            "c": []
-          }
-        }
-      ],
-      "nonce": 1704067200001
-    },
-    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signature": "rpkxJezRft2xqfFxaqYRCTRtoobV4Z2Btqj6P52bEcAKczLn5Rgf2Yfm37UN4HGJwywR4QkuDjJUkwZ93DB2Fw9"
-  }'
-```
-
-### Example 8: Place Order with Client Order ID (cloid)
-```bash
-curl -X POST http://localhost:12001/api/v1/order \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "order",
-      "orders": [{
-        "order": {
-          "c": "BTC-USD",
-          "b": true,
-          "px": 100000.0,
-          "sz": 0.1,
-          "r": false,
-          "t": {"limit": {"tif": "GTC"}},
-          "cloid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"
-        }
-      }],
-      "nonce": 1704067200000
-    },
+    "actions": [
+      {"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.1, "tif": "GTC", "r": false}}
+    ],
+    "nonce": 1704067200000,
     "account": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
     "signer": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
     "signature": "5j7sVt3k2YxPqH4w..."
   }'
 ```
 
-**Note:** The `cloid` field is optional. You can:
-- Include it with a base58-encoded hash: `"cloid": "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"`
-- Omit it entirely from the request (no need to include `"cloid": null`)
-
-### Example 9: Update User Settings (Leverage)
+### Example 3: Place a Market Order
 ```bash
-curl -X POST http://localhost:12001/api/v1/user-settings \
+curl -X POST http://localhost:12000/api/v1/order \
   -H "Content-Type: application/json" \
   -d '{
-    "action": {
-      "type": "updateUserSettings",
-      "settings": {
-        "m": [
-          ["BTC-USD", 5.0],
-          ["ETH-USD", 3.0]
-        ]
-      },
-      "nonce": 1704067200000
-    },
-    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    "signature": "5JXWgp1fW6px2Gjhw6YHhQ4wEqb6FqMam6m4yg4uRcCksH9WxSv9dVjizGfD4StGtv1z9gR71unZY6tQ6dNDdJ3K"
+    "actions": [
+      {"m": {"c": "BTC-USD", "b": true, "sz": 0.1, "r": false}}
+    ],
+    "nonce": 1704067200000,
+    "account": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signer": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signature": "5j7sVt3k2YxPqH4w..."
   }'
 ```
 
----
-
-## Order Types
-
-### Limit Order
-```json
-{
-  "t": {
-    "limit": {
-      "tif": "GTC"  // or "IOC", "ALO"
-    }
-  }
-}
+### Example 4: Batch Orders (Multiple Actions)
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"cx": {"c": "BTC-USD", "oid": "old_order_hash_base58"}},
+      {"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.05, "tif": "GTC", "r": false}},
+      {"l": {"c": "BTC-USD", "b": false, "px": 105000.0, "sz": 0.05, "tif": "GTC", "r": false}}
+    ],
+    "nonce": 1704067200000,
+    "account": "...",
+    "signer": "...",
+    "signature": "..."
+  }'
 ```
 
-### Market Order
-```json
-{
-  "t": {
-    "trigger": {
-      "is_market": true,
-      "triggerPx": 0.0
-    }
-  }
-}
+### Example 5: Cancel All Orders in a Symbol
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"cxa": {"c": ["BTC-USD"]}}
+    ],
+    "nonce": 1704067200000,
+    "account": "...",
+    "signer": "...",
+    "signature": "..."
+  }'
 ```
 
-**Market Order Fields:**
-- `px`: Price (set to `0.0` for market orders)
-- `t.trigger.is_market`: Must be `true` for market execution
-- `t.trigger.triggerPx`: Set to `0.0` for immediate market execution
+### Example 6: Cancel All Orders Across All Symbols
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"cxa": {"c": []}}
+    ],
+    "nonce": 1704067200001,
+    "account": "...",
+    "signer": "...",
+    "signature": "..."
+  }'
+```
+
+### Example 7: Request Faucet Funds
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"faucet": {"u": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a", "amount": 10000.0}}
+    ],
+    "nonce": 1704067200000,
+    "account": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
+    "signer": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
+    "signature": "..."
+  }'
+```
+
+### Example 8: Register Agent Wallet
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"agentWalletCreation": {"a": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux", "d": false}}
+    ],
+    "nonce": 1704067200000,
+    "account": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
+    "signer": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
+    "signature": "..."
+  }'
+```
+
+### Example 9: Update Leverage Settings
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"updateUserSettings": {"m": [["BTC-USD", 5.0], ["ETH-USD", 3.0]]}}
+    ],
+    "nonce": 1704067200000,
+    "account": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
+    "signer": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
+    "signature": "..."
+  }'
+```
+
+### Example 10: Whitelist Faucet (Admin)
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"whitelistFaucet": {"target": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt", "whitelist": true}}
+    ],
+    "nonce": 1704067200000,
+    "account": "ADMIN_PUBKEY",
+    "signer": "ADMIN_PUBKEY",
+    "signature": "..."
+  }'
+```
+
+### Example 11: Oracle Price Update (Admin)
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"px": {"t": 1704067200000000000, "c": "BTC-USD", "px": 102500.0}}
+    ],
+    "nonce": 1704067200000,
+    "account": "ORACLE_PUBKEY",
+    "signer": "ORACLE_PUBKEY",
+    "signature": "..."
+  }'
+```
+
+### Example 12: Pyth Oracle Batch Update (Admin)
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"o": {"oracles": [
+        {"t": 1704067200000000000, "fi": 0, "px": 10250000000000, "e": -8},
+        {"t": 1704067200000000000, "fi": 1, "px": 325000000000, "e": -8},
+        {"t": 1704067200000000000, "fi": 2, "px": 18500000000, "e": -8}
+      ]}}
+    ],
+    "nonce": 1704067200000,
+    "account": "ORACLE_PUBKEY",
+    "signer": "ORACLE_PUBKEY",
+    "signature": "..."
+  }'
+```
+
+### Example 13: Batch Multi-Action Transaction
+
+Multiple actions of different types can be combined into a single atomic transaction. All actions share the same `nonce`, `account`, `signer`, and `signature`. The signature covers all actions together.
+
+**Cancel + Replace (cancel old order, place two new ones):**
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"cx": {"c": "BTC-USD", "oid": "old_order_hash_base58"}},
+      {"l": {"c": "BTC-USD", "b": true, "px": 99500.0, "sz": 0.05, "tif": "GTC", "r": false}},
+      {"l": {"c": "BTC-USD", "b": false, "px": 105000.0, "sz": 0.05, "tif": "GTC", "r": false}}
+    ],
+    "nonce": 1704067200000,
+    "account": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signer": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signature": "..."
+  }'
+```
+
+**Faucet + Set Leverage + Place Order (full onboarding in one txn):**
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"faucet": {"u": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt", "amount": 100000.0}},
+      {"updateUserSettings": {"m": [["BTC-USD", 10.0], ["ETH-USD", 5.0]]}},
+      {"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.1, "tif": "GTC", "r": false}}
+    ],
+    "nonce": 1704067200000,
+    "account": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signer": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signature": "..."
+  }'
+```
+
+**CancelAll + Multi-Market Orders:**
+```bash
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [
+      {"cxa": {"c": []}},
+      {"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.1, "tif": "GTC", "r": false}},
+      {"l": {"c": "ETH-USD", "b": true, "px": 3200.0, "sz": 1.0, "tif": "GTC", "r": false}},
+      {"m": {"c": "SOL-USD", "b": true, "sz": 10.0, "r": false}}
+    ],
+    "nonce": 1704067200000,
+    "account": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signer": "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt",
+    "signature": "..."
+  }'
+```
+
+One status per execution event is returned in the response `statuses` array.
+
+### Example 14: Trading Flow
+```bash
+# Step 1: Request faucet funds
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [{"faucet": {"u": "YOUR_PUBKEY"}}],
+    "nonce": 1704067200000,
+    "account": "YOUR_PUBKEY",
+    "signer": "YOUR_PUBKEY",
+    "signature": "YOUR_SIGNATURE"
+  }'
+
+# Step 2: Place a limit buy order
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [{"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.1, "tif": "GTC", "r": false}}],
+    "nonce": 1704067200001,
+    "account": "YOUR_PUBKEY",
+    "signer": "YOUR_PUBKEY",
+    "signature": "YOUR_SIGNATURE"
+  }'
+
+# Step 3: Cancel the order
+curl -X POST http://localhost:12000/api/v1/order \
+  -H "Content-Type: application/json" \
+  -d '{
+    "actions": [{"cx": {"c": "BTC-USD", "oid": "ORDER_ID_BASE58"}}],
+    "nonce": 1704067200002,
+    "account": "YOUR_PUBKEY",
+    "signer": "YOUR_PUBKEY",
+    "signature": "YOUR_SIGNATURE"
+  }'
+```
 
 ---
 
 ## Response Status Codes
 
-### Current Implementation
-
 | Code | Description | Used By |
 |------|-------------|---------|
 | 200 | Success | All endpoints |
-| 400 | Bad Request - Invalid parameters or transaction type | Market data, Orders |
-| 404 | Not Found - Symbol or account doesn't exist | Ticker, L2Book, Account |
-| 408 | Request Timeout - Executor didn't respond within 2s | Orders, Faucet, Agent Wallet |
-| 500 | Internal Server Error - Database or channel error | All endpoints |
-
-### Status Code Details by Endpoint
-
-**Market Data (Read-only)**:
-- `/exchangeInfo`: 200, 500
-- `/ticker/:symbol`: 200, 404, 500
-- `/klines`: 200 (including empty array), 500
-- `/l2book`: 200, 400, 404, 500
-
-**Trading (Write)**:
-- `/order` (POST): 200, 408, 500
-- `/agent-wallet`: 200, 400, 408, 500
-- `/user-settings`: 200, 400, 408, 500
-
-**Account**:
-- `/account`: 200, 404, 500
-
-**Private**:
-- `/private/faucet`: 200, 400, 408, 500
-- `/private/oracle`: 200, 400, 500
----
-
-## Error Responses
-
-**Example Error:**
-```json
-{
-  "status": "error",
-  "response": {
-    "type": "order",
-    "data": {
-      "statuses": [
-        {
-          "error": {
-            "message": "Insufficient margin"
-          }
-        }
-      ]
-    }
-  }
-}
-```
+| 400 | Bad Request - Invalid parameters | Market data |
+| 404 | Not Found - Symbol or account doesn't exist | Ticker, L2Book |
+| 408 | Request Timeout - Executor didn't respond within 2s | /order, /account |
+| 500 | Internal Server Error | All endpoints |
 
 ---
 
 ## API Endpoints Summary
 
-### Public Endpoints (No Auth Required)
-
 | Method | Endpoint | Description | Parameters |
 |--------|----------|-------------|------------|
 | GET | `/exchangeInfo` | List all markets | None |
 | GET | `/ticker/{symbol}` | Market statistics | symbol (path) |
-| GET | `/klines` | Candle history | symbol, interval (query) |
+| GET | `/klines` | Candle history | symbol, interval, startTime, endTime (query) |
 | GET | `/l2book` | Order book snapshot | type, coin, nlevels, aggregation (query) |
-| POST | `/order` | Place order, cancel order, or cancel all | Transaction (body) |
+| GET | `/stats` | Exchange statistics | period, symbol (query) |
+| GET | `/metrics` | Runtime metrics snapshot | None |
+| GET | `/verify` | Ledger/metrics consistency check | None |
+| POST | `/order` | Submit transaction (orders, cancels, faucet, settings, agent wallet, admin) | Transaction (body) |
 | POST | `/account` | Query account | type, user (body) |
-| POST | `/agent-wallet` | Manage agent wallet | Transaction (body) |
-| POST | `/user-settings` | Update user settings (leverage) | Transaction (body) |
-
-### Private Endpoints (Auth Required)
-
-| Method | Endpoint | Description | Parameters |
-|--------|----------|-------------|------------|
-| POST | `/private/faucet` | Request testnet funds | Transaction (body) |
-| POST | `/private/oracle` | Submit oracle price | Transaction (body) |
-
----
-
-## Notes
-
-### Market Orders
-There is no explicit "market" order type. To execute at market:
-- Use **trigger** type with `is_market: true` and `triggerPx: 0.0` for immediate market execution
-- Alternative: Use **IOC limit** with an aggressive price that will cross the spread
-
-### Time In Force Options
-- **GTC** (Good Till Cancel): Order rests on book until filled or cancelled
-- **IOC** (Immediate or Cancel): Fill immediately or cancel, no resting
-- **ALO** (Add Liquidity Only): Post-only, maker order (rejects if crosses)
-
-### Transaction Structure & Signing
-
-All order operations require:
-- `action`: The action to perform (order, cancel, etc.)
-- `account`: Account public key (base58) - the account performing the action
-- `signer`: Signer public key (base58) - who's signing (usually same as account, or authorized agent)
-- `signature`: Ed25519 signature (base58)
-
-**What gets signed**:
-```
-signature = sign(wincode_serialize(action + nonce + account + signer))
-```
-
-The signature is computed over the wincode serialization of the action (with nonce), account, and signer fields (signature field itself is excluded). See the "Transaction Signing Guide" section below for full details.
-
-**Agent Wallets**: If an agent wallet is authorized, `signer` can be different from `account`:
-- `account`: "UserPubkey123..." (the account being traded)
-- `signer`: "AgentPubkey456..." (authorized agent signing)
-
-### Data Sources & Implementation Notes
-
-**Market Data:**
-- `/exchangeInfo` - RocksDB blockstore (latest slot)
-- `/ticker/:symbol` - RocksDB blockstore (latest slot)
-- `/klines` - ClickHouse database
-  - 10s: Fast path from blockstore, fallback to ClickHouse
-  - Other intervals: ClickHouse materialized views with GROUP BY deduplication
-  - All views read directly from base 10s data (not chained)
-- `/l2book` - In-memory cache (real-time book state)
-
-**Trading:**
-- `/order` - Sends to executor, waits for execution response (2s timeout)
-- `/agent-wallet` - Registers agent for automated trading (2s timeout)
-
-**Account:**
-- `/account` (fullAccount, openOrders) - Bank in-memory state
-- `/account` (fills) - RocksDB fills column (up to 5000 recent fills)
-- `/account` (positions) - RocksDB positions column (up to 5000 closed positions)
-
-### Account Endpoint Notes
-- **fullAccount**: Reads from bank (current state)
-- **openOrders**: Reads from bank (current state)
-- **fills**: Reads from RocksDB fills column (historical)
-- **positions**: Reads from RocksDB positions column (closed position history)
-- **fundingHistory**: Reads from RocksDB funding payments column (historical)
-- **orderHistory**: Reads from RocksDB order history column (terminal orders)
-- Limit: 5000 most recent fills/positions/funding payments/orders per user
-
----
-
-### 10. Agent Wallet
-
-Register or manage agent wallet addresses for automated trading.
-
-**Endpoint:** `POST /agent-wallet`
-
-**Purpose:** Add authorized agent wallet addresses to your account. Agent wallets can execute trades on behalf of the account (used for automated trading bots/strategies).
-
-**Request Body:**
-```json
-{
-  "action": {
-    "type": "agentWalletCreation",
-    "agent": {
-      "a": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-      "d": false
-    },
-    "nonce": 1704067200000
-  },
-  "account": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-  "signer": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-  "signature": "5JX7N4f2r2qsLheHyvCpwzs4iXQjLPp1UZH1Ec4a7B4wJQi8Np4ncn3tDrEVW9BLjLVWm2nqFaGgk9T3o4WdTgpx"
-}
-```
-
-**Agent Fields:**
-- `a`: Agent public key to authorize (base58)
-- `d`: Delete flag (true to remove agent, false to add agent)
-- `nonce`: Unique integer for replay protection
-
-**Request:**
-```bash
-curl -X POST http://localhost:12001/api/v1/agent-wallet \
-  -H "Content-Type: application/json" \
-  -d '{
-    "action": {
-      "type": "agentWalletCreation",
-      "agent": {
-        "a": "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-        "d": false
-      },
-      "nonce": 1704067200000
-    },
-    "account": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-    "signer": "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-    "signature": "5JX7N4f2r2qsLheHyvCpwzs4iXQjLPp1UZH1Ec4a7B4wJQi8Np4ncn3tDrEVW9BLjLVWm2nqFaGgk9T3o4WdTgpx"
-  }'
-```
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "response": {
-    "type": "agent_wallet",
-    "data": {
-      "statuses": [
-        {
-          "agentWallet": {
-            "agent_wallet": "AgentPubkeyHere123..."
-          }
-        }
-      ]
-    }
-  }
-}
-```
-
-**Note:** Once an agent wallet is registered (d=false), that address can place orders on behalf of the main account. Set d=true to remove/deauthorize the agent. 
 
 ---
 
@@ -1712,79 +1223,66 @@ curl -X POST http://localhost:12001/api/v1/agent-wallet \
 
 ### Overview
 
-All state-mutating operations (orders, cancels, agent wallets) require **Ed25519 signatures** for authentication and security.
+All transactions submitted to `POST /order` require **Ed25519 signatures** for authentication.
 
-### Transaction Structure
+### JSON vs Binary Formats
 
-```json
-{
-  "action": {...},       // The action to perform
-  "account": "...",      // Account public key (base58)
-  "signer": "...",       // Signer public key (base58)
-  "signature": "..."     // Ed25519 signature (base58)
-}
-```
+The API accepts transactions as **JSON** where all cryptographic fields are **base58-encoded strings**:
 
-**Fields**:
-- `action`: The operation (order, cancel, etc.) - includes `nonce` for replay protection
-- `account`: The account performing the action
-- `signer`: Who's signing (usually same as account, or authorized agent)
-- `signature`: Ed25519 signature of `action + account + signer`
+| Field | JSON Format | Example |
+|-------|-------------|---------|
+| `account` | base58 string | `"9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"` |
+| `signer` | base58 string | `"9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt"` |
+| `signature` | base58 string | `"5j7sVt3k2YxPqH4w..."` |
+| Order IDs (`oid`) | base58 string | `"Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"` |
+| Pubkeys (`u`, `a`, `target`) | base58 string | `"8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a"` |
 
-**Nonce**: Every action requires a unique `nonce` (u64) for replay protection. Use:
-- Timestamp in milliseconds: `Date.now()`
-- Or an incrementing counter per account
+For **signing**, you must construct the **binary (wincode) representation** of the transaction (without the signature), sign those bytes with Ed25519, then encode the resulting 64-byte signature as a base58 string for the JSON payload.
 
 ### What Gets Signed
 
-The signature is computed over the **wincode serialization** of:
+The signature is computed over the **wincode binary serialization** of the transaction, excluding the signature field:
+
 ```
-action + nonce + account + signer
+binary_message = wincode_serialize(actions + nonce + account + signer)
+signature = ed25519_sign(binary_message, secret_key)
+json_signature = bs58_encode(signature)   // 64 raw bytes → base58 string
 ```
 
-The `signature` field itself is NOT included in what gets signed.
+### Binary Serialization Format (wincode)
 
-### Serialization Format (wincode)
+This describes how each type is encoded in the **binary message** used for signing. This is NOT the JSON format.
 
-The exchange uses **wincode** (a custom binary format) for signing. Key differences from JSON:
-
-| Type | Encoding |
-|------|----------|
-| Enum variant | u32 discriminant (0, 1, 2...) |
-| Pubkey/Hash | Raw 32 bytes (decoded from base58) |
-| Signature | Raw 64 bytes |
-| String | u64 length prefix + UTF-8 bytes |
-| Option<T> | 1 byte (0=None, 1=Some) + T if Some |
-| Vec<T> | u64 count + elements |
+| Type | Binary Encoding |
+|------|-----------------|
+| Enum variant | u32 discriminant (0, 1, 2...), little-endian |
+| Pubkey | 32 bytes (bs58.decode the base58 string) |
+| Hash (order IDs) | 32 bytes (bs58.decode the base58 string) |
+| String | u64 length prefix (LE) + UTF-8 bytes |
+| `Option<T>` | 1 byte (0=None, 1=Some) + T if Some |
+| `Vec<T>` | u64 count (LE) + elements |
 | bool | 1 byte (0 or 1) |
 | u64/f64 | 8 bytes little-endian |
 | u32 | 4 bytes little-endian |
+| i16 | 2 bytes little-endian |
 
-### Enum Discriminant Mappings
+### Action Discriminants
 
-**Action Types (OrderTransaction):**
 ```typescript
 const ACTION_CODES = {
-  order: 0,
-  oracle: 1,
-  faucet: 2,
-  updateUserSettings: 3,
-  agentWalletCreation: 4,
-  testnetAdmin: 5,
+  m: 0,              // market order
+  l: 1,              // limit order
+  mod: 2,            // modify order
+  cx: 3,             // cancel
+  cxa: 4,            // cancel all
+  px: 5,             // price
+  o: 6,              // pyth oracle
+  faucet: 7,
+  agentWalletCreation: 8,
+  updateUserSettings: 9,
+  whitelistFaucet: 10,
 };
-```
 
-**Order Item Types (OrderItem):**
-```typescript
-const ORDER_ITEM_CODES = {
-  order: 0,
-  cancel: 1,
-  cancelAll: 2,
-};
-```
-
-**Time In Force:**
-```typescript
 const TIME_IN_FORCE_CODES = {
   GTC: 0,
   IOC: 1,
@@ -1792,76 +1290,98 @@ const TIME_IN_FORCE_CODES = {
 };
 ```
 
-**Order Type:**
-```typescript
-const ORDER_TYPE_CODES = {
-  limit: 0,
-  trigger: 1,
-};
+### Binary Layout
+
+All Pubkey and Hash fields are 32 bytes obtained by `bs58.decode()` on the base58 string.
+
+```
+Transaction:
+  [8 bytes]  Actions count (u64, LE)
+  For each action:
+    [4 bytes]  Action discriminant (u32, LE)
+    [...]      Action-specific fields (see below)
+  [8 bytes]  Nonce (u64, LE)
+  [32 bytes] Account pubkey (bs58.decode)
+  [32 bytes] Signer pubkey (bs58.decode)
+  -- signature is NOT included in the signed message --
+
+MarketOrder (discriminant 0):
+  [8 bytes + N]  Symbol string (u64 length + UTF-8)
+  [1 byte]       is_buy (bool)
+  [8 bytes]      size (f64, LE)
+  [1 byte]       reduce_only (bool)
+
+LimitOrder (discriminant 1):
+  [8 bytes + N]  Symbol string (u64 length + UTF-8)
+  [1 byte]       is_buy (bool)
+  [8 bytes]      price (f64, LE)
+  [8 bytes]      size (f64, LE)
+  [4 bytes]      tif (u32, LE: 0=GTC, 1=IOC, 2=ALO)
+  [1 byte]       reduce_only (bool)
+
+ModifyOrder (discriminant 2):
+  [32 bytes]     Order ID (bs58.decode)
+  [8 bytes + N]  Symbol string (u64 length + UTF-8)
+  [8 bytes]      Amount (f64, LE)
+
+Cancel (discriminant 3):
+  [8 bytes + N]  Symbol string (u64 length + UTF-8)
+  [32 bytes]     Order ID (bs58.decode)
+
+CancelAll (discriminant 4):
+  [8 bytes]      Symbols count (u64, LE)
+  For each symbol:
+    [8 bytes + N]  Symbol string
+
+Price (discriminant 5):
+  [8 bytes]      Timestamp (u64, LE)
+  [8 bytes + N]  Asset string (u64 length + UTF-8)
+  [8 bytes]      Price (f64, LE)
+
+PythOracle (discriminant 6):
+  [8 bytes]      Oracles count (u64, LE)
+  For each oracle:
+    [8 bytes]    Timestamp (u64, LE)
+    [8 bytes]    Feed ID (u64, LE)
+    [8 bytes]    Price (u64, LE)
+    [2 bytes]    Exponent (i16, LE)
+
+Faucet (discriminant 7):
+  [32 bytes] User pubkey (bs58.decode)
+  [1 byte]   Amount Option (0=None, 1=Some)
+  If Some:
+    [8 bytes] Amount (f64, LE)
+
+AgentWalletCreation (discriminant 8):
+  [32 bytes] Agent pubkey (bs58.decode)
+  [1 byte]   Delete flag (bool)
+
+UpdateUserSettings (discriminant 9):
+  [8 bytes]      Entry count (u64, LE)
+  For each entry:
+    [8 bytes + N]  Symbol string
+    [8 bytes]      Max leverage (f64, LE)
+
+WhitelistFaucet (discriminant 10):
+  [32 bytes] Target pubkey (bs58.decode)
+  [1 byte]   Whitelist flag (bool)
 ```
 
-### Step-by-Step Signing (JavaScript/TypeScript)
-
-**Install dependencies:**
-```bash
-pnpm install tweetnacl bs58
-# or
-yarn add tweetnacl bs58
-```
-
-**Complete signing implementation:**
+### Signing Example (JavaScript/TypeScript)
 
 ```typescript
 import * as nacl from 'tweetnacl';
 import bs58 from 'bs58';
 
-// ============================================================================
-// Enum Discriminant Mappings
-// ============================================================================
-
-const ACTION_CODES: Record<string, number> = {
-  order: 0,
-  oracle: 1,
-  faucet: 2,
-  updateUserSettings: 3,
-  agentWalletCreation: 4,
-  testnetAdmin: 5,
-};
-
-const ORDER_ITEM_CODES: Record<string, number> = {
-  order: 0,
-  cancel: 1,
-  cancelAll: 2,
-};
-
-const TIME_IN_FORCE_CODES: Record<string, number> = {
-  GTC: 0,
-  IOC: 1,
-  ALO: 2,
-};
-
-const ORDER_TYPE_CODES: Record<string, number> = {
-  limit: 0,
-  trigger: 1,
-};
-
-const ADMIN_ACTION_CODES: Record<string, number> = {
-  whitelistFaucet: 0,
-};
-
-// ============================================================================
-// Primitive Writers
-// ============================================================================
-
 function writeU32(value: number): Uint8Array {
   const buf = new Uint8Array(4);
-  new DataView(buf.buffer).setUint32(0, value, true); // little-endian
+  new DataView(buf.buffer).setUint32(0, value, true);
   return buf;
 }
 
 function writeU64(value: number): Uint8Array {
   const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setBigUint64(0, BigInt(value), true); // little-endian
+  new DataView(buf.buffer).setBigUint64(0, BigInt(value), true);
   return buf;
 }
 
@@ -1869,453 +1389,148 @@ function writeBool(value: boolean): Uint8Array {
   return new Uint8Array([value ? 1 : 0]);
 }
 
+function writeF64(value: number): Uint8Array {
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setFloat64(0, value, true);
+  return buf;
+}
+
 function writeString(str: string): Uint8Array {
   const bytes = new TextEncoder().encode(str);
   return concatBytes(writeU64(bytes.length), bytes);
-}
-
-function writeF64(value: number): Uint8Array {
-  const buf = new Uint8Array(8);
-  new DataView(buf.buffer).setFloat64(0, value, true); // little-endian
-  return buf;
 }
 
 function concatBytes(...arrays: Uint8Array[]): Uint8Array {
   const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
   const result = new Uint8Array(totalLength);
   let offset = 0;
-  for (const arr of arrays) {
-    result.set(arr, offset);
-    offset += arr.length;
-  }
+  for (const arr of arrays) { result.set(arr, offset); offset += arr.length; }
   return result;
 }
 
-// ============================================================================
-// Validation Helpers
-// ============================================================================
-
-function decodeAndValidateKey(key: string): Uint8Array {
-  const bytes = bs58.decode(key);
-  if (bytes.length !== 32) {
-    throw new Error(`Key must be 32 bytes, got ${bytes.length}`);
-  }
-  return bytes;
-}
-
-function decodeAndValidateHash(hash: string): Uint8Array {
-  const bytes = bs58.decode(hash);
-  if (bytes.length !== 32) {
-    throw new Error(`Hash must be 32 bytes, got ${bytes.length}`);
-  }
-  return bytes;
-}
-
-// ============================================================================
-// Order Serialization
-// ============================================================================
-
-function serializeOrderItem(orderWrapper: any): Uint8Array {
-  // Get the order item type (order, cancel, or cancelAll)
-  const itemType = Object.keys(orderWrapper)[0];
-  if (!itemType || !(itemType in ORDER_ITEM_CODES)) {
-    throw new Error(`Invalid order item type: ${itemType}`);
-  }
-
-  const parts: Uint8Array[] = [];
-
-  // Write order item discriminant (u32)
-  parts.push(writeU32(ORDER_ITEM_CODES[itemType]));
-
-  const data = orderWrapper[itemType];
-
-  if (itemType === 'order') {
-    // Order: asset, is_buy, price, size, reduce_only, order_type, client_id
-    parts.push(writeString(data.c));           // asset
-    parts.push(writeBool(data.b));             // is_buy
-    parts.push(writeF64(data.px));             // price
-    parts.push(writeF64(data.sz));             // size
-    parts.push(writeBool(data.r));             // reduce_only
-
-    // Order type (limit or trigger)
-    if (data.t.limit) {
-      parts.push(writeU32(ORDER_TYPE_CODES.limit));
-      parts.push(writeU32(TIME_IN_FORCE_CODES[data.t.limit.tif] || 0));
-    } else if (data.t.trigger) {
-      parts.push(writeU32(ORDER_TYPE_CODES.trigger));
-      parts.push(writeBool(data.t.trigger.is_market));
-      parts.push(writeF64(data.t.trigger.triggerPx));
-    } else {
-      throw new Error('Order must have either limit or trigger type');
-    }
-
-    // client_id: Option<Hash> - 1 byte discriminant + 32 bytes if Some
-    if (data.cloid) {
-      parts.push(writeBool(true));
-      parts.push(decodeAndValidateHash(data.cloid)); // Raw 32 bytes, NOT writeString!
-    } else {
-      parts.push(writeBool(false));
-    }
-
-  } else if (itemType === 'cancel') {
-    // Cancel: asset, oid (Hash as raw 32 bytes)
-    parts.push(writeString(data.c));           // asset
-    parts.push(decodeAndValidateHash(data.oid)); // oid - raw 32 bytes
-
-  } else if (itemType === 'cancelAll') {
-    // CancelAll: assets (Vec<String>)
-    const assets = data.c || [];
-    parts.push(writeU64(assets.length));
-    for (const asset of assets) {
-      parts.push(writeString(asset));
-    }
-  }
-
-  return concatBytes(...parts);
-}
-
-function serializeOrders(orders: any[]): Uint8Array {
-  const parts: Uint8Array[] = [];
-
-  // Write order count (u64)
-  parts.push(writeU64(orders.length));
-
-  // Serialize each order item
-  for (const order of orders) {
-    parts.push(serializeOrderItem(order));
-  }
-
-  return concatBytes(...parts);
-}
-
-// ============================================================================
-// Action Serialization
-// ============================================================================
-
-function serializeFaucet(faucet: any): Uint8Array {
-  const parts: Uint8Array[] = [];
-
-  // user: Pubkey (raw 32 bytes)
-  parts.push(decodeAndValidateKey(faucet.u));
-
-  // amount: Option<f64>
-  if (faucet.amount !== undefined && faucet.amount !== null) {
-    parts.push(writeBool(true));
-    parts.push(writeF64(faucet.amount));
-  } else {
-    parts.push(writeBool(false));
-  }
-
-  return concatBytes(...parts);
-}
-
-function serializeAgentWalletCreation(agent: any): Uint8Array {
+function serializeLimitOrder(order: any): Uint8Array {
   return concatBytes(
-    decodeAndValidateKey(agent.a),  // agent: Pubkey (raw 32 bytes)
-    writeBool(agent.d)               // delete: bool
+    writeU32(1),                    // discriminant
+    writeString(order.c),           // symbol
+    writeBool(order.b),             // is_buy
+    writeF64(order.px),             // price
+    writeF64(order.sz),             // size
+    writeU32({GTC:0,IOC:1,ALO:2}[order.tif] || 0),
+    writeBool(order.r),             // reduce_only
   );
 }
 
-function serializeUpdateUserSettings(settings: any): Uint8Array {
-  const parts: Uint8Array[] = [];
+function serializeMarketOrder(order: any): Uint8Array {
+  return concatBytes(
+    writeU32(0),                    // discriminant
+    writeString(order.c),           // symbol
+    writeBool(order.b),             // is_buy
+    writeF64(order.sz),             // size
+    writeBool(order.r),             // reduce_only
+  );
+}
 
-  const leverageMap = settings.m || [];
-  parts.push(writeU64(leverageMap.length));
+function serializeCancel(cancel: any): Uint8Array {
+  return concatBytes(
+    writeU32(3),                    // discriminant
+    writeString(cancel.c),          // symbol
+    bs58.decode(cancel.oid),        // order ID (32 bytes from base58)
+  );
+}
 
-  for (const [symbol, leverage] of leverageMap) {
-    parts.push(writeString(symbol));
-    parts.push(writeF64(leverage));
-  }
-
+function serializeCancelAll(cancelAll: any): Uint8Array {
+  const parts = [writeU32(4), writeU64(cancelAll.c.length)];
+  for (const sym of cancelAll.c) parts.push(writeString(sym));
   return concatBytes(...parts);
 }
 
-function serializeOracle(oracles: any[]): Uint8Array {
-  const parts: Uint8Array[] = [];
-
-  parts.push(writeU64(oracles.length));
-
-  for (const oracle of oracles) {
-    parts.push(writeU64(oracle.t));      // timestamp
-    parts.push(writeString(oracle.c));   // asset
-    parts.push(writeF64(oracle.px));     // price
+function serializeFaucet(faucet: any): Uint8Array {
+  const parts = [writeU32(7), bs58.decode(faucet.u)];
+  if (faucet.amount != null) {
+    parts.push(writeBool(true), writeF64(faucet.amount));
+  } else {
+    parts.push(writeBool(false));
   }
-
   return concatBytes(...parts);
 }
 
-function serializeTestnetAdmin(actions: any[]): Uint8Array {
-  const parts: Uint8Array[] = [];
+function serializeModifyOrder(data: any): Uint8Array {
+  return concatBytes(
+    writeU32(2),                    // discriminant
+    bs58.decode(data.oid),          // order ID (32 bytes from base58)
+    writeString(data.symbol),       // symbol
+    writeF64(data.amount),          // new size
+  );
+}
 
-  parts.push(writeU64(actions.length));
-
-  for (const action of actions) {
-    if (action.whitelistFaucet) {
-      parts.push(writeU32(ADMIN_ACTION_CODES.whitelistFaucet));
-      parts.push(decodeAndValidateKey(action.whitelistFaucet.account));
-      parts.push(writeBool(action.whitelistFaucet.whitelist));
+function serializeAction(action: any): Uint8Array {
+  const [type, data] = Object.entries(action)[0] as [string, any];
+  switch (type) {
+    case 'l':                     return serializeLimitOrder(data);
+    case 'm':                     return serializeMarketOrder(data);
+    case 'mod':                   return serializeModifyOrder(data);
+    case 'cx':                    return serializeCancel(data);
+    case 'cxa':                   return serializeCancelAll(data);
+    case 'px':                    return concatBytes(writeU32(5), writeU64(data.t), writeString(data.c), writeF64(data.px));
+    case 'o': {
+      const oracles = data.oracles || [];
+      const parts: Uint8Array[] = [writeU32(6), writeU64(oracles.length)];
+      for (const o of oracles) {
+        parts.push(writeU64(o.t), writeU64(o.fi), writeU64(o.px));
+        const ebuf = new Uint8Array(2);
+        new DataView(ebuf.buffer).setInt16(0, o.e, true);
+        parts.push(ebuf);
+      }
+      return concatBytes(...parts);
     }
+    case 'faucet':                return serializeFaucet(data);
+    case 'agentWalletCreation':   return concatBytes(writeU32(8), bs58.decode(data.a), writeBool(data.d));
+    case 'updateUserSettings': {
+      const entries = data.m || [];
+      const parts: Uint8Array[] = [writeU32(9), writeU64(entries.length)];
+      for (const [sym, lev] of entries) { parts.push(writeString(sym), writeF64(lev)); }
+      return concatBytes(...parts);
+    }
+    case 'whitelistFaucet':       return concatBytes(writeU32(10), bs58.decode(data.target), writeBool(data.whitelist));
+    default: throw new Error(`Unknown action: ${type}`);
   }
+}
 
+function serializeTransaction(actions: any[], nonce: number, account: string, signer: string): Uint8Array {
+  const parts: Uint8Array[] = [writeU64(actions.length)];
+  for (const action of actions) parts.push(serializeAction(action));
+  parts.push(writeU64(nonce));
+  parts.push(bs58.decode(account));   // 32 bytes
+  parts.push(bs58.decode(signer));    // 32 bytes
   return concatBytes(...parts);
 }
 
-// ============================================================================
-// Main Transaction Serialization
-// ============================================================================
-
-/**
- * Serialize transaction using wincode format for signing.
- *
- * Format: action_discriminant(u32) + action_data + nonce(u64) + account(32) + signer(32)
- */
-export function serializeTransaction(
-  action: any,
-  account: string,
-  signer: string
-): Uint8Array {
-  const actionType = action.type || '';
-
-  if (!(actionType in ACTION_CODES)) {
-    throw new Error(`Invalid action type: ${actionType}`);
-  }
-
-  const parts: Uint8Array[] = [];
-
-  // 1. Action discriminant (u32)
-  parts.push(writeU32(ACTION_CODES[actionType]));
-
-  // 2. Action-specific data
-  switch (actionType) {
-    case 'order':
-      parts.push(serializeOrders(action.orders || []));
-      break;
-    case 'oracle':
-      parts.push(serializeOracle(action.oracles || []));
-      break;
-    case 'faucet':
-      parts.push(serializeFaucet(action.faucet || {}));
-      break;
-    case 'updateUserSettings':
-      parts.push(serializeUpdateUserSettings(action.settings || {}));
-      break;
-    case 'agentWalletCreation':
-      parts.push(serializeAgentWalletCreation(action.agent || {}));
-      break;
-    case 'testnetAdmin':
-      parts.push(serializeTestnetAdmin(action.actions || []));
-      break;
-  }
-
-  // 3. Nonce (u64)
-  parts.push(writeU64(action.nonce));
-
-  // 4. Account (32 bytes)
-  parts.push(decodeAndValidateKey(account));
-
-  // 5. Signer (32 bytes)
-  parts.push(decodeAndValidateKey(signer));
-
-  return concatBytes(...parts);
-}
-
-/**
- * Sign a transaction action for the exchange
- */
-export function signTransaction(
-  secretKey: Uint8Array,
-  action: any,
-  account: string,
-  signer: string
-): string {
-  // Serialize the transaction using wincode format
-  const message = serializeTransaction(action, account, signer);
-
-  // Sign with Ed25519
+function signTransaction(secretKey: Uint8Array, actions: any[], nonce: number, account: string, signer: string): string {
+  const message = serializeTransaction(actions, nonce, account, signer);
   const signature = nacl.sign.detached(message, secretKey);
-
-  // Encode as base58
   return bs58.encode(signature);
 }
 
-// ============================================================================
-// Usage Examples
-// ============================================================================
-
-// Example 1: Place a limit order
-const orderAction = {
-  type: "order",
-  orders: [{
-    order: {
-      c: "BTC-USD",
-      b: true,
-      px: 100000.0,
-      sz: 0.1,
-      r: false,
-      t: { limit: { tif: "GTC" } }
-      // cloid: "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"  // optional
-    }
-  }],
-  nonce: Date.now()
-};
-
-// Example 2: Cancel an order
-const cancelAction = {
-  type: "order",
-  orders: [{
-    cancel: {
-      c: "BTC-USD",
-      oid: "Fpa3oVuL3UzjNANAMZZdmrn6D1Zhk83GmBuJpuAWG51F"
-    }
-  }],
-  nonce: Date.now()
-};
-
-// Example 3: Cancel all orders in a symbol
-const cancelAllAction = {
-  type: "order",
-  orders: [{
-    cancelAll: {
-      c: ["BTC-USD"]  // or [] for all symbols
-    }
-  }],
-  nonce: Date.now()
-};
-
-// Example 4: Mixed batch (cancel + new order)
-const mixedAction = {
-  type: "order",
-  orders: [
-    { cancel: { c: "BTC-USD", oid: "old_order_hash_base58" } },
-    { order: { c: "BTC-USD", b: true, px: 100000.0, sz: 0.1, r: false, t: { limit: { tif: "GTC" } } } }
-  ],
-  nonce: Date.now()
-};
-
-// Example 5: Faucet request
-const faucetAction = {
-  type: "faucet",
-  faucet: {
-    u: "8DmyR3yJhpQHBqgSGua4c69PZ9ZMeaJddTumUdmTx7a",
-    // amount: 10000.0  // optional
-  },
-  nonce: Date.now()
-};
-
-// Example 6: Agent wallet creation
-const agentAction = {
-  type: "agentWalletCreation",
-  agent: {
-    a: "5Am6JkEHAjYG1itNWRMGpQrxvY8AaqkXCo1TZvenqVux",
-    d: false  // false = add, true = remove
-  },
-  nonce: Date.now()
-};
-
-// Example 7: Update user settings (leverage)
-const settingsAction = {
-  type: "updateUserSettings",
-  settings: {
-    m: [
-      ["BTC-USD", 5.0],
-      ["ETH-USD", 3.0]
-    ]
-  },
-  nonce: Date.now()
-};
-
-// ============================================================================
-// Full Signing Flow
-// ============================================================================
+// --- Usage ---
 
 const account = "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt";
-const signer = "9J8TUdEWrrcADK913r1Cs7DdqX63VdVU88imfDzT1ypt";
+const signer = account;
+const secretKey = bs58.decode("YOUR_SECRET_KEY_BASE58"); // 64 bytes
+const nonce = Date.now();
 
-// Get secret key (64 bytes: 32 bytes private key + 32 bytes public key)
-const secretKey = bs58.decode("YOUR_SECRET_KEY_BASE58");
+const actions = [
+  {l: {c: "BTC-USD", b: true, px: 100000.0, sz: 0.1, tif: "GTC", r: false}}
+];
 
-// Sign the transaction
-const signature = signTransaction(secretKey, orderAction, account, signer);
+const signature = signTransaction(secretKey, actions, nonce, account, signer);
 
-// Create signed transaction for API
-const signedTransaction = {
-  action: orderAction,
-  account,
-  signer,
-  signature
-};
+const tx = { actions, nonce, account, signer, signature };
 
-// Send to API
-const response = await fetch('http://localhost:12001/api/v1/order', {
+await fetch('http://localhost:12000/api/v1/order', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(signedTransaction)
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify(tx)
 });
-```
-
-### Serialization Format Details
-
-#### Order Action Binary Layout
-
-```
-[4 bytes]  Action discriminant (0 = order)
-[8 bytes]  Order count (u64)
-
-For each order item:
-  [4 bytes]  Order item discriminant (0=order, 1=cancel, 2=cancelAll)
-
-  If order (0):
-    [8 bytes + N]  Asset string (u64 length + UTF-8 bytes)
-    [1 byte]       is_buy (bool)
-    [8 bytes]      price (f64)
-    [8 bytes]      size (f64)
-    [1 byte]       reduce_only (bool)
-    [4 bytes]      Order type discriminant (0=limit, 1=trigger)
-    If limit:
-      [4 bytes]    Time in force (0=GTC, 1=IOC, 2=ALO)
-    If trigger:
-      [1 byte]     is_market (bool)
-      [8 bytes]    trigger_price (f64)
-    [1 byte]       client_id Option (0=None, 1=Some)
-    If Some:
-      [32 bytes]   client_id Hash (raw bytes, NOT base58 string!)
-
-  If cancel (1):
-    [8 bytes + N]  Asset string
-    [32 bytes]     Order ID Hash (raw bytes)
-
-  If cancelAll (2):
-    [8 bytes]      Asset count (u64)
-    For each asset:
-      [8 bytes + N]  Asset string
-
-[8 bytes]  Nonce (u64)
-[32 bytes] Account pubkey (raw bytes)
-[32 bytes] Signer pubkey (raw bytes)
-```
-
-#### Faucet Action Binary Layout
-
-```
-[4 bytes]  Action discriminant (2 = faucet)
-[32 bytes] User pubkey (raw bytes, NOT base58 string!)
-[1 byte]   Amount Option (0=None, 1=Some)
-If Some:
-  [8 bytes] Amount (f64)
-[8 bytes]  Nonce (u64)
-[32 bytes] Account pubkey (raw bytes)
-[32 bytes] Signer pubkey (raw bytes)
-```
-
-#### Agent Wallet Action Binary Layout
-
-```
-[4 bytes]  Action discriminant (4 = agentWalletCreation)
-[32 bytes] Agent pubkey (raw bytes)
-[1 byte]   Delete flag (bool)
-[8 bytes]  Nonce (u64)
-[32 bytes] Account pubkey (raw bytes)
-[32 bytes] Signer pubkey (raw bytes)
 ```
 
 ### Agent Wallet Signing
@@ -2324,32 +1539,25 @@ When an agent wallet places orders on behalf of a user:
 
 ```json
 {
-  "action": {...},
-  "account": "UserPubkey123...",   // ← The user's account
-  "signer": "AgentPubkey456...",   // ← The agent's key (different!)
-  "signature": "AgentSignature..."  // ← Signed by agent's private key
+  "actions": [{"l": {"c": "BTC-USD", "b": true, "px": 100000.0, "sz": 0.1, "tif": "GTC", "r": false}}],
+  "nonce": 1704067200000,
+  "account": "UserPubkey123...",
+  "signer": "AgentPubkey456...",
+  "signature": "AgentSignature..."
 }
 ```
 
-**Requirements**:
-1. Agent must be pre-authorized via `/agent-wallet` endpoint
+Requirements:
+1. Agent must be pre-authorized via an `agentWalletCreation` action
 2. Agent signs with their own private key
-3. Order executes against user's account
-4. Useful for trading bots and automated strategies
+3. Order executes against the user's account
 
 ### Common Issues
 
-**"Invalid signature"**:
-- Verify action discriminant is u32 (not length-prefixed string)
-- Check that Pubkey/Hash fields are raw 32 bytes (not base58 strings)
-- Ensure Option types have proper 1-byte discriminant
-- Verify field order matches the binary layout exactly
+**"Invalid signature"**: The binary message must match the server's wincode serialization exactly. Use `bs58.decode()` to convert base58 Pubkey/Hash strings into raw 32-byte arrays for the binary message. Enum discriminants are u32 (LE). Vec lengths are u64 (LE). The signature itself is NOT part of the signed message - sign the binary, then `bs58.encode()` the 64-byte Ed25519 signature for the JSON payload.
 
-**"Unauthorized signer"**:
-- If `signer != account`, agent must be pre-authorized
-- Use `/agent-wallet` to authorize agents first
+**"Unauthorized signer"**: If `signer != account`, the agent must be pre-authorized first.
 
-**"Account not found"**:
-- Account must be funded first (use `/private/faucet` for testnet)
+**"Account not found"**: Account must be funded first via a faucet action.
 
 ---

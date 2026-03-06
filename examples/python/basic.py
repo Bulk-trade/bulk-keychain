@@ -19,6 +19,7 @@ def main():
 
     # 2. Create a signer
     signer = Signer(keypair)
+    signer.set_compute_batch_order_ids(True)
     print(f"Signer pubkey: {signer.pubkey}")
     print()
 
@@ -47,7 +48,8 @@ def main():
         "order_type": {"type": "market", "is_market": True, "trigger_px": 0.0}
     }
     signed_market = signer.sign(market_order)
-    print(f"Action type: {signed_market['action']['type']}")
+    market_tag = next(iter(signed_market["actions"][0].keys()))
+    print(f"Action tag: {market_tag}")
     print()
 
     # 5. Sign multiple orders atomically (sign_group)
@@ -79,7 +81,8 @@ def main():
         }
     ]
     signed_bracket = signer.sign_group(bracket)
-    print(f"Bracket order: {len(signed_bracket['action']['orders'])} orders in 1 tx")
+    print(f"Bracket order: {len(signed_bracket['actions'])} actions in 1 tx")
+    print(f"Bracket order IDs: {signed_bracket.get('order_ids')}")
     print()
 
     # 6. Cancel order
@@ -128,7 +131,8 @@ def main():
     # 9. Sign faucet request
     print("--- Faucet Request ---")
     signed_faucet = signer.sign_faucet()
-    print(f"Faucet action type: {signed_faucet['action']['type']}")
+    faucet_tag = next(iter(signed_faucet["actions"][0].keys()))
+    print(f"Faucet action tag: {faucet_tag}")
     print()
 
     # 10. Sign user settings
@@ -137,7 +141,8 @@ def main():
         ("BTC-USD", 5.0),
         ("ETH-USD", 3.0)
     ])
-    print(f"Settings action type: {signed_settings['action']['type']}")
+    settings_tag = next(iter(signed_settings["actions"][0].keys()))
+    print(f"Settings action tag: {settings_tag}")
 
     print("\n=== Done ===")
 

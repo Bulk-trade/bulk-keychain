@@ -42,7 +42,8 @@ await fetch('https://api.bulk.exchange/api/v1/order', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
-    ...JSON.parse(signed.action),
+    actions: JSON.parse(signed.actions),
+    nonce: signed.nonce,
     account: signed.account,
     signer: signed.signer,
     signature: signed.signature
@@ -74,7 +75,16 @@ signed = signer.sign({
 
 # Submit to API
 import requests
-requests.post('https://api.bulk.exchange/api/v1/order', json=signed)
+requests.post(
+    'https://api.bulk.exchange/api/v1/order',
+    json={
+        "actions": signed["actions"],
+        "nonce": signed["nonce"],
+        "account": signed["account"],
+        "signer": signed["signer"],
+        "signature": signed["signature"],
+    },
+)
 ```
 
 ## Rust
@@ -107,24 +117,51 @@ let json = signed.to_json()?;
 
 ## Pre-computed Order ID
 
-Every signed transaction includes a pre-computed `orderId` that matches BULK's network order ID generation. This lets you know the order ID **before** the node responds - useful for optimistic tracking.
+Single-order transactions include an optional pre-computed order ID that matches BULK's network order ID generation. This lets you know the order ID **before** the node responds - useful for optimistic tracking.
 
 ### TypeScript
 ```typescript
 const signed = signer.sign(order);
-console.log(`Order ID: ${signed.orderId}`);  // Know ID immediately!
+console.log(`Order ID: ${signed.orderId}`);  // Optional
 ```
 
 ### Python
 ```python
 signed = signer.sign(order)
-print(f"Order ID: {signed['order_id']}")  # Pre-computed!
+print(f"Order ID: {signed.get('order_id')}")  # Optional
 ```
 
 ### Rust
 ```rust
 let signed = signer.sign(order.into(), None)?;
-println!("Order ID: {}", signed.order_id.unwrap());
+println!("Order ID: {:?}", signed.order_id);
+```
+
+For multi-order transactions (`signGroup` / grouped batches), optional `order_ids` are available when batch order ID computation is enabled.
+
+### Enable Batch Order IDs (Optional)
+
+### TypeScript (Node.js)
+```typescript
+const signer = new NativeSigner(keypair);
+signer.setComputeBatchOrderIds(true); // default false for max performance
+const grouped = signer.signGroup([entryOrder, stopLoss, takeProfit]);
+console.log(grouped.orderIds); // ["...", "...", "..."]
+```
+
+### Python
+```python
+signer = Signer(keypair)
+signer.set_compute_batch_order_ids(True)  # default False
+grouped = signer.sign_group([entry_order, stop_loss, take_profit])
+print(grouped.get("order_ids"))
+```
+
+### Rust
+```rust
+let mut signer = Signer::new(keypair).with_batch_order_ids();
+let grouped = signer.sign_group(bracket, None)?;
+println!("Order IDs: {:?}", grouped.order_ids);
 ```
 
 ### Algorithm
@@ -222,21 +259,21 @@ const signed = prepared.finalize(bs58.encode(signature));
 prepared.messageBase58;  // Base58 encoded message
 prepared.messageBase64;  // Base64 encoded message  
 prepared.messageHex;     // Hex encoded message
-prepared.orderId;        // Pre-computed order ID
+prepared.orderId;        // Optional pre-computed order ID
 ```
 
 ### Python
 ```python
-from bulk_keychain import py_prepare_order, py_finalize_transaction
+from bulk_keychain import prepare_order, finalize_transaction
 
 # Step 1: Prepare
-prepared = py_prepare_order(order, account=wallet_pubkey)
+prepared = prepare_order(order, account=wallet_pubkey)
 
 # Step 2: Sign with external wallet
 signature = wallet.sign_message(prepared["message_bytes"])
 
 # Step 3: Finalize
-signed = py_finalize_transaction(prepared, signature)
+signed = finalize_transaction(prepared, signature)
 ```
 
 ### Prepare Functions

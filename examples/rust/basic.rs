@@ -19,7 +19,7 @@ fn main() -> bulk_keychain::Result<()> {
     println!();
 
     // 2. Create a signer
-    let mut signer = Signer::new(keypair);
+    let mut signer = Signer::new(keypair).with_batch_order_ids();
     println!("Signer pubkey: {}", signer.pubkey());
     println!();
 
@@ -34,18 +34,22 @@ fn main() -> bulk_keychain::Result<()> {
     println!("--- Market Order ---");
     let market_order = Order::market("ETH-USD", false, 1.0);
     let signed_market = signer.sign(market_order.into(), None)?;
-    println!("Action type: {}", signed_market.action["type"]);
+    println!("Actions in tx: {}", signed_market.actions.len());
     println!();
 
     // 5. Sign multiple orders atomically (sign_group)
     println!("--- Atomic Bracket Order (sign_group) ---");
     let bracket: Vec<OrderItem> = vec![
-        Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),  // Entry
-        Order::limit("BTC-USD", false, 99000.0, 0.1, TimeInForce::Gtc).into(),  // Stop loss
+        Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(), // Entry
+        Order::limit("BTC-USD", false, 99000.0, 0.1, TimeInForce::Gtc).into(), // Stop loss
         Order::limit("BTC-USD", false, 110000.0, 0.1, TimeInForce::Gtc).into(), // Take profit
     ];
     let signed_bracket = signer.sign_group(bracket, None)?;
-    println!("Bracket order: {} orders in 1 tx", signed_bracket.action["orders"].as_array().unwrap().len());
+    println!(
+        "Bracket order: {} actions in 1 tx",
+        signed_bracket.actions.len()
+    );
+    println!("Bracket order IDs: {:?}", signed_bracket.order_ids);
     println!();
 
     // 6. Cancel order
@@ -59,10 +63,13 @@ fn main() -> bulk_keychain::Result<()> {
     println!("--- Cancel All ---");
     let cancel_all = CancelAll::for_symbols(vec!["BTC-USD".into(), "ETH-USD".into()]);
     let signed_cancel_all = signer.sign(cancel_all.into(), None)?;
-    println!("CancelAll signature: {}...", &signed_cancel_all.signature[..40]);
+    println!(
+        "CancelAll signature: {}...",
+        &signed_cancel_all.signature[..40]
+    );
     println!();
 
-    // 8. Batch signing - each order gets its own tx (sign_all) 
+    // 8. Batch signing - each order gets its own tx (sign_all)
     println!("--- Batch Signing (sign_all - 100 orders) ---");
     let orders: Vec<OrderItem> = (0..100)
         .map(|i| {
@@ -95,14 +102,28 @@ fn main() -> bulk_keychain::Result<()> {
     // 9. Sign faucet request
     println!("--- Faucet Request ---");
     let signed_faucet = signer.sign_faucet(None)?;
-    println!("Faucet action type: {}", signed_faucet.action["type"]);
+    let faucet_tag = signed_faucet
+        .actions
+        .first()
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.keys().next())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("Faucet action tag: {}", faucet_tag);
     println!();
 
     // 10. Sign user settings
     println!("--- User Settings (Leverage) ---");
     let settings = UserSettings::new(vec![("BTC-USD".into(), 5.0), ("ETH-USD".into(), 3.0)]);
     let signed_settings = signer.sign_user_settings(settings, None)?;
-    println!("Settings action type: {}", signed_settings.action["type"]);
+    let settings_tag = signed_settings
+        .actions
+        .first()
+        .and_then(|v| v.as_object())
+        .and_then(|obj| obj.keys().next())
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    println!("Settings action tag: {}", settings_tag);
 
     println!("\n=== Done ===");
     Ok(())
