@@ -124,6 +124,10 @@ Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, and `sign_whit
 
 Single-order transactions include an optional pre-computed order ID that matches BULK's network order ID generation. This lets you know the order ID **before** the node responds - useful for optimistic tracking.
 
+Transaction signatures use canonical BULK-SDK bytes:
+
+`signature = ed25519_sign( bincode(actions) + nonce_le + account_bytes )`
+
 ### TypeScript
 ```typescript
 const signed = signer.sign(order);
@@ -147,11 +151,13 @@ println!("Order ID: {:?}", signed.order_id);
 You can compute an order ID directly from order fields + nonce + account:
 
 ```rust
-use bulk_keychain::{compute_order_id_for_account, Order, Pubkey, TimeInForce};
+use bulk_keychain::{
+    compute_order_id, Order, Pubkey, TimeInForce,
+};
 
 let account = Pubkey::from_base58("your-account-pubkey")?;
 let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
-let order_id = compute_order_id_for_account(&order, 1704067200000, &account, None).to_base58();
+let order_id = compute_order_id(&order, 1704067200000, &account).to_base58();
 ```
 
 ```python
@@ -168,7 +174,6 @@ order_id_compact = compute_order_id_from_order(
     {"l": {"c": "BTC-USD", "b": True, "px": 100000.0, "sz": 0.1, "r": False, "tif": "GTC"}},
     nonce=1704067200000,
     account="your-account-pubkey",
-    signer="optional-agent-or-wallet-pubkey",
 )
 ```
 
@@ -201,18 +206,14 @@ println!("Order IDs: {:?}", grouped.order_ids);
 
 ### Algorithm
 
-Order IDs are derived from canonical **wincode** bytes for a single order action:
+Order IDs are derived from canonical BULK-SDK bytes for a single order action:
 
-`[action_count=1] + [order_action] + [nonce] + [account] + [signer]`
+`order_id = SHA256(seqno_le + bincode(single_action) + account_bytes + nonce_le)` (base58)
 
-Then hashed as:
-
-`order_id = SHA256(wincode_bytes)` (base58 encoded)
-
-Encoding matches the API signing guide:
-- enum discriminants: `u32` LE
-- vector/string lengths: `u64` LE
-- floats: raw IEEE-754 `f64` LE (no fixed-point conversion)
+Notes:
+- `seqno` is the action index inside the transaction (auto-indexed for grouped txs, `0` for single-order txs)
+- for limit/market actions, `px`/`sz` use BULK-SDK fixed-point serialization (`round(value * 1e8)` as `u64`)
+- signer pubkey is not part of the order-ID hash
 
 ## Batch Signing
 

@@ -489,9 +489,8 @@ pub struct SignedTransactionOutput {
     pub signer: String,
     /// Signature (base58)
     pub signature: String,
-    /// Pre-computed order/transaction ID (base58)
-    /// This is SHA256(wincode_bytes), matching BULK's server-side ID generation.
-    /// Available before server response for optimistic tracking.
+    /// Pre-computed order ID for single-order transactions (base58).
+    /// Computed from BULK-SDK canonical action bytes.
     pub order_id: Option<String>,
     /// Optional pre-computed order IDs for multi-order transactions.
     pub order_ids: Option<Vec<String>>,
@@ -649,10 +648,9 @@ pub fn validate_hash(s: String) -> bool {
     Hash::from_base58(&s).is_ok()
 }
 
-/// Compute order ID from wincode bytes
+/// Compute SHA256 hash from raw bytes.
 ///
-/// This computes SHA256(wincode_bytes), which matches BULK's server-side
-/// order ID generation. Useful if you're serializing transactions yourself.
+/// This is a raw utility and does not apply BULK order-ID canonicalization.
 #[napi]
 pub fn compute_order_id(wincode_bytes: Buffer) -> String {
     Hash::from_wincode_bytes(&wincode_bytes).to_base58()

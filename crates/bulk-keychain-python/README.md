@@ -193,11 +193,10 @@ order_id = compute_order_id_from_order(
     account="your-account-pubkey",
 )
 
-# Compact API order JSON and optional signer are supported too:
+# Compact API order JSON is also supported:
 order_id_compact = compute_order_id_from_order(
     {"l": {"c": "BTC-USD", "b": True, "px": 100000.0, "sz": 0.1, "r": False, "tif": "GTC"}},
     nonce=1704067200000,
     account="your-account-pubkey",
-    signer="optional-agent-or-wallet-pubkey",
 )
 ```

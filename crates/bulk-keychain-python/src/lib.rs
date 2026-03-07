@@ -3,10 +3,10 @@
 //! This module provides high-performance Python bindings using PyO3.
 
 use bulk_keychain::{
-    compute_order_item_id_for_account, prepare_agent_wallet, prepare_all, prepare_faucet,
-    prepare_group, prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager,
-    NonceStrategy, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
-    PythOraclePrice, Signer, TimeInForce, UserSettings,
+    compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
+    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy,
+    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer,
+    TimeInForce, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -652,18 +652,26 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
 
     if let Some(mod_obj) = dict.get_item("mod")? {
         let modify = mod_obj.downcast::<PyDict>()?;
-        let symbol: String = modify
-            .get_item("symbol")?
-            .ok_or_else(|| PyValueError::new_err("Missing 'mod.symbol'"))?
-            .extract()?;
+        let symbol: String = if let Some(v) = modify.get_item("c")? {
+            v.extract()?
+        } else {
+            modify
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'mod.c'"))?
+                .extract()?
+        };
         let order_id_str: String = modify
             .get_item("oid")?
             .ok_or_else(|| PyValueError::new_err("Missing 'mod.oid'"))?
             .extract()?;
-        let amount: f64 = modify
-            .get_item("amount")?
-            .ok_or_else(|| PyValueError::new_err("Missing 'mod.amount'"))?
-            .extract()?;
+        let amount: f64 = if let Some(v) = modify.get_item("sz")? {
+            v.extract()?
+        } else {
+            modify
+                .get_item("amount")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'mod.sz'"))?
+                .extract()?
+        };
         let order_id =
             Hash::from_base58(&order_id_str).map_err(|e| PyValueError::new_err(e.to_string()))?;
         return Ok(OrderItem::Modify(Modify::new(order_id, symbol, amount)));
@@ -763,10 +771,9 @@ fn validate_hash(s: &str) -> bool {
     Hash::from_base58(s).is_ok()
 }
 
-/// Compute order ID from wincode bytes
+/// Compute SHA256 hash from raw bytes.
 ///
-/// This computes SHA256(wincode_bytes), which matches BULK's server-side
-/// order ID generation. Useful if you're serializing transactions yourself.
+/// This is a raw utility and does not apply BULK order-ID canonicalization.
 #[pyfunction]
 fn compute_order_id(wincode_bytes: &[u8]) -> String {
     Hash::from_wincode_bytes(wincode_bytes).to_base58()
@@ -780,25 +787,16 @@ fn compute_order_id(wincode_bytes: &[u8]) -> String {
 ///
 /// Returns `None` for non-order actions (cancel/modify/cancel-all).
 #[pyfunction]
-#[pyo3(signature = (order, nonce, account, signer=None))]
+#[pyo3(signature = (order, nonce, account))]
 fn compute_order_id_from_order(
     order: &Bound<'_, PyAny>,
     nonce: u64,
     account: &str,
-    signer: Option<&str>,
 ) -> PyResult<Option<String>> {
     let item = parse_order_item_for_id(order)?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
-    let signer_pk = signer
-        .map(Pubkey::from_base58)
-        .transpose()
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-
-    Ok(
-        compute_order_item_id_for_account(&item, nonce, &account_pk, signer_pk.as_ref())
-            .map(|h| h.to_base58()),
-    )
+    Ok(compute_order_item_id(&item, nonce, &account_pk).map(|id| id.to_base58()))
 }
 
 // ============================================================================

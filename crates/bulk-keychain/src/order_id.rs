@@ -1,79 +1,35 @@
 //! Order ID computation.
 //!
-//! Order IDs are SHA256 hashes of canonical wincode bytes for a single
-//! order action:
+//! Order IDs are SHA256 hashes of canonical BULK-SDK action bytes:
 //!
-//! `[action_count=1] + [order_action] + [nonce] + [account] + [signer]`
+//! `[seqno] + [bincode(action)] + [account] + [nonce]`
+//!
+//! Where:
+//! - `seqno` is the action index in the transaction (u32 LE)
+//! - `action` uses BULK-SDK's bincode/serde representation
+//! - `account` is the trading account pubkey bytes
+//! - `nonce` is u64 LE
 
-use crate::serialize::WincodeSerializer;
+use crate::sdk_compat::compute_order_item_id_with_seqno;
 use crate::types::*;
-
-#[inline]
-fn serialize_order_item_for_id(
-    item: &OrderItem,
-    nonce: u64,
-    account: &Pubkey,
-    signer: &Pubkey,
-    serializer: &mut WincodeSerializer,
-) -> crate::Result<()> {
-    serializer.reset();
-    serializer.write_u64(1);
-    serializer.write_order_item_action(item)?;
-    serializer.write_u64(nonce);
-    serializer.write_pubkey(account);
-    serializer.write_pubkey(signer);
-    Ok(())
-}
-
-/// Compute order ID for an order item using explicit account and signer.
-///
-/// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
-pub fn compute_order_item_id_with_signer(
-    item: &OrderItem,
-    nonce: u64,
-    account: &Pubkey,
-    signer: &Pubkey,
-) -> Option<Hash> {
-    let mut serializer = WincodeSerializer::new();
-    compute_order_item_id_with_serializer(item, nonce, account, signer, &mut serializer)
-}
-
-/// Compute order ID for an order item using account and optional signer.
-///
-/// If `signer` is `None`, `account` is used as signer.
-/// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
-#[inline]
-pub fn compute_order_item_id_for_account(
-    item: &OrderItem,
-    nonce: u64,
-    account: &Pubkey,
-    signer: Option<&Pubkey>,
-) -> Option<Hash> {
-    let signer_pubkey = signer.unwrap_or(account);
-    compute_order_item_id_with_signer(item, nonce, account, signer_pubkey)
-}
 
 /// Compute order ID for an order item, assuming `signer == owner`.
 ///
 /// Returns `Some(Hash)` only for `OrderItem::Order`, otherwise `None`.
 pub fn compute_order_item_id(item: &OrderItem, nonce: u64, owner: &Pubkey) -> Option<Hash> {
-    compute_order_item_id_with_signer(item, nonce, owner, owner)
+    let mut scratch = Vec::with_capacity(96);
+    compute_order_item_id_at_index(item, 0, nonce, owner, &mut scratch)
 }
 
 #[inline]
-pub(crate) fn compute_order_item_id_with_serializer(
+pub(crate) fn compute_order_item_id_at_index(
     item: &OrderItem,
+    seqno: u32,
     nonce: u64,
     account: &Pubkey,
-    signer: &Pubkey,
-    serializer: &mut WincodeSerializer,
+    scratch: &mut Vec<u8>,
 ) -> Option<Hash> {
-    if !matches!(item, OrderItem::Order(_)) {
-        return None;
-    }
-
-    serialize_order_item_for_id(item, nonce, account, signer, serializer).ok()?;
-    Some(Hash::from_wincode_bytes(serializer.as_bytes()))
+    compute_order_item_id_with_seqno(item, seqno, nonce, account, scratch)
 }
 
 /// Compute order ID for a limit order.
@@ -126,14 +82,8 @@ pub fn compute_market_order_id(
     compute_order_id(&order, nonce, owner)
 }
 
-/// Compute order ID for an order with explicit account and signer.
 #[inline]
-pub fn compute_order_id_with_signer(
-    order: &Order,
-    nonce: u64,
-    account: &Pubkey,
-    signer: &Pubkey,
-) -> Hash {
+fn compute_order_id_at_index(order: &Order, seqno: u32, nonce: u64, owner: &Pubkey) -> Hash {
     let normalized = match &order.order_type {
         OrderType::Limit { .. } => order.clone(),
         // Trigger orders in this API are represented as market orders.
@@ -152,30 +102,15 @@ pub fn compute_order_id_with_signer(
     };
 
     let item = OrderItem::Order(normalized);
-    let mut serializer = WincodeSerializer::new();
-
-    compute_order_item_id_with_serializer(&item, nonce, account, signer, &mut serializer)
+    let mut scratch = Vec::with_capacity(96);
+    compute_order_item_id_with_seqno(&item, seqno, nonce, owner, &mut scratch)
         .unwrap_or_else(|| unreachable!("normalized order serialization should always succeed"))
-}
-
-/// Compute order ID for an order using account and optional signer.
-///
-/// If `signer` is `None`, `account` is used as signer.
-#[inline]
-pub fn compute_order_id_for_account(
-    order: &Order,
-    nonce: u64,
-    account: &Pubkey,
-    signer: Option<&Pubkey>,
-) -> Hash {
-    let signer_pubkey = signer.unwrap_or(account);
-    compute_order_id_with_signer(order, nonce, account, signer_pubkey)
 }
 
 /// Compute order ID for an order assuming `signer == owner`.
 #[inline]
 pub fn compute_order_id(order: &Order, nonce: u64, owner: &Pubkey) -> Hash {
-    compute_order_id_with_signer(order, nonce, owner, owner)
+    compute_order_id_at_index(order, 0, nonce, owner)
 }
 
 // ============================================================================
@@ -351,70 +286,33 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_order_item_matches_wincode_hash() {
-        let owner = Pubkey::from_bytes([11u8; 32]);
-        let signer = Pubkey::from_bytes([22u8; 32]);
-        let nonce = 987654321u64;
+    fn test_compute_order_item_matches_bulk_sdk_vector() {
+        let owner = Pubkey::from_base58("7DHvrCZMMLZ2ovNfKaGpvJZXAQyydbTz6dM7w7qXtzX5").unwrap();
+        let nonce = 1772814622879766u64;
 
-        let item = OrderItem::Order(Order::limit(
-            "ETH-USD",
-            false,
-            3200.5,
-            1.25,
-            TimeInForce::Ioc,
-        ));
-
-        let id = compute_order_item_id_with_signer(&item, nonce, &owner, &signer).unwrap();
-
-        let mut serializer = WincodeSerializer::new();
-        serializer.write_u64(1);
-        serializer.write_order_item_action(&item).unwrap();
-        serializer.write_u64(nonce);
-        serializer.write_pubkey(&owner);
-        serializer.write_pubkey(&signer);
-        let expected = Hash::from_wincode_bytes(serializer.as_bytes());
-
-        assert_eq!(id, expected);
-    }
-
-    #[test]
-    fn test_signer_affects_order_id() {
-        let owner = Pubkey::from_bytes([1u8; 32]);
-        let signer_a = Pubkey::from_bytes([2u8; 32]);
-        let signer_b = Pubkey::from_bytes([3u8; 32]);
-        let order = Order::market("SOL-USD", true, 10.0);
-
-        let id_a = compute_order_id_with_signer(&order, 42, &owner, &signer_a);
-        let id_b = compute_order_id_with_signer(&order, 42, &owner, &signer_b);
-
-        assert_ne!(id_a, id_b);
-    }
-
-    #[test]
-    fn test_compute_order_item_id_for_account_uses_account_as_default_signer() {
-        let owner = Pubkey::from_bytes([9u8; 32]);
         let item = OrderItem::Order(Order::limit(
             "BTC-USD",
             true,
-            100000.0,
-            0.1,
+            68495.0,
+            1.9402,
             TimeInForce::Gtc,
         ));
 
-        let direct = compute_order_item_id_with_signer(&item, 123, &owner, &owner);
-        let optional = compute_order_item_id_for_account(&item, 123, &owner, None);
-
-        assert_eq!(optional, direct);
+        let id = compute_order_item_id(&item, nonce, &owner).unwrap();
+        assert_eq!(
+            id.to_base58(),
+            "5svLrSpPocB8umQANMcwMjpc6G7hJvcvHefiraE9MQYV"
+        );
     }
 
     #[test]
-    fn test_compute_order_id_for_account_uses_account_as_default_signer() {
-        let owner = Pubkey::from_bytes([7u8; 32]);
-        let order = Order::market("ETH-USD", false, 2.0);
+    fn test_compute_order_id_matches_same_owner_path() {
+        let owner = Pubkey::from_bytes([1u8; 32]);
+        let order = Order::market("SOL-USD", true, 10.0);
 
-        let direct = compute_order_id_with_signer(&order, 77, &owner, &owner);
-        let optional = compute_order_id_for_account(&order, 77, &owner, None);
+        let id_a = compute_order_id(&order, 42, &owner);
+        let id_b = compute_order_id_at_index(&order, 0, 42, &owner);
 
-        assert_eq!(optional, direct);
+        assert_eq!(id_a, id_b);
     }
 }

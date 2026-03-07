@@ -1,7 +1,7 @@
 //! Message preparation for external wallet signing.
 
-use crate::order_id::{compute_order_item_id_with_serializer, compute_order_item_id_with_signer};
-use crate::serialize::WincodeSerializer;
+use crate::order_id::compute_order_item_id_at_index;
+use crate::sdk_compat::serialize_for_sdk_signing;
 use crate::types::*;
 use crate::{Error, Result};
 use rayon::prelude::*;
@@ -14,7 +14,7 @@ const PARALLEL_THRESHOLD: usize = 10;
 /// Prepared message for external signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreparedMessage {
-    /// Raw wincode message bytes to sign.
+    /// Raw canonical BULK-SDK message bytes to sign.
     #[serde(with = "serde_bytes")]
     pub message_bytes: Vec<u8>,
     /// Optional pre-computed order ID for single order transactions.
@@ -120,13 +120,12 @@ pub fn prepare_action(
     let signer_pubkey = signer.unwrap_or(account);
     let nonce = nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
 
-    let mut serializer = WincodeSerializer::new();
-    serializer.serialize_for_signing(action, nonce, account, signer_pubkey)?;
-    let message_bytes = serializer.into_bytes();
+    let mut message_bytes = Vec::with_capacity(512);
+    serialize_for_sdk_signing(action, nonce, account, &mut message_bytes)?;
 
     let actions = action_to_json(action)?;
-    let order_id = compute_action_order_id(action, nonce, account, signer_pubkey);
-    let order_ids = compute_action_order_ids(action, nonce, account, signer_pubkey);
+    let order_id = compute_action_order_id(action, nonce, account);
+    let order_ids = compute_action_order_ids(action, nonce, account);
 
     Ok(PreparedMessage {
         message_bytes,
@@ -139,43 +138,29 @@ pub fn prepare_action(
     })
 }
 
-fn compute_action_order_id(
-    action: &Action,
-    nonce: u64,
-    account: &Pubkey,
-    signer: &Pubkey,
-) -> Option<String> {
+fn compute_action_order_id(action: &Action, nonce: u64, account: &Pubkey) -> Option<String> {
     match action {
         Action::Order { orders } if orders.len() == 1 => {
-            compute_order_item_id_with_signer(&orders[0], nonce, account, signer)
-                .map(|h| h.to_base58())
+            let mut scratch = Vec::with_capacity(96);
+            compute_order_item_id_at_index(&orders[0], 0, nonce, account, &mut scratch)
+                .map(|id| id.to_base58())
         }
         _ => None,
     }
 }
 
-fn compute_action_order_ids(
-    action: &Action,
-    nonce: u64,
-    account: &Pubkey,
-    signer: &Pubkey,
-) -> Option<Vec<String>> {
+fn compute_action_order_ids(action: &Action, nonce: u64, account: &Pubkey) -> Option<Vec<String>> {
     match action {
         Action::Order { orders } if orders.len() > 1 => {
-            let mut id_serializer = WincodeSerializer::new();
-            let ids: Vec<String> = orders
-                .iter()
-                .filter_map(|item| {
-                    compute_order_item_id_with_serializer(
-                        item,
-                        nonce,
-                        account,
-                        signer,
-                        &mut id_serializer,
-                    )
-                    .map(|h| h.to_base58())
-                })
-                .collect();
+            let mut scratch = Vec::with_capacity(96);
+            let mut ids = Vec::with_capacity(orders.len());
+            for (idx, item) in orders.iter().enumerate() {
+                if let Some(id) =
+                    compute_order_item_id_at_index(item, idx as u32, nonce, account, &mut scratch)
+                {
+                    ids.push(id.to_base58());
+                }
+            }
             if ids.is_empty() {
                 None
             } else {
@@ -221,13 +206,13 @@ fn prepare_single_item(
     signer: &Pubkey,
     nonce: u64,
 ) -> Result<PreparedMessage> {
-    let order_id =
-        compute_order_item_id_with_signer(&item, nonce, account, signer).map(|h| h.to_base58());
+    let mut scratch = Vec::with_capacity(96);
+    let order_id = compute_order_item_id_at_index(&item, 0, nonce, account, &mut scratch)
+        .map(|id| id.to_base58());
     let action = Action::Order { orders: vec![item] };
 
-    let mut serializer = WincodeSerializer::new();
-    serializer.serialize_for_signing(&action, nonce, account, signer)?;
-    let message_bytes = serializer.into_bytes();
+    let mut message_bytes = Vec::with_capacity(512);
+    serialize_for_sdk_signing(&action, nonce, account, &mut message_bytes)?;
     let actions = action_to_json(&action)?;
 
     Ok(PreparedMessage {
@@ -383,8 +368,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
         OrderItem::Modify(modify) => Ok(json!({
             "mod": {
                 "oid": modify.order_id.to_base58(),
-                "symbol": modify.symbol,
-                "amount": modify.amount
+                "c": modify.symbol,
+                "sz": modify.amount
             }
         })),
         OrderItem::Cancel(cancel) => Ok(json!({
@@ -417,6 +402,21 @@ mod tests {
         assert_eq!(prepared.nonce, 1234567890);
         assert_eq!(prepared.actions.len(), 1);
         assert!(prepared.actions[0].get("l").is_some());
+    }
+
+    #[test]
+    fn test_prepare_modify_uses_compact_sdk_keys() {
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let modify = Modify::new(Hash::random(), "BTC-USD", 0.25);
+        let prepared =
+            prepare_message(OrderItem::Modify(modify), &account, None, Some(1234567890)).unwrap();
+
+        let mod_obj = prepared.actions[0].get("mod").unwrap();
+        assert!(mod_obj.get("c").is_some());
+        assert!(mod_obj.get("sz").is_some());
+        assert!(mod_obj.get("symbol").is_none());
+        assert!(mod_obj.get("amount").is_none());
     }
 
     #[test]

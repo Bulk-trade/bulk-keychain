@@ -247,10 +247,9 @@ def validate_hash(s: str) -> bool:
     ...
 
 def compute_order_id(wincode_bytes: bytes) -> str:
-    """Compute order ID from wincode bytes
+    """Compute SHA256 hash from raw bytes.
     
-    This computes SHA256(wincode_bytes), which matches BULK's server-side
-    order ID generation. Useful if you're serializing transactions yourself.
+    This is a raw utility and does not apply BULK order-ID canonicalization.
     """
     ...
 
@@ -258,7 +257,6 @@ def compute_order_id_from_order(
     order: OrderItemType | dict[str, Any],
     nonce: int,
     account: str,
-    signer: str | None = None
 ) -> str | None:
     """Compute order ID from order JSON without a private key.
 

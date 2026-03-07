@@ -107,10 +107,7 @@ impl Hash {
         Self(bytes)
     }
 
-    /// Compute SHA256 hash from canonical bytes.
-    ///
-    /// This is the core primitive used by order-ID helpers after canonical
-    /// wincode serialization.
+    /// Compute SHA256 hash from raw bytes.
     #[inline]
     pub fn from_wincode_bytes(wincode_bytes: &[u8]) -> Self {
         use sha2::{Digest, Sha256};

@@ -1,4 +1,6 @@
-//! Wincode binary serialization for BULK transaction signing.
+//! Legacy wincode-style serialization helpers.
+//!
+//! Canonical signing and order-id paths use `sdk_compat` (BULK-SDK bincode layout).
 
 use crate::types::*;
 use crate::{Error, Result};
@@ -6,7 +8,7 @@ use crate::{Error, Result};
 /// Pre-allocated buffer size for typical transactions.
 const DEFAULT_BUFFER_SIZE: usize = 512;
 
-/// Wincode serializer with a reusable pre-allocated buffer.
+/// Wincode-style serializer with a reusable pre-allocated buffer.
 pub struct WincodeSerializer {
     buffer: Vec<u8>,
 }

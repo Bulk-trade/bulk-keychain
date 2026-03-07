@@ -1,7 +1,7 @@
 //! Transaction signing.
 
-use crate::order_id::{compute_order_item_id_with_serializer, compute_order_item_id_with_signer};
-use crate::serialize::WincodeSerializer;
+use crate::order_id::compute_order_item_id_at_index;
+use crate::sdk_compat::serialize_for_sdk_signing;
 use crate::types::*;
 use crate::{Error, Keypair, NonceManager, Result};
 use ed25519_dalek::Signer as DalekSigner;
@@ -15,7 +15,7 @@ const PARALLEL_THRESHOLD: usize = 10;
 pub struct Signer {
     keypair: Keypair,
     nonce_manager: Option<NonceManager>,
-    serializer: WincodeSerializer,
+    serializer: Vec<u8>,
     compute_order_id: bool,
     compute_batch_order_ids: bool,
 }
@@ -26,7 +26,7 @@ impl Signer {
         Self {
             keypair,
             nonce_manager: None,
-            serializer: WincodeSerializer::new(),
+            serializer: Vec::with_capacity(512),
             compute_order_id: true,
             compute_batch_order_ids: false,
         }
@@ -37,7 +37,7 @@ impl Signer {
         Self {
             keypair,
             nonce_manager: Some(nonce_manager),
-            serializer: WincodeSerializer::new(),
+            serializer: Vec::with_capacity(512),
             compute_order_id: true,
             compute_batch_order_ids: false,
         }
@@ -117,22 +117,20 @@ impl Signer {
     ) -> Result<SignedTransaction> {
         let signer_pubkey = self.keypair.pubkey();
 
-        self.serializer.reset();
-        self.serializer
-            .serialize_for_signing(action, nonce, account, &signer_pubkey)?;
+        serialize_for_sdk_signing(action, nonce, account, &mut self.serializer)?;
 
         let order_id = if self.compute_order_id {
-            self.compute_action_order_id(action, nonce, account, &signer_pubkey)
+            self.compute_action_order_id(action, nonce, account)
         } else {
             None
         };
         let order_ids = if self.compute_batch_order_ids {
-            self.compute_action_order_ids(action, nonce, account, &signer_pubkey)
+            self.compute_action_order_ids(action, nonce, account)
         } else {
             None
         };
 
-        let signature = self.sign_bytes(self.serializer.as_bytes());
+        let signature = self.sign_bytes(&self.serializer);
         let actions = self.action_to_json(action)?;
 
         Ok(SignedTransaction {
@@ -203,17 +201,18 @@ impl Signer {
         let account = self.keypair.pubkey();
         let signer_pubkey = self.keypair.pubkey();
         let order_id = if self.compute_order_id {
-            compute_order_item_id_with_signer(&item, nonce, &account, &signer_pubkey)
-                .map(|h| h.to_base58())
+            let mut scratch = Vec::with_capacity(96);
+            compute_order_item_id_at_index(&item, 0, nonce, &account, &mut scratch)
+                .map(|id| id.to_base58())
         } else {
             None
         };
 
         let action = Action::Order { orders: vec![item] };
-        let mut serializer = WincodeSerializer::new();
-        serializer.serialize_for_signing(&action, nonce, &account, &signer_pubkey)?;
+        let mut serializer = Vec::with_capacity(512);
+        serialize_for_sdk_signing(&action, nonce, &account, &mut serializer)?;
 
-        let signature = self.sign_bytes(serializer.as_bytes());
+        let signature = self.sign_bytes(&serializer);
         let actions = self.action_to_json(&action)?;
 
         Ok(SignedTransaction {
@@ -353,26 +352,22 @@ impl Signer {
         let account = self.keypair.pubkey();
         let signer_pubkey = self.keypair.pubkey();
         let order_id = if self.compute_order_id && orders.len() == 1 {
-            compute_order_item_id_with_signer(&orders[0], nonce, &account, &signer_pubkey)
-                .map(|h| h.to_base58())
+            let mut scratch = Vec::with_capacity(96);
+            compute_order_item_id_at_index(&orders[0], 0, nonce, &account, &mut scratch)
+                .map(|id| id.to_base58())
         } else {
             None
         };
         let order_ids = if self.compute_batch_order_ids && orders.len() > 1 {
-            let mut id_serializer = WincodeSerializer::new();
-            let ids: Vec<String> = orders
-                .iter()
-                .filter_map(|item| {
-                    compute_order_item_id_with_serializer(
-                        item,
-                        nonce,
-                        &account,
-                        &signer_pubkey,
-                        &mut id_serializer,
-                    )
-                    .map(|h| h.to_base58())
-                })
-                .collect();
+            let mut scratch = Vec::with_capacity(96);
+            let mut ids = Vec::with_capacity(orders.len());
+            for (idx, item) in orders.iter().enumerate() {
+                if let Some(id) =
+                    compute_order_item_id_at_index(item, idx as u32, nonce, &account, &mut scratch)
+                {
+                    ids.push(id.to_base58());
+                }
+            }
             if ids.is_empty() {
                 None
             } else {
@@ -383,9 +378,9 @@ impl Signer {
         };
 
         let action = Action::Order { orders };
-        let mut serializer = WincodeSerializer::new();
-        serializer.serialize_for_signing(&action, nonce, &account, &signer_pubkey)?;
-        let signature = self.sign_bytes(serializer.as_bytes());
+        let mut serializer = Vec::with_capacity(512);
+        serialize_for_sdk_signing(&action, nonce, &account, &mut serializer)?;
+        let signature = self.sign_bytes(&serializer);
         let actions = self.action_to_json(&action)?;
 
         Ok(SignedTransaction {
@@ -404,12 +399,12 @@ impl Signer {
         action: &Action,
         nonce: u64,
         account: &Pubkey,
-        signer: &Pubkey,
     ) -> Option<String> {
         match action {
             Action::Order { orders } if orders.len() == 1 => {
-                compute_order_item_id_with_signer(&orders[0], nonce, account, signer)
-                    .map(|h| h.to_base58())
+                let mut scratch = Vec::with_capacity(96);
+                compute_order_item_id_at_index(&orders[0], 0, nonce, account, &mut scratch)
+                    .map(|id| id.to_base58())
             }
             _ => None,
         }
@@ -420,24 +415,22 @@ impl Signer {
         action: &Action,
         nonce: u64,
         account: &Pubkey,
-        signer: &Pubkey,
     ) -> Option<Vec<String>> {
         match action {
             Action::Order { orders } if orders.len() > 1 => {
-                let mut id_serializer = WincodeSerializer::new();
-                let ids: Vec<String> = orders
-                    .iter()
-                    .filter_map(|item| {
-                        compute_order_item_id_with_serializer(
-                            item,
-                            nonce,
-                            account,
-                            signer,
-                            &mut id_serializer,
-                        )
-                        .map(|h| h.to_base58())
-                    })
-                    .collect();
+                let mut scratch = Vec::with_capacity(96);
+                let mut ids = Vec::with_capacity(orders.len());
+                for (idx, item) in orders.iter().enumerate() {
+                    if let Some(id) = compute_order_item_id_at_index(
+                        item,
+                        idx as u32,
+                        nonce,
+                        account,
+                        &mut scratch,
+                    ) {
+                        ids.push(id.to_base58());
+                    }
+                }
                 if ids.is_empty() {
                     None
                 } else {
@@ -552,8 +545,8 @@ impl Signer {
             OrderItem::Modify(modify) => Ok(json!({
                 "mod": {
                     "oid": modify.order_id.to_base58(),
-                    "symbol": modify.symbol,
-                    "amount": modify.amount
+                    "c": modify.symbol,
+                    "sz": modify.amount
                 }
             })),
             OrderItem::Cancel(cancel) => Ok(json!({
@@ -586,6 +579,22 @@ mod tests {
         assert_eq!(signed.actions.len(), 1);
         assert!(signed.actions[0].get("l").is_some());
         assert!(!signed.signature.is_empty());
+    }
+
+    #[test]
+    fn test_sign_modify_uses_compact_sdk_keys() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        let modify = Modify::new(Hash::random(), "BTC-USD", 0.25);
+        let signed = signer
+            .sign(OrderItem::Modify(modify), Some(1234567890))
+            .unwrap();
+
+        let mod_obj = signed.actions[0].get("mod").unwrap();
+        assert!(mod_obj.get("c").is_some());
+        assert!(mod_obj.get("sz").is_some());
+        assert!(mod_obj.get("symbol").is_none());
+        assert!(mod_obj.get("amount").is_none());
     }
 
     #[test]
