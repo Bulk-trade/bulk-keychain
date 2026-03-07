@@ -38,6 +38,32 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
+      - name: Verify manifest versions match tag
+        if: github.ref_type == 'tag'
+        run: |
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+
+          CARGO_VERSION=$(awk '
+            /^\[workspace\.package\]/ { in_wp=1; next }
+            /^\[/ { if (in_wp) exit }
+            in_wp && $1 == "version" {
+              gsub(/"/, "", $3)
+              print $3
+              exit
+            }
+          ' Cargo.toml)
+
+          ROOT_NPM_VERSION=$(grep -m1 '"version":' package.json | sed -E 's/.*"version": "([^"]+)".*/\1/')
+          NODE_NPM_VERSION=$(grep -m1 '"version":' packages/bulk-keychain-node/package.json | sed -E 's/.*"version": "([^"]+)".*/\1/')
+          PYPI_VERSION=$(grep -m1 '^version = ' crates/bulk-keychain-python/pyproject.toml | sed -E 's/version = "([^"]+)"/\1/')
+
+          echo "tag=$TAG_VERSION cargo=$CARGO_VERSION root_npm=$ROOT_NPM_VERSION node_npm=$NODE_NPM_VERSION pypi=$PYPI_VERSION"
+
+          [[ "$CARGO_VERSION" == "$TAG_VERSION" ]] || { echo "Cargo version mismatch"; exit 1; }
+          [[ "$ROOT_NPM_VERSION" == "$TAG_VERSION" ]] || { echo "Root package.json version mismatch"; exit 1; }
+          [[ "$NODE_NPM_VERSION" == "$TAG_VERSION" ]] || { echo "Node package version mismatch"; exit 1; }
+          [[ "$PYPI_VERSION" == "$TAG_VERSION" ]] || { echo "PyPI version mismatch"; exit 1; }
+
   test:
     name: Test
     runs-on: ubuntu-latest
