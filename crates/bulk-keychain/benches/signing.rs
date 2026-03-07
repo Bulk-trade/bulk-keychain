@@ -153,7 +153,7 @@ fn parse_scaled_1e8(value: &str) -> u64 {
     // Round half-up using the 9th fractional digit if present.
     if i < bytes.len() {
         let next = bytes[i].wrapping_sub(b'0');
-        if next >= 5 && next <= 9 {
+        if (5..=9).contains(&next) {
             frac_part = frac_part.saturating_add(1);
             if frac_part == SCALE_1E8 {
                 frac_part = 0;
@@ -166,28 +166,30 @@ fn parse_scaled_1e8(value: &str) -> u64 {
 }
 
 #[inline]
-fn hash_oid_fields(
-    symbol: &str,
+fn hash_oid_fields(input: &OidHashInput<'_>) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(1u32.to_le_bytes());
+    hasher.update((input.symbol.len() as u64).to_le_bytes());
+    hasher.update(input.symbol.as_bytes());
+    hasher.update([if input.is_buy { 1 } else { 0 }]);
+    hasher.update(input.px_scaled.to_le_bytes());
+    hasher.update(input.sz_scaled.to_le_bytes());
+    hasher.update(input.tif.to_le_bytes());
+    hasher.update([if input.reduce_only { 1 } else { 0 }]);
+    hasher.update(input.account);
+    hasher.update(input.nonce.to_le_bytes());
+    hasher.finalize().into()
+}
+
+struct OidHashInput<'a> {
+    symbol: &'a str,
     is_buy: bool,
     px_scaled: u64,
     sz_scaled: u64,
     tif: u32,
     reduce_only: bool,
-    account: &[u8; 32],
+    account: &'a [u8; 32],
     nonce: u64,
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(1u32.to_le_bytes());
-    hasher.update((symbol.len() as u64).to_le_bytes());
-    hasher.update(symbol.as_bytes());
-    hasher.update([if is_buy { 1 } else { 0 }]);
-    hasher.update(px_scaled.to_le_bytes());
-    hasher.update(sz_scaled.to_le_bytes());
-    hasher.update(tif.to_le_bytes());
-    hasher.update([if reduce_only { 1 } else { 0 }]);
-    hasher.update(account);
-    hasher.update(nonce.to_le_bytes());
-    hasher.finalize().into()
 }
 
 fn bench_oid_john_vs_junbug(c: &mut Criterion) {
@@ -219,16 +221,16 @@ fn bench_oid_john_vs_junbug(c: &mut Criterion) {
         b.iter(|| {
             let px_scaled = (black_box(px_f64) * SCALE_1E8 as f64).round() as u64;
             let sz_scaled = (black_box(sz_f64) * SCALE_1E8 as f64).round() as u64;
-            let digest = hash_oid_fields(
+            let digest = hash_oid_fields(&OidHashInput {
                 symbol,
                 is_buy,
                 px_scaled,
                 sz_scaled,
                 tif,
                 reduce_only,
-                &account,
-                nonce_u64,
-            );
+                account: &account,
+                nonce: nonce_u64,
+            });
             black_box(digest)
         })
     });
@@ -239,16 +241,16 @@ fn bench_oid_john_vs_junbug(c: &mut Criterion) {
             let px_scaled = parse_scaled_1e8(black_box(px_str));
             let sz_scaled = parse_scaled_1e8(black_box(sz_str));
             let nonce = black_box(nonce_str).parse::<u64>().unwrap();
-            let digest = hash_oid_fields(
+            let digest = hash_oid_fields(&OidHashInput {
                 symbol,
                 is_buy,
                 px_scaled,
                 sz_scaled,
                 tif,
                 reduce_only,
-                &account,
+                account: &account,
                 nonce,
-            );
+            });
             black_box(digest)
         })
     });
@@ -256,16 +258,16 @@ fn bench_oid_john_vs_junbug(c: &mut Criterion) {
     // JunBug-style (optimized): parse once at boundary, then hash canonical ints in hot path.
     group.bench_function("junbug_string_boundary_preparsed_hot_path", |b| {
         b.iter(|| {
-            let digest = hash_oid_fields(
+            let digest = hash_oid_fields(&OidHashInput {
                 symbol,
                 is_buy,
-                px_pre,
-                sz_pre,
+                px_scaled: px_pre,
+                sz_scaled: sz_pre,
                 tif,
                 reduce_only,
-                &account,
-                nonce_pre,
-            );
+                account: &account,
+                nonce: nonce_pre,
+            });
             black_box(digest)
         })
     });
