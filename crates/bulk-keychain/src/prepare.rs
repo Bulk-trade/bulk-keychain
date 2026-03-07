@@ -284,12 +284,12 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
             }
         })]),
         Action::UpdateUserSettings(settings) => {
-            let entries: Vec<_> = settings
+            let m: serde_json::Map<String, serde_json::Value> = settings
                 .max_leverage
                 .iter()
-                .map(|(symbol, lev)| json!([symbol, lev]))
+                .map(|(symbol, lev)| (symbol.clone(), json!(lev)))
                 .collect();
-            Ok(vec![json!({ "updateUserSettings": { "m": entries } })])
+            Ok(vec![json!({ "updateUserSettings": { "m": m } })])
         }
         Action::Oracle { oracles } => Ok(oracles
             .iter()
