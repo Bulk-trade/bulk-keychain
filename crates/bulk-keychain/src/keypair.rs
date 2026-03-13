@@ -3,6 +3,7 @@
 use crate::{Error, Pubkey, Result};
 use ed25519_dalek::{SecretKey, SigningKey, VerifyingKey};
 use rand::rngs::OsRng;
+use zeroize::Zeroize;
 
 /// Ed25519 keypair for signing transactions
 #[derive(Clone)]
@@ -28,6 +29,7 @@ impl Keypair {
         let mut bytes = [0u8; 32];
         bytes.copy_from_slice(secret);
         let signing_key = SigningKey::from_bytes(&bytes);
+        bytes.zeroize();
         Ok(Self { signing_key })
     }
 
@@ -50,10 +52,12 @@ impl Keypair {
 
     /// Create from base58-encoded secret key or keypair
     pub fn from_base58(s: &str) -> Result<Self> {
-        let bytes = bs58::decode(s)
+        let mut bytes = bs58::decode(s)
             .into_vec()
             .map_err(|e| Error::InvalidBase58(e.to_string()))?;
-        Self::from_bytes(&bytes)
+        let result = Self::from_bytes(&bytes);
+        bytes.zeroize();
+        result
     }
 
     /// Get the public key
