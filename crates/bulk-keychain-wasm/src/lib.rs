@@ -5,10 +5,9 @@
 
 use bulk_keychain::{
     finalize_transaction, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
-    prepare_user_settings,
-    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer,
-    TimeInForce, UserSettings,
+    prepare_message, prepare_user_settings, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager,
+    NonceStrategy, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
+    PythOraclePrice, Signer, TimeInForce, UserSettings,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
