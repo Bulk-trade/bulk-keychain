@@ -5,9 +5,9 @@
 
 use bulk_keychain::{
     finalize_transaction, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
-    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer,
-    TimeInForce, UserSettings,
+    prepare_message, prepare_user_settings, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager,
+    NonceStrategy, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
+    PythOraclePrice, Signer, TimeInForce, UserSettings,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -836,6 +836,35 @@ pub fn wasm_prepare_faucet(options: JsValue) -> Result<WasmPreparedMessage, JsEr
     let nonce = opts.nonce.map(|n| n as u64);
 
     let prepared = prepare_faucet(&account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare user settings update for external signing
+///
+/// @param settings - { max_leverage: [[symbol, leverage], ...] }
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareUpdateUserSettings)]
+pub fn wasm_prepare_update_user_settings(
+    settings: JsValue,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let settings_input: UserSettingsInput =
+        serde_wasm_bindgen::from_value(settings).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let user_settings = UserSettings::new(settings_input.max_leverage);
+    let prepared = prepare_user_settings(user_settings, &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })

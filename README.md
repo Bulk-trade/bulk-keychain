@@ -317,6 +317,7 @@ signed = finalize_transaction(prepared, signature)
 | `prepareGroup(orders, options)` | Atomic multi-order (one tx) |
 | `prepareAgentWallet(agent, delete, options)` | Agent wallet authorization |
 | `prepareFaucet(options)` | Testnet faucet request |
+| `prepareUpdateUserSettings(settings, options)` | Update user settings (leverage) |
 
 ### Agent Wallet with External Signing
 
