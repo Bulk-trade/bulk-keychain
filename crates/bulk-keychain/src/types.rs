@@ -365,10 +365,64 @@ impl CancelAll {
 }
 
 // ============================================================================
+// Conditional order types
+// ============================================================================
+
+/// Stop-loss order: triggers when price crosses threshold
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Stop {
+    pub symbol: String,
+    /// true = buy/long side, false = sell/short side
+    pub is_buy: bool,
+    pub size: f64,
+    pub trigger_price: f64,
+    /// Limit price; NaN means market-style fill
+    pub limit_price: f64,
+}
+
+/// Take-profit order: triggers when price crosses threshold
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TakeProfit {
+    pub symbol: String,
+    /// true = buy/long side, false = sell/short side
+    pub is_buy: bool,
+    pub size: f64,
+    pub trigger_price: f64,
+    /// Limit price; NaN means market-style fill
+    pub limit_price: f64,
+}
+
+/// Range / OCO order: collar around a position
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RangeOco {
+    pub symbol: String,
+    /// true = buy/long collar, false = sell/short collar
+    pub is_buy: bool,
+    pub size: f64,
+    pub collar_min: f64,
+    pub collar_max: f64,
+    /// Limit price for min side; NaN means market-style fill
+    pub limit_min: f64,
+    /// Limit price for max side; NaN means market-style fill
+    pub limit_max: f64,
+}
+
+/// Trigger basket: fires a set of actions when price crosses threshold.
+/// Nested actions may be: m, l, mod, cx, cxa, st, tp, rng.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerBasket {
+    pub symbol: String,
+    /// true = buy/long side, false = sell/short side
+    pub is_buy: bool,
+    pub trigger_price: f64,
+    pub actions: Vec<OrderItem>,
+}
+
+// ============================================================================
 // Order Item (union type)
 // ============================================================================
 
-/// An item in the orders array (can be an order, cancel, or cancel all)
+/// An item in the orders array
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OrderItem {
@@ -380,6 +434,14 @@ pub enum OrderItem {
     Cancel(Cancel),
     /// Cancel all orders
     CancelAll(CancelAll),
+    /// Stop-loss conditional order
+    Stop(Stop),
+    /// Take-profit conditional order
+    TakeProfit(TakeProfit),
+    /// Range / OCO collar order
+    RangeOco(RangeOco),
+    /// Trigger basket: fires nested actions when price crosses threshold
+    TriggerBasket(TriggerBasket),
 }
 
 impl OrderItem {
@@ -390,9 +452,13 @@ impl OrderItem {
                 OrderType::Limit { .. } => 1,   // l
                 OrderType::Trigger { .. } => 0, // m
             },
-            Self::Modify(_) => 2,    // mod
-            Self::Cancel(_) => 3,    // cx
-            Self::CancelAll(_) => 4, // cxa
+            Self::Modify(_) => 2,        // mod
+            Self::Cancel(_) => 3,        // cx
+            Self::CancelAll(_) => 4,     // cxa
+            Self::Stop(_) => 5,          // st
+            Self::TakeProfit(_) => 6,    // tp
+            Self::RangeOco(_) => 7,      // rng
+            Self::TriggerBasket(_) => 8, // trig
         }
     }
 }
@@ -418,6 +484,30 @@ impl From<Modify> for OrderItem {
 impl From<CancelAll> for OrderItem {
     fn from(cancel_all: CancelAll) -> Self {
         Self::CancelAll(cancel_all)
+    }
+}
+
+impl From<Stop> for OrderItem {
+    fn from(stop: Stop) -> Self {
+        Self::Stop(stop)
+    }
+}
+
+impl From<TakeProfit> for OrderItem {
+    fn from(tp: TakeProfit) -> Self {
+        Self::TakeProfit(tp)
+    }
+}
+
+impl From<RangeOco> for OrderItem {
+    fn from(rng: RangeOco) -> Self {
+        Self::RangeOco(rng)
+    }
+}
+
+impl From<TriggerBasket> for OrderItem {
+    fn from(trig: TriggerBasket) -> Self {
+        Self::TriggerBasket(trig)
     }
 }
 

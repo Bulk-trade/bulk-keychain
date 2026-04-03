@@ -560,6 +560,50 @@ impl Signer {
                     "c": cancel_all.symbols
                 }
             })),
+            OrderItem::Stop(stop) => Ok(json!({
+                "st": {
+                    "c": stop.symbol,
+                    "d": stop.is_buy,
+                    "sz": stop.size,
+                    "tr": stop.trigger_price,
+                    "lim": stop.limit_price
+                }
+            })),
+            OrderItem::TakeProfit(tp) => Ok(json!({
+                "tp": {
+                    "c": tp.symbol,
+                    "d": tp.is_buy,
+                    "sz": tp.size,
+                    "tr": tp.trigger_price,
+                    "lim": tp.limit_price
+                }
+            })),
+            OrderItem::RangeOco(rng) => Ok(json!({
+                "rng": {
+                    "c": rng.symbol,
+                    "d": rng.is_buy,
+                    "sz": rng.size,
+                    "pmin": rng.collar_min,
+                    "pmax": rng.collar_max,
+                    "lmin": rng.limit_min,
+                    "lmax": rng.limit_max
+                }
+            })),
+            OrderItem::TriggerBasket(trig) => {
+                let nested: Result<Vec<_>> = trig
+                    .actions
+                    .iter()
+                    .map(|a| self.order_item_to_json(a))
+                    .collect();
+                Ok(json!({
+                    "trig": {
+                        "c": trig.symbol,
+                        "d": trig.is_buy,
+                        "tr": trig.trigger_price,
+                        "a": nested?
+                    }
+                }))
+            }
         }
     }
 }

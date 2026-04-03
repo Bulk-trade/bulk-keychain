@@ -376,3 +376,57 @@ const signed = prepared.finalize(bs58.encode(signature));
   symbols: ['BTC-USD']  // or [] for all symbols
 }
 ```
+
+### Stop-Loss
+```typescript
+{
+  type: 'stop',
+  symbol: 'BTC-USD',
+  isBuy: false,
+  size: 0.1,
+  triggerPrice: 90000,
+  limitPrice: 89900,  // omit for market-style fill
+}
+```
+
+### Take-Profit
+```typescript
+{
+  type: 'takeProfit',
+  symbol: 'BTC-USD',
+  isBuy: false,
+  size: 0.1,
+  triggerPrice: 110000,
+  limitPrice: 110100,  // omit for market-style fill
+}
+```
+
+### Range / OCO (Stop-Loss + Take-Profit)
+```typescript
+{
+  type: 'range',
+  symbol: 'BTC-USD',
+  isBuy: false,
+  size: 0.1,
+  pmin: 90000,    // stop-loss trigger price
+  pmax: 110000,   // take-profit trigger price
+  lmin: 89900,    // stop-loss limit price (omit for market-style fill)
+  lmax: 110100,   // take-profit limit price (omit for market-style fill)
+}
+```
+
+### Trigger Basket
+Fires a set of child actions when price crosses a threshold. Nested actions may be: `stop`, `takeProfit`, `range`, `order`, `cancel`, `cancelAll`, `modify`.
+
+```typescript
+{
+  type: 'trig',
+  symbol: 'BTC-USD',
+  isBuy: true,
+  triggerPrice: 100000,
+  actions: [
+    { type: 'stop',       symbol: 'BTC-USD', isBuy: false, size: 0.1, triggerPrice: 95000 },
+    { type: 'takeProfit', symbol: 'BTC-USD', isBuy: false, size: 0.1, triggerPrice: 110000 },
+  ],
+}
+```

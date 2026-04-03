@@ -174,6 +174,50 @@ impl WincodeSerializer {
                 }
                 Ok(())
             }
+            OrderItem::Stop(stop) => {
+                // st => discriminant 5
+                self.write_u32(5);
+                self.write_string(&stop.symbol);
+                self.write_bool(stop.is_buy);
+                self.write_f64(stop.size);
+                self.write_f64(stop.trigger_price);
+                self.write_f64(stop.limit_price);
+                Ok(())
+            }
+            OrderItem::TakeProfit(tp) => {
+                // tp => discriminant 6
+                self.write_u32(6);
+                self.write_string(&tp.symbol);
+                self.write_bool(tp.is_buy);
+                self.write_f64(tp.size);
+                self.write_f64(tp.trigger_price);
+                self.write_f64(tp.limit_price);
+                Ok(())
+            }
+            OrderItem::RangeOco(rng) => {
+                // rng => discriminant 7
+                self.write_u32(7);
+                self.write_string(&rng.symbol);
+                self.write_bool(rng.is_buy);
+                self.write_f64(rng.size);
+                self.write_f64(rng.collar_min);
+                self.write_f64(rng.collar_max);
+                self.write_f64(rng.limit_min);
+                self.write_f64(rng.limit_max);
+                Ok(())
+            }
+            OrderItem::TriggerBasket(trig) => {
+                // trig => discriminant 8
+                self.write_u32(8);
+                self.write_string(&trig.symbol);
+                self.write_bool(trig.is_buy);
+                self.write_f64(trig.trigger_price);
+                self.write_u64(trig.actions.len() as u64);
+                for nested in &trig.actions {
+                    self.write_order_item_action(nested)?;
+                }
+                Ok(())
+            }
         }
     }
 

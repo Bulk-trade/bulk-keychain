@@ -154,6 +154,64 @@ struct TxPythOracle {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct TxStop {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "d")]
+    is_buy: bool,
+    #[serde(rename = "sz", with = "serde_safe_f64")]
+    size: f64,
+    #[serde(rename = "tr", with = "serde_safe_f64")]
+    trigger_price: f64,
+    #[serde(rename = "lim", with = "serde_safe_f64")]
+    limit_price: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxTakeProfit {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "d")]
+    is_buy: bool,
+    #[serde(rename = "sz", with = "serde_safe_f64")]
+    size: f64,
+    #[serde(rename = "tr", with = "serde_safe_f64")]
+    trigger_price: f64,
+    #[serde(rename = "lim", with = "serde_safe_f64")]
+    limit_price: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxRangeOco {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "d")]
+    is_buy: bool,
+    #[serde(rename = "sz", with = "serde_safe_f64")]
+    size: f64,
+    #[serde(rename = "pmin", with = "serde_safe_f64")]
+    collar_min: f64,
+    #[serde(rename = "pmax", with = "serde_safe_f64")]
+    collar_max: f64,
+    #[serde(rename = "lmin", with = "serde_safe_f64")]
+    limit_min: f64,
+    #[serde(rename = "lmax", with = "serde_safe_f64")]
+    limit_max: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxTriggerBasket {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "d")]
+    is_buy: bool,
+    #[serde(rename = "tr", with = "serde_safe_f64")]
+    trigger_price: f64,
+    #[serde(rename = "a")]
+    actions: Vec<TxAction>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 struct TxFaucet {
     #[serde(with = "serde_pubkey", rename = "u")]
     user: Pubkey,
@@ -194,6 +252,14 @@ enum TxAction {
     Cancel(TxCancelOrder),
     #[serde(rename = "cxa")]
     CancelAll(TxCancelAll),
+    #[serde(rename = "st")]
+    Stop(TxStop),
+    #[serde(rename = "tp")]
+    TakeProfit(TxTakeProfit),
+    #[serde(rename = "rng")]
+    RangeOco(TxRangeOco),
+    #[serde(rename = "trig")]
+    TriggerBasket(TxTriggerBasket),
     #[serde(rename = "px")]
     Price(TxPrice),
     #[serde(rename = "o")]
@@ -245,6 +311,39 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
         OrderItem::CancelAll(cancel_all) => Ok(TxAction::CancelAll(TxCancelAll {
             symbols: cancel_all.symbols.clone(),
         })),
+        OrderItem::Stop(stop) => Ok(TxAction::Stop(TxStop {
+            symbol: stop.symbol.clone(),
+            is_buy: stop.is_buy,
+            size: stop.size,
+            trigger_price: stop.trigger_price,
+            limit_price: stop.limit_price,
+        })),
+        OrderItem::TakeProfit(tp) => Ok(TxAction::TakeProfit(TxTakeProfit {
+            symbol: tp.symbol.clone(),
+            is_buy: tp.is_buy,
+            size: tp.size,
+            trigger_price: tp.trigger_price,
+            limit_price: tp.limit_price,
+        })),
+        OrderItem::RangeOco(rng) => Ok(TxAction::RangeOco(TxRangeOco {
+            symbol: rng.symbol.clone(),
+            is_buy: rng.is_buy,
+            size: rng.size,
+            collar_min: rng.collar_min,
+            collar_max: rng.collar_max,
+            limit_min: rng.limit_min,
+            limit_max: rng.limit_max,
+        })),
+        OrderItem::TriggerBasket(trig) => {
+            let actions: Result<Vec<TxAction>> =
+                trig.actions.iter().map(order_item_to_tx_action).collect();
+            Ok(TxAction::TriggerBasket(TxTriggerBasket {
+                symbol: trig.symbol.clone(),
+                is_buy: trig.is_buy,
+                trigger_price: trig.trigger_price,
+                actions: actions?,
+            }))
+        }
     }
 }
 

@@ -5,8 +5,8 @@
 use bulk_keychain::{
     compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
     prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, Signer,
-    TimeInForce, UserSettings,
+    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
+    Signer, Stop, TakeProfit, TimeInForce, TriggerBasket, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -535,6 +535,129 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .unwrap_or_default();
 
             Ok(OrderItem::CancelAll(CancelAll::for_symbols(symbols)))
+        }
+        "stop" | "st" => {
+            let symbol: String = dict
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                .extract()?;
+            let is_buy: bool = dict
+                .get_item("is_buy")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'is_buy'"))?
+                .extract()?;
+            let size: f64 = dict
+                .get_item("size")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'size'"))?
+                .extract()?;
+            let trigger_price: f64 = dict
+                .get_item("trigger_price")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'trigger_price'"))?
+                .extract()?;
+            let limit_price: f64 = dict
+                .get_item("limit_price")?
+                .map(|v| v.extract().unwrap_or(f64::NAN))
+                .unwrap_or(f64::NAN);
+            Ok(OrderItem::Stop(Stop {
+                symbol,
+                is_buy,
+                size,
+                trigger_price,
+                limit_price,
+            }))
+        }
+        "take_profit" | "tp" => {
+            let symbol: String = dict
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                .extract()?;
+            let is_buy: bool = dict
+                .get_item("is_buy")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'is_buy'"))?
+                .extract()?;
+            let size: f64 = dict
+                .get_item("size")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'size'"))?
+                .extract()?;
+            let trigger_price: f64 = dict
+                .get_item("trigger_price")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'trigger_price'"))?
+                .extract()?;
+            let limit_price: f64 = dict
+                .get_item("limit_price")?
+                .map(|v| v.extract().unwrap_or(f64::NAN))
+                .unwrap_or(f64::NAN);
+            Ok(OrderItem::TakeProfit(TakeProfit {
+                symbol,
+                is_buy,
+                size,
+                trigger_price,
+                limit_price,
+            }))
+        }
+        "range" | "rng" => {
+            let symbol: String = dict
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                .extract()?;
+            let is_buy: bool = dict
+                .get_item("is_buy")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'is_buy'"))?
+                .extract()?;
+            let size: f64 = dict
+                .get_item("size")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'size'"))?
+                .extract()?;
+            let collar_min: f64 = dict
+                .get_item("pmin")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'pmin'"))?
+                .extract()?;
+            let collar_max: f64 = dict
+                .get_item("pmax")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'pmax'"))?
+                .extract()?;
+            let limit_min: f64 = dict
+                .get_item("lmin")?
+                .map(|v| v.extract().unwrap_or(f64::NAN))
+                .unwrap_or(f64::NAN);
+            let limit_max: f64 = dict
+                .get_item("lmax")?
+                .map(|v| v.extract().unwrap_or(f64::NAN))
+                .unwrap_or(f64::NAN);
+            Ok(OrderItem::RangeOco(RangeOco {
+                symbol,
+                is_buy,
+                size,
+                collar_min,
+                collar_max,
+                limit_min,
+                limit_max,
+            }))
+        }
+        "trig" => {
+            let symbol: String = dict
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                .extract()?;
+            let is_buy: bool = dict
+                .get_item("is_buy")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'is_buy'"))?
+                .extract()?;
+            let trigger_price: f64 = dict
+                .get_item("trigger_price")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'trigger_price'"))?
+                .extract()?;
+            let raw_actions = dict
+                .get_item("actions")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
+            let actions_list = raw_actions.downcast::<PyList>()?;
+            let actions: PyResult<Vec<OrderItem>> =
+                actions_list.iter().map(|a| parse_order_item(&a)).collect();
+            Ok(OrderItem::TriggerBasket(TriggerBasket {
+                symbol,
+                is_buy,
+                trigger_price,
+                actions: actions?,
+            }))
         }
         _ => Err(PyValueError::new_err(format!(
             "Invalid item type: {}",
