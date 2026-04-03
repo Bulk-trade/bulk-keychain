@@ -335,11 +335,8 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             limit_max: rng.limit_max,
         })),
         OrderItem::TriggerBasket(trig) => {
-            let actions: Result<Vec<TxAction>> = trig
-                .actions
-                .iter()
-                .map(order_item_to_tx_action)
-                .collect();
+            let actions: Result<Vec<TxAction>> =
+                trig.actions.iter().map(order_item_to_tx_action).collect();
             Ok(TxAction::TriggerBasket(TxTriggerBasket {
                 symbol: trig.symbol.clone(),
                 is_buy: trig.is_buy,

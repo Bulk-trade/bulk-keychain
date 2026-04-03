@@ -452,13 +452,13 @@ impl OrderItem {
                 OrderType::Limit { .. } => 1,   // l
                 OrderType::Trigger { .. } => 0, // m
             },
-            Self::Modify(_) => 2,         // mod
-            Self::Cancel(_) => 3,         // cx
-            Self::CancelAll(_) => 4,      // cxa
-            Self::Stop(_) => 5,           // st
-            Self::TakeProfit(_) => 6,     // tp
-            Self::RangeOco(_) => 7,       // rng
-            Self::TriggerBasket(_) => 8,  // trig
+            Self::Modify(_) => 2,        // mod
+            Self::Cancel(_) => 3,        // cx
+            Self::CancelAll(_) => 4,     // cxa
+            Self::Stop(_) => 5,          // st
+            Self::TakeProfit(_) => 6,    // tp
+            Self::RangeOco(_) => 7,      // rng
+            Self::TriggerBasket(_) => 8, // trig
         }
     }
 }

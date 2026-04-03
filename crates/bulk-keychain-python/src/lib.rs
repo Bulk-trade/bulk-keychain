@@ -557,7 +557,13 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("limit_price")?
                 .map(|v| v.extract().unwrap_or(f64::NAN))
                 .unwrap_or(f64::NAN);
-            Ok(OrderItem::Stop(Stop { symbol, is_buy, size, trigger_price, limit_price }))
+            Ok(OrderItem::Stop(Stop {
+                symbol,
+                is_buy,
+                size,
+                trigger_price,
+                limit_price,
+            }))
         }
         "take_profit" | "tp" => {
             let symbol: String = dict
@@ -580,7 +586,13 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("limit_price")?
                 .map(|v| v.extract().unwrap_or(f64::NAN))
                 .unwrap_or(f64::NAN);
-            Ok(OrderItem::TakeProfit(TakeProfit { symbol, is_buy, size, trigger_price, limit_price }))
+            Ok(OrderItem::TakeProfit(TakeProfit {
+                symbol,
+                is_buy,
+                size,
+                trigger_price,
+                limit_price,
+            }))
         }
         "range" | "rng" => {
             let symbol: String = dict
@@ -611,7 +623,15 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("lmax")?
                 .map(|v| v.extract().unwrap_or(f64::NAN))
                 .unwrap_or(f64::NAN);
-            Ok(OrderItem::RangeOco(RangeOco { symbol, is_buy, size, collar_min, collar_max, limit_min, limit_max }))
+            Ok(OrderItem::RangeOco(RangeOco {
+                symbol,
+                is_buy,
+                size,
+                collar_min,
+                collar_max,
+                limit_min,
+                limit_max,
+            }))
         }
         "trig" => {
             let symbol: String = dict
@@ -632,7 +652,12 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
             let actions_list = raw_actions.downcast::<PyList>()?;
             let actions: PyResult<Vec<OrderItem>> =
                 actions_list.iter().map(|a| parse_order_item(&a)).collect();
-            Ok(OrderItem::TriggerBasket(TriggerBasket { symbol, is_buy, trigger_price, actions: actions? }))
+            Ok(OrderItem::TriggerBasket(TriggerBasket {
+                symbol,
+                is_buy,
+                trigger_price,
+                actions: actions?,
+            }))
         }
         _ => Err(PyValueError::new_err(format!(
             "Invalid item type: {}",

@@ -621,38 +621,98 @@ impl TryFrom<OrderInput> for OrderItem {
                 Ok(OrderItem::CancelAll(CancelAll::for_symbols(symbols)))
             }
             "stop" | "st" => {
-                let symbol = input.symbol.ok_or_else(|| Error::from_reason("stop.symbol is required"))?;
-                let is_buy = input.is_buy.ok_or_else(|| Error::from_reason("stop.isBuy is required"))?;
-                let size = input.size.ok_or_else(|| Error::from_reason("stop.size is required"))?;
-                let trigger_price = input.trigger_price.ok_or_else(|| Error::from_reason("stop.triggerPrice is required"))?;
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("stop.symbol is required"))?;
+                let is_buy = input
+                    .is_buy
+                    .ok_or_else(|| Error::from_reason("stop.isBuy is required"))?;
+                let size = input
+                    .size
+                    .ok_or_else(|| Error::from_reason("stop.size is required"))?;
+                let trigger_price = input
+                    .trigger_price
+                    .ok_or_else(|| Error::from_reason("stop.triggerPrice is required"))?;
                 let limit_price = input.limit_price.unwrap_or(f64::NAN);
-                Ok(OrderItem::Stop(Stop { symbol, is_buy, size, trigger_price, limit_price }))
+                Ok(OrderItem::Stop(Stop {
+                    symbol,
+                    is_buy,
+                    size,
+                    trigger_price,
+                    limit_price,
+                }))
             }
             "takeProfit" | "tp" => {
-                let symbol = input.symbol.ok_or_else(|| Error::from_reason("takeProfit.symbol is required"))?;
-                let is_buy = input.is_buy.ok_or_else(|| Error::from_reason("takeProfit.isBuy is required"))?;
-                let size = input.size.ok_or_else(|| Error::from_reason("takeProfit.size is required"))?;
-                let trigger_price = input.trigger_price.ok_or_else(|| Error::from_reason("takeProfit.triggerPrice is required"))?;
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("takeProfit.symbol is required"))?;
+                let is_buy = input
+                    .is_buy
+                    .ok_or_else(|| Error::from_reason("takeProfit.isBuy is required"))?;
+                let size = input
+                    .size
+                    .ok_or_else(|| Error::from_reason("takeProfit.size is required"))?;
+                let trigger_price = input
+                    .trigger_price
+                    .ok_or_else(|| Error::from_reason("takeProfit.triggerPrice is required"))?;
                 let limit_price = input.limit_price.unwrap_or(f64::NAN);
-                Ok(OrderItem::TakeProfit(TakeProfit { symbol, is_buy, size, trigger_price, limit_price }))
+                Ok(OrderItem::TakeProfit(TakeProfit {
+                    symbol,
+                    is_buy,
+                    size,
+                    trigger_price,
+                    limit_price,
+                }))
             }
             "range" | "rng" => {
-                let symbol = input.symbol.ok_or_else(|| Error::from_reason("range.symbol is required"))?;
-                let is_buy = input.is_buy.ok_or_else(|| Error::from_reason("range.isBuy is required"))?;
-                let size = input.size.ok_or_else(|| Error::from_reason("range.size is required"))?;
-                let collar_min = input.pmin.ok_or_else(|| Error::from_reason("range.pmin is required"))?;
-                let collar_max = input.pmax.ok_or_else(|| Error::from_reason("range.pmax is required"))?;
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("range.symbol is required"))?;
+                let is_buy = input
+                    .is_buy
+                    .ok_or_else(|| Error::from_reason("range.isBuy is required"))?;
+                let size = input
+                    .size
+                    .ok_or_else(|| Error::from_reason("range.size is required"))?;
+                let collar_min = input
+                    .pmin
+                    .ok_or_else(|| Error::from_reason("range.pmin is required"))?;
+                let collar_max = input
+                    .pmax
+                    .ok_or_else(|| Error::from_reason("range.pmax is required"))?;
                 let limit_min = input.lmin.unwrap_or(f64::NAN);
                 let limit_max = input.lmax.unwrap_or(f64::NAN);
-                Ok(OrderItem::RangeOco(RangeOco { symbol, is_buy, size, collar_min, collar_max, limit_min, limit_max }))
+                Ok(OrderItem::RangeOco(RangeOco {
+                    symbol,
+                    is_buy,
+                    size,
+                    collar_min,
+                    collar_max,
+                    limit_min,
+                    limit_max,
+                }))
             }
             "trig" => {
-                let symbol = input.symbol.ok_or_else(|| Error::from_reason("trig.symbol is required"))?;
-                let is_buy = input.is_buy.ok_or_else(|| Error::from_reason("trig.isBuy is required"))?;
-                let trigger_price = input.trigger_price.ok_or_else(|| Error::from_reason("trig.triggerPrice is required"))?;
-                let raw_actions = input.actions.ok_or_else(|| Error::from_reason("trig.actions is required"))?;
-                let actions: Result<Vec<OrderItem>> = raw_actions.into_iter().map(|a| a.try_into()).collect();
-                Ok(OrderItem::TriggerBasket(TriggerBasket { symbol, is_buy, trigger_price, actions: actions? }))
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("trig.symbol is required"))?;
+                let is_buy = input
+                    .is_buy
+                    .ok_or_else(|| Error::from_reason("trig.isBuy is required"))?;
+                let trigger_price = input
+                    .trigger_price
+                    .ok_or_else(|| Error::from_reason("trig.triggerPrice is required"))?;
+                let raw_actions = input
+                    .actions
+                    .ok_or_else(|| Error::from_reason("trig.actions is required"))?;
+                let actions: Result<Vec<OrderItem>> =
+                    raw_actions.into_iter().map(|a| a.try_into()).collect();
+                Ok(OrderItem::TriggerBasket(TriggerBasket {
+                    symbol,
+                    is_buy,
+                    trigger_price,
+                    actions: actions?,
+                }))
             }
             _ => Err(Error::from_reason(format!(
                 "Invalid item type: {}",

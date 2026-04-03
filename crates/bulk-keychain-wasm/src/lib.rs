@@ -545,15 +545,29 @@ impl TryFrom<OrderInput> for OrderItem {
                 let size = input.size.ok_or("stop.size is required")?;
                 let trigger_price = input.trigger_price.ok_or("stop.triggerPrice is required")?;
                 let limit_price = input.limit_price.unwrap_or(f64::NAN);
-                Ok(OrderItem::Stop(Stop { symbol, is_buy, size, trigger_price, limit_price }))
+                Ok(OrderItem::Stop(Stop {
+                    symbol,
+                    is_buy,
+                    size,
+                    trigger_price,
+                    limit_price,
+                }))
             }
             "takeProfit" | "tp" => {
                 let symbol = input.symbol.ok_or("takeProfit.symbol is required")?;
                 let is_buy = input.is_buy.ok_or("takeProfit.isBuy is required")?;
                 let size = input.size.ok_or("takeProfit.size is required")?;
-                let trigger_price = input.trigger_price.ok_or("takeProfit.triggerPrice is required")?;
+                let trigger_price = input
+                    .trigger_price
+                    .ok_or("takeProfit.triggerPrice is required")?;
                 let limit_price = input.limit_price.unwrap_or(f64::NAN);
-                Ok(OrderItem::TakeProfit(TakeProfit { symbol, is_buy, size, trigger_price, limit_price }))
+                Ok(OrderItem::TakeProfit(TakeProfit {
+                    symbol,
+                    is_buy,
+                    size,
+                    trigger_price,
+                    limit_price,
+                }))
             }
             "range" | "rng" => {
                 let symbol = input.symbol.ok_or("range.symbol is required")?;
@@ -563,7 +577,15 @@ impl TryFrom<OrderInput> for OrderItem {
                 let collar_max = input.pmax.ok_or("range.pmax is required")?;
                 let limit_min = input.lmin.unwrap_or(f64::NAN);
                 let limit_max = input.lmax.unwrap_or(f64::NAN);
-                Ok(OrderItem::RangeOco(RangeOco { symbol, is_buy, size, collar_min, collar_max, limit_min, limit_max }))
+                Ok(OrderItem::RangeOco(RangeOco {
+                    symbol,
+                    is_buy,
+                    size,
+                    collar_min,
+                    collar_max,
+                    limit_min,
+                    limit_max,
+                }))
             }
             "trig" => {
                 let symbol = input.symbol.ok_or("trig.symbol is required")?;
@@ -572,7 +594,12 @@ impl TryFrom<OrderInput> for OrderItem {
                 let raw_actions = input.actions.ok_or("trig.actions is required")?;
                 let actions: Result<Vec<OrderItem>, String> =
                     raw_actions.into_iter().map(|a| a.try_into()).collect();
-                Ok(OrderItem::TriggerBasket(TriggerBasket { symbol, is_buy, trigger_price, actions: actions? }))
+                Ok(OrderItem::TriggerBasket(TriggerBasket {
+                    symbol,
+                    is_buy,
+                    trigger_price,
+                    actions: actions?,
+                }))
             }
             _ => Err(format!("Invalid item type: {}", input.item_type)),
         }
