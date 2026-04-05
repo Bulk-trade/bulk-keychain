@@ -339,11 +339,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      - name: Ensure npm supports trusted publishing
-        run: npm install -g npm@^11.5.1
+      - name: Check npm version for trusted publishing
+        run: |
+          REQUIRED=11.5.1
+          CURRENT="$(npm --version)"
+          echo "npm version: ${CURRENT}"
+          if [[ "$(printf '%s\n' "$REQUIRED" "$CURRENT" | sort -V | head -n1)" != "$REQUIRED" ]]; then
+            echo "npm ${CURRENT} is too old; need >= ${REQUIRED} for trusted publishing"
+            exit 1
+          fi
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -419,11 +426,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
 
-      - name: Ensure npm supports trusted publishing
-        run: npm install -g npm@^11.5.1
+      - name: Check npm version for trusted publishing
+        run: |
+          REQUIRED=11.5.1
+          CURRENT="$(npm --version)"
+          echo "npm version: ${CURRENT}"
+          if [[ "$(printf '%s\n' "$REQUIRED" "$CURRENT" | sort -V | head -n1)" != "$REQUIRED" ]]; then
+            echo "npm ${CURRENT} is too old; need >= ${REQUIRED} for trusted publishing"
+            exit 1
+          fi
 
       - name: Download WASM artifact
         uses: actions/download-artifact@v4
