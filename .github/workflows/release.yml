@@ -306,7 +306,8 @@ jobs:
         id: crates_check
         working-directory: crates/bulk-keychain
         run: |
-          VERSION=$(awk '/^version = / { gsub(/"/, "", $3); print $3; exit }' Cargo.toml)
+          VERSION=$(cargo pkgid | sed -E 's/.*#([0-9]+\.[0-9]+\.[0-9]+.*)$/\1/')
+          echo "Detected crate version: $VERSION"
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://crates.io/api/v1/crates/bulk-keychain/${VERSION}")
           if [[ "$STATUS" == "200" ]]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -376,7 +377,7 @@ jobs:
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: packages/bulk-keychain-node
-        run: npm publish --access public
+        run: npm publish --provenance --access public
 
   # ============================================
   # PUBLISH PYTHON PACKAGE
@@ -448,7 +449,7 @@ jobs:
       - name: Publish WASM to npm
         if: ${{ !inputs.dry_run }}
         working-directory: crates/bulk-keychain-wasm/pkg
-        run: npm publish --access public
+        run: npm publish --provenance --access public
 
   # ============================================
   # CREATE GITHUB RELEASE
