@@ -292,6 +292,7 @@ jobs:
     name: Publish to crates.io
     needs: [validate, test]
     runs-on: ubuntu-latest
+    continue-on-error: true
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
@@ -389,17 +390,7 @@ jobs:
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: packages/bulk-keychain-node
-        run: |
-          set +e
-          npm publish --provenance --access public
-          STATUS=$?
-          if [[ $STATUS -eq 0 ]]; then
-            exit 0
-          fi
-          echo "Trusted publish failed, retrying with NODE_AUTH_TOKEN fallback"
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
 
   # ============================================
   # PUBLISH PYTHON PACKAGE
@@ -471,17 +462,7 @@ jobs:
       - name: Publish WASM to npm
         if: ${{ !inputs.dry_run }}
         working-directory: crates/bulk-keychain-wasm/pkg
-        run: |
-          set +e
-          npm publish --provenance --access public
-          STATUS=$?
-          if [[ $STATUS -eq 0 ]]; then
-            exit 0
-          fi
-          echo "Trusted publish failed, retrying with NODE_AUTH_TOKEN fallback"
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
 
   # ============================================
   # CREATE GITHUB RELEASE
