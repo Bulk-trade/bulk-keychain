@@ -199,7 +199,6 @@ impl Signer {
 
     fn sign_single_item(&self, item: OrderItem, nonce: u64) -> Result<SignedTransaction> {
         let account = self.keypair.pubkey();
-        let signer_pubkey = self.keypair.pubkey();
         let order_id = if self.compute_order_id {
             let mut scratch = Vec::with_capacity(96);
             compute_order_item_id_at_index(&item, 0, nonce, &account, &mut scratch)
@@ -219,7 +218,7 @@ impl Signer {
             actions,
             nonce,
             account: account.to_base58(),
-            signer: signer_pubkey.to_base58(),
+            signer: account.to_base58(),
             signature,
             order_id,
             order_ids: None,
@@ -350,7 +349,6 @@ impl Signer {
         }
 
         let account = self.keypair.pubkey();
-        let signer_pubkey = self.keypair.pubkey();
         let order_id = if self.compute_order_id && orders.len() == 1 {
             let mut scratch = Vec::with_capacity(96);
             compute_order_item_id_at_index(&orders[0], 0, nonce, &account, &mut scratch)
@@ -387,7 +385,7 @@ impl Signer {
             actions,
             nonce,
             account: account.to_base58(),
-            signer: signer_pubkey.to_base58(),
+            signer: account.to_base58(),
             signature,
             order_id,
             order_ids,
