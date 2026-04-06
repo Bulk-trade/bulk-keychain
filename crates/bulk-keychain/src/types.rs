@@ -418,6 +418,33 @@ pub struct TriggerBasket {
     pub actions: Vec<OrderItem>,
 }
 
+/// Trailing stop: protective stop that follows price by a fixed distance in bps,
+/// resetting forward on favorable moves in increments of `step_bps`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TrailingStop {
+    pub symbol: String,
+    /// Protected position direction (true = long, false = short)
+    pub is_buy: bool,
+    pub size: f64,
+    /// Trailing distance in basis points
+    pub trail_bps: u32,
+    /// Favorable reset step in basis points
+    pub step_bps: u32,
+    /// Optional triggered limit price; None means market-style trigger
+    pub limit_price: Option<f64>,
+}
+
+/// On-fill consequent: one-shot follow-up actions executed on first fill of a parent action.
+/// `p` is the parent action's seqno (index) in the same transaction.
+/// Allowed consequent types: m, l, mod, cx, cxa, st, tp, rng, trig, trl.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OnFill {
+    /// Parent action seqno (0-based index in the transaction).
+    pub p: u32,
+    /// One-shot consequent actions executed on first fill of the parent.
+    pub actions: Vec<OrderItem>,
+}
+
 // ============================================================================
 // Order Item (union type)
 // ============================================================================
@@ -442,6 +469,10 @@ pub enum OrderItem {
     RangeOco(RangeOco),
     /// Trigger basket: fires nested actions when price crosses threshold
     TriggerBasket(TriggerBasket),
+    /// On-fill consequent: one-shot follow-up actions on first fill of a parent action
+    OnFill(OnFill),
+    /// Trailing stop: protective stop that follows price by a fixed bps distance
+    TrailingStop(TrailingStop),
 }
 
 impl OrderItem {
@@ -459,6 +490,8 @@ impl OrderItem {
             Self::TakeProfit(_) => 6,    // tp
             Self::RangeOco(_) => 7,      // rng
             Self::TriggerBasket(_) => 8, // trig
+            Self::OnFill(_) => 9,        // of
+            Self::TrailingStop(_) => 10, // trl
         }
     }
 }
@@ -508,6 +541,18 @@ impl From<RangeOco> for OrderItem {
 impl From<TriggerBasket> for OrderItem {
     fn from(trig: TriggerBasket) -> Self {
         Self::TriggerBasket(trig)
+    }
+}
+
+impl From<OnFill> for OrderItem {
+    fn from(of: OnFill) -> Self {
+        Self::OnFill(of)
+    }
+}
+
+impl From<TrailingStop> for OrderItem {
+    fn from(trl: TrailingStop) -> Self {
+        Self::TrailingStop(trl)
     }
 }
 

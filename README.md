@@ -430,3 +430,43 @@ Fires a set of child actions when price crosses a threshold. Nested actions may 
   ],
 }
 ```
+
+### Trailing Stop
+Protective stop that follows price by a fixed distance (`trailBps`), resetting forward on favorable moves in increments of `stepBps`. Internally represented as a protective stop leg plus a rotating sentinel trigger leg.
+
+```typescript
+{
+  type: 'trl',            // or 'trailingStop'
+  symbol: 'BTC-USD',
+  isBuy: true,            // true = protecting a long, false = protecting a short
+  size: 0.25,
+  trailBps: 100,          // trailing distance in basis points
+  stepBps: 10,            // favorable reset step in basis points
+  limitPrice: null,       // optional: omit or null for market-style trigger
+}
+```
+
+### On-Fill Consequent
+One-shot follow-up actions executed on the first fill of a parent order in the same transaction. `p` is the 0-based index of the parent action in the transaction.
+
+```typescript
+// Attach directly to a limit order (auto-promoted to an atomic group):
+const limitWithSL = {
+  type: 'order',
+  symbol: 'BTC-USD',
+  isBuy: true,
+  price: 95000,
+  size: 0.1,
+  orderType: { type: 'limit', tif: 'GTC' },
+  onFill: {
+    p: 0,   // index of the parent order above
+    actions: [
+      { type: 'stop', symbol: 'BTC-USD', isBuy: false, size: 0.1, triggerPrice: 90000 },
+    ],
+  },
+};
+const signed = prepareOrder(limitWithSL, { account, signer });
+
+// Or construct the group explicitly (required for market orders):
+const signed = prepareGroup([marketOrder, onFillAction], { account, signer });
+```

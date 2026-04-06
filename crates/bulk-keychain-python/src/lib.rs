@@ -4,9 +4,9 @@
 
 use bulk_keychain::{
     compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
-    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy,
+    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill,
     OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
-    Signer, Stop, TakeProfit, TimeInForce, TriggerBasket, UserSettings,
+    Signer, Stop, TakeProfit, TimeInForce, TrailingStop, TriggerBasket, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -659,6 +659,56 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 actions: actions?,
             }))
         }
+        "on_fill" | "of" => {
+            let p: u32 = dict
+                .get_item("p")?
+                .map(|v| v.extract().unwrap_or(0))
+                .unwrap_or(0);
+            let raw_actions = dict
+                .get_item("actions")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
+            let actions_list = raw_actions.downcast::<PyList>()?;
+            let actions: PyResult<Vec<OrderItem>> =
+                actions_list.iter().map(|a| parse_order_item(&a)).collect();
+            Ok(OrderItem::OnFill(OnFill {
+                p,
+                actions: actions?,
+            }))
+        }
+        "trailing_stop" | "trl" => {
+            let symbol: String = dict
+                .get_item("symbol")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                .extract()?;
+            let is_buy: bool = dict
+                .get_item("is_buy")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'is_buy'"))?
+                .extract()?;
+            let size: f64 = dict
+                .get_item("size")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'size'"))?
+                .extract()?;
+            let trail_bps: u32 = dict
+                .get_item("trail_bps")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'trail_bps'"))?
+                .extract()?;
+            let step_bps: u32 = dict
+                .get_item("step_bps")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'step_bps'"))?
+                .extract()?;
+            let limit_price: Option<f64> = dict
+                .get_item("limit_price")?
+                .map(|v| v.extract().ok())
+                .flatten();
+            Ok(OrderItem::TrailingStop(TrailingStop {
+                symbol,
+                is_buy,
+                size,
+                trail_bps,
+                step_bps,
+                limit_price,
+            }))
+        }
         _ => Err(PyValueError::new_err(format!(
             "Invalid item type: {}",
             item_type
@@ -980,7 +1030,6 @@ fn py_prepare_order(
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    let order_item = parse_order_item(order)?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
@@ -988,8 +1037,41 @@ fn py_prepare_order(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_message(order_item, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    // If on_fill key is present, emit parent + OnFill as an atomic group
+    let dict = order.downcast::<PyDict>().ok();
+    let on_fill_obj = dict
+        .as_ref()
+        .and_then(|d| d.get_item("on_fill").ok().flatten());
+
+    let prepared = if let Some(of_obj) = on_fill_obj {
+        let parent = parse_order_item(order)?;
+        let of_dict = of_obj.downcast::<PyDict>()?;
+        let p: u32 = of_dict
+            .get_item("p")?
+            .map(|v| v.extract().unwrap_or(0u32))
+            .unwrap_or(0);
+        let raw_actions = of_dict
+            .get_item("actions")?
+            .ok_or_else(|| PyValueError::new_err("Missing on_fill.actions"))?;
+        let actions_list = raw_actions.downcast::<PyList>()?;
+        let consequents: PyResult<Vec<OrderItem>> =
+            actions_list.iter().map(|a| parse_order_item(&a)).collect();
+        let of_item = OrderItem::OnFill(OnFill {
+            p,
+            actions: consequents?,
+        });
+        prepare_group(
+            vec![parent, of_item],
+            &account_pk,
+            signer_pk.as_ref(),
+            nonce,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?
+    } else {
+        let order_item = parse_order_item(order)?;
+        prepare_message(order_item, &account_pk, signer_pk.as_ref(), nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?
+    };
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }

@@ -207,8 +207,32 @@ struct TxTriggerBasket {
     is_buy: bool,
     #[serde(rename = "tr", with = "serde_safe_f64")]
     trigger_price: f64,
-    #[serde(rename = "a")]
+    #[serde(rename = "actions")]
     actions: Vec<TxAction>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxOnFill {
+    #[serde(rename = "p")]
+    parent_seqno: u32,
+    #[serde(rename = "actions")]
+    actions: Vec<TxAction>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxTrailingStop {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "b")]
+    is_buy: bool,
+    #[serde(rename = "sz", with = "serde_safe_f64")]
+    size: f64,
+    #[serde(rename = "trb")]
+    trail_bps: u32,
+    #[serde(rename = "stb")]
+    step_bps: u32,
+    #[serde(rename = "lim")]
+    limit_price: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -260,6 +284,10 @@ enum TxAction {
     RangeOco(TxRangeOco),
     #[serde(rename = "trig")]
     TriggerBasket(TxTriggerBasket),
+    #[serde(rename = "of")]
+    OnFill(TxOnFill),
+    #[serde(rename = "trl")]
+    TrailingStop(TxTrailingStop),
     #[serde(rename = "px")]
     Price(TxPrice),
     #[serde(rename = "o")]
@@ -344,6 +372,22 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                 actions: actions?,
             }))
         }
+        OrderItem::OnFill(of) => {
+            let actions: Result<Vec<TxAction>> =
+                of.actions.iter().map(order_item_to_tx_action).collect();
+            Ok(TxAction::OnFill(TxOnFill {
+                parent_seqno: of.p,
+                actions: actions?,
+            }))
+        }
+        OrderItem::TrailingStop(trl) => Ok(TxAction::TrailingStop(TxTrailingStop {
+            symbol: trl.symbol.clone(),
+            is_buy: trl.is_buy,
+            size: trl.size,
+            trail_bps: trl.trail_bps,
+            step_bps: trl.step_bps,
+            limit_price: trl.limit_price,
+        })),
     }
 }
 
