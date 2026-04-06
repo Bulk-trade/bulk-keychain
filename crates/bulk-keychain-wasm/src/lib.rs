@@ -6,8 +6,9 @@
 use bulk_keychain::{
     finalize_transaction, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
     prepare_message, prepare_user_settings, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager,
-    NonceStrategy, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
-    PythOraclePrice, RangeOco, Signer, Stop, TakeProfit, TimeInForce, TriggerBasket, UserSettings,
+    NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
+    PythOraclePrice, RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, TriggerBasket,
+    UserSettings,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -410,6 +411,13 @@ impl WasmSigner {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct OnFillInput {
+    p: u32,
+    actions: Vec<OrderInput>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct OrderInput {
     #[serde(rename = "type")]
     item_type: String,
@@ -430,6 +438,9 @@ struct OrderInput {
     lmin: Option<f64>,
     lmax: Option<f64>,
     actions: Option<Vec<OrderInput>>,
+    on_fill: Option<OnFillInput>,
+    trail_bps: Option<u32>,
+    step_bps: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -599,6 +610,31 @@ impl TryFrom<OrderInput> for OrderItem {
                     is_buy,
                     trigger_price,
                     actions: actions?,
+                }))
+            }
+            "onFill" | "of" => {
+                let raw_actions = input.actions.ok_or("onFill.actions is required")?;
+                let actions: Result<Vec<OrderItem>, String> =
+                    raw_actions.into_iter().map(|a| a.try_into()).collect();
+                Ok(OrderItem::OnFill(OnFill {
+                    p: 0,
+                    actions: actions?,
+                }))
+            }
+            "trailingStop" | "trl" => {
+                let symbol = input.symbol.ok_or("trl.symbol is required")?;
+                let is_buy = input.is_buy.ok_or("trl.isBuy is required")?;
+                let size = input.size.ok_or("trl.size is required")?;
+                let trail_bps = input.trail_bps.ok_or("trl.trailBps is required")?;
+                let step_bps = input.step_bps.ok_or("trl.stepBps is required")?;
+                let limit_price = input.limit_price;
+                Ok(OrderItem::TrailingStop(TrailingStop {
+                    symbol,
+                    is_buy,
+                    size,
+                    trail_bps,
+                    step_bps,
+                    limit_price,
                 }))
             }
             _ => Err(format!("Invalid item type: {}", input.item_type)),
@@ -771,9 +807,6 @@ pub fn wasm_prepare_order(
     let opts: PrepareOptions =
         serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
 
-    let order_item: OrderItem = order_input
-        .try_into()
-        .map_err(|e: String| JsError::new(&e))?;
     let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
     let signer = opts
         .signer
@@ -782,8 +815,32 @@ pub fn wasm_prepare_order(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_message(order_item, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    // If onFill is present, emit parent + OnFill as an atomic group
+    let on_fill_input = order_input.on_fill;
+    let order_input_no_fill = OrderInput {
+        on_fill: None,
+        ..order_input
+    };
+
+    let prepared = if let Some(of) = on_fill_input {
+        let parent: OrderItem = order_input_no_fill
+            .try_into()
+            .map_err(|e: String| JsError::new(&e))?;
+        let consequents: Result<Vec<OrderItem>, String> =
+            of.actions.into_iter().map(|a| a.try_into()).collect();
+        let of_item = OrderItem::OnFill(OnFill {
+            p: of.p,
+            actions: consequents.map_err(|e| JsError::new(&e))?,
+        });
+        prepare_group(vec![parent, of_item], &account, signer.as_ref(), nonce)
+            .map_err(|e| JsError::new(&e.to_string()))?
+    } else {
+        let order_item: OrderItem = order_input_no_fill
+            .try_into()
+            .map_err(|e: String| JsError::new(&e))?;
+        prepare_message(order_item, &account, signer.as_ref(), nonce)
+            .map_err(|e| JsError::new(&e.to_string()))?
+    };
 
     Ok(WasmPreparedMessage { inner: prepared })
 }

@@ -600,10 +600,33 @@ impl Signer {
                         "c": trig.symbol,
                         "d": trig.is_buy,
                         "tr": trig.trigger_price,
-                        "a": nested?
+                        "actions": nested?
                     }
                 }))
             }
+            OrderItem::OnFill(of) => {
+                let actions: Result<Vec<_>> = of
+                    .actions
+                    .iter()
+                    .map(|a| self.order_item_to_json(a))
+                    .collect();
+                Ok(json!({
+                    "of": {
+                        "p": of.p,
+                        "actions": actions?
+                    }
+                }))
+            }
+            OrderItem::TrailingStop(trl) => Ok(json!({
+                "trl": {
+                    "c": trl.symbol,
+                    "b": trl.is_buy,
+                    "sz": trl.size,
+                    "trb": trl.trail_bps,
+                    "stb": trl.step_bps,
+                    "lim": trl.limit_price
+                }
+            })),
         }
     }
 }

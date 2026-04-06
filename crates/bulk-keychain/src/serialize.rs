@@ -218,6 +218,27 @@ impl WincodeSerializer {
                 }
                 Ok(())
             }
+            OrderItem::OnFill(of) => {
+                // of => discriminant 9
+                self.write_u32(9);
+                self.write_u32(of.p);
+                self.write_u64(of.actions.len() as u64);
+                for nested in &of.actions {
+                    self.write_order_item_action(nested)?;
+                }
+                Ok(())
+            }
+            OrderItem::TrailingStop(trl) => {
+                // trl => discriminant 10
+                self.write_u32(10);
+                self.write_string(&trl.symbol);
+                self.write_bool(trl.is_buy);
+                self.write_f64(trl.size);
+                self.write_u32(trl.trail_bps);
+                self.write_u32(trl.step_bps);
+                self.write_option(&trl.limit_price, |s, &p| s.write_f64(p));
+                Ok(())
+            }
         }
     }
 

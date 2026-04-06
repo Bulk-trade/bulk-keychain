@@ -5,9 +5,9 @@
 
 use bulk_keychain::{
     prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
-    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OraclePrice, Order, OrderItem,
-    OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, Signer, Stop, TakeProfit,
-    TimeInForce, TriggerBasket, UserSettings,
+    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill, OraclePrice, Order,
+    OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, Signer, Stop,
+    TakeProfit, TimeInForce, TrailingStop, TriggerBasket, UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -427,6 +427,13 @@ impl NativeSigner {
 
 #[napi(object)]
 #[derive(Debug, Deserialize)]
+pub struct OnFillInput {
+    pub p: u32,
+    pub actions: Vec<OrderInput>,
+}
+
+#[napi(object)]
+#[derive(Debug, Deserialize)]
 pub struct OrderInput {
     #[napi(js_name = "type")]
     pub item_type: String,
@@ -447,6 +454,9 @@ pub struct OrderInput {
     pub lmin: Option<f64>,
     pub lmax: Option<f64>,
     pub actions: Option<Vec<OrderInput>>,
+    pub on_fill: Option<OnFillInput>,
+    pub trail_bps: Option<u32>,
+    pub step_bps: Option<u32>,
 }
 
 #[napi(object)]
@@ -714,6 +724,43 @@ impl TryFrom<OrderInput> for OrderItem {
                     actions: actions?,
                 }))
             }
+            "onFill" | "of" => {
+                let raw_actions = input
+                    .actions
+                    .ok_or_else(|| Error::from_reason("onFill.actions is required"))?;
+                let actions: Result<Vec<OrderItem>> =
+                    raw_actions.into_iter().map(|a| a.try_into()).collect();
+                Ok(OrderItem::OnFill(OnFill {
+                    p: 0,
+                    actions: actions?,
+                }))
+            }
+            "trailingStop" | "trl" => {
+                let symbol = input
+                    .symbol
+                    .ok_or_else(|| Error::from_reason("trl.symbol is required"))?;
+                let is_buy = input
+                    .is_buy
+                    .ok_or_else(|| Error::from_reason("trl.isBuy is required"))?;
+                let size = input
+                    .size
+                    .ok_or_else(|| Error::from_reason("trl.size is required"))?;
+                let trail_bps = input
+                    .trail_bps
+                    .ok_or_else(|| Error::from_reason("trl.trailBps is required"))?;
+                let step_bps = input
+                    .step_bps
+                    .ok_or_else(|| Error::from_reason("trl.stepBps is required"))?;
+                let limit_price = input.limit_price;
+                Ok(OrderItem::TrailingStop(TrailingStop {
+                    symbol,
+                    is_buy,
+                    size,
+                    trail_bps,
+                    step_bps,
+                    limit_price,
+                }))
+            }
             _ => Err(Error::from_reason(format!(
                 "Invalid item type: {}",
                 input.item_type
@@ -829,7 +876,6 @@ impl From<PreparedMessage> for PreparedMessageOutput {
 /// ```
 #[napi]
 pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<PreparedMessageOutput> {
-    let order_item: OrderItem = order.try_into()?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
@@ -839,8 +885,28 @@ pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<Prepa
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = prepare_message(order_item, &account, signer.as_ref(), nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    // If onFill is present, emit parent + OnFill as an atomic group
+    let on_fill_input = order.on_fill;
+    let order_no_fill = OrderInput {
+        on_fill: None,
+        ..order
+    };
+
+    let prepared = if let Some(of) = on_fill_input {
+        let parent: OrderItem = order_no_fill.try_into()?;
+        let consequents: Result<Vec<OrderItem>> =
+            of.actions.into_iter().map(|a| a.try_into()).collect();
+        let of_item = OrderItem::OnFill(OnFill {
+            p: of.p,
+            actions: consequents?,
+        });
+        prepare_group(vec![parent, of_item], &account, signer.as_ref(), nonce)
+            .map_err(|e| Error::from_reason(e.to_string()))?
+    } else {
+        let order_item: OrderItem = order_no_fill.try_into()?;
+        prepare_message(order_item, &account, signer.as_ref(), nonce)
+            .map_err(|e| Error::from_reason(e.to_string()))?
+    };
 
     Ok(prepared.into())
 }
