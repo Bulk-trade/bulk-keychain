@@ -698,8 +698,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .extract()?;
             let limit_price: Option<f64> = dict
                 .get_item("limit_price")?
-                .map(|v| v.extract().ok())
-                .flatten();
+                .and_then(|v| v.extract().ok());
             Ok(OrderItem::TrailingStop(TrailingStop {
                 symbol,
                 is_buy,
