@@ -696,9 +696,8 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("step_bps")?
                 .ok_or_else(|| PyValueError::new_err("Missing 'step_bps'"))?
                 .extract()?;
-            let limit_price: Option<f64> = dict
-                .get_item("limit_price")?
-                .and_then(|v| v.extract().ok());
+            let limit_price: Option<f64> =
+                dict.get_item("limit_price")?.and_then(|v| v.extract().ok());
             Ok(OrderItem::TrailingStop(TrailingStop {
                 symbol,
                 is_buy,
