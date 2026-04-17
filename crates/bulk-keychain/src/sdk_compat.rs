@@ -284,18 +284,22 @@ enum TxAction {
     RangeOco(TxRangeOco),
     #[serde(rename = "trig")]
     TriggerBasket(TxTriggerBasket),
-    #[serde(rename = "of")]
-    OnFill(TxOnFill),
     #[serde(rename = "trl")]
     TrailingStop(TxTrailingStop),
+    #[serde(rename = "of")]
+    OnFill(TxOnFill),
     #[serde(rename = "px")]
     Price(TxPrice),
     #[serde(rename = "o")]
     PythOracle(TxPythOracle),
+    WhitelistFaucet(TxWhitelistFaucet),
+    #[allow(dead_code)]
+    Reserved14,
+    #[allow(dead_code)]
+    Reserved15,
     Faucet(TxFaucet),
     AgentWalletCreation(TxAgentWalletCreation),
     UpdateUserSettings(TxUpdateUserSettings),
-    WhitelistFaucet(TxWhitelistFaucet),
 }
 
 #[inline]
