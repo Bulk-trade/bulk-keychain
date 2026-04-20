@@ -19,7 +19,7 @@ mod serde_hash {
         if serializer.is_human_readable() {
             serializer.serialize_str(&val.to_base58())
         } else {
-            serializer.serialize_bytes(val.as_bytes())
+            val.as_bytes().serialize(serializer)
         }
     }
 }
@@ -34,7 +34,7 @@ mod serde_pubkey {
         if serializer.is_human_readable() {
             serializer.serialize_str(&val.to_base58())
         } else {
-            serializer.serialize_bytes(val.as_bytes())
+            val.as_bytes().serialize(serializer)
         }
     }
 }
