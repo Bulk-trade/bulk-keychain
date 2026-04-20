@@ -53,7 +53,6 @@ pub mod nonce;
 pub mod order_id;
 pub mod prepare;
 mod sdk_compat;
-pub mod serialize;
 mod sign;
 pub mod types;
 
