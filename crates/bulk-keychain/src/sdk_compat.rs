@@ -326,6 +326,15 @@ enum TxAction {
 }
 
 #[inline]
+fn nan_to_none(v: f64) -> Option<f64> {
+    if v.is_nan() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+#[inline]
 fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
     match item {
         OrderItem::Order(order) => match order.order_type {
@@ -371,14 +380,14 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             is_buy: stop.is_buy,
             size: stop.size,
             trigger_price: stop.trigger_price,
-            limit_price: Some(stop.limit_price),
+            limit_price: nan_to_none(stop.limit_price),
         })),
         OrderItem::TakeProfit(tp) => Ok(TxAction::TakeProfit(TxTakeProfit {
             symbol: tp.symbol.clone(),
             is_buy: tp.is_buy,
             size: tp.size,
             trigger_price: tp.trigger_price,
-            limit_price: Some(tp.limit_price),
+            limit_price: nan_to_none(tp.limit_price),
         })),
         OrderItem::RangeOco(rng) => Ok(TxAction::RangeOco(TxRangeOco {
             symbol: rng.symbol.clone(),
@@ -386,8 +395,8 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             size: rng.size,
             collar_min: rng.collar_min,
             collar_max: rng.collar_max,
-            limit_min: Some(rng.limit_min),
-            limit_max: Some(rng.limit_max),
+            limit_min: nan_to_none(rng.limit_min),
+            limit_max: nan_to_none(rng.limit_max),
         })),
         OrderItem::TriggerBasket(trig) => {
             let actions: Result<Vec<TxAction>> =
