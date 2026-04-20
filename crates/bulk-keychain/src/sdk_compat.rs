@@ -19,7 +19,7 @@ mod serde_hash {
         if serializer.is_human_readable() {
             serializer.serialize_str(&val.to_base58())
         } else {
-            serializer.serialize_bytes(val.as_bytes())
+            val.as_bytes().serialize(serializer)
         }
     }
 }
@@ -34,7 +34,7 @@ mod serde_pubkey {
         if serializer.is_human_readable() {
             serializer.serialize_str(&val.to_base58())
         } else {
-            serializer.serialize_bytes(val.as_bytes())
+            val.as_bytes().serialize(serializer)
         }
     }
 }
@@ -51,6 +51,27 @@ mod serde_safe_f64 {
         } else {
             let fixed = (val * SCALE).round() as u64;
             serializer.serialize_u64(fixed)
+        }
+    }
+}
+
+mod serde_opt_f64 {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(
+        val: &Option<f64>,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        match val {
+            None => serializer.serialize_none(),
+            Some(v) => {
+                if serializer.is_human_readable() {
+                    serializer.serialize_str(&v.to_string())
+                } else {
+                    let fixed = (v * SCALE).round() as u64;
+                    serializer.serialize_some(&fixed)
+                }
+            }
         }
     }
 }
@@ -163,8 +184,8 @@ struct TxStop {
     size: f64,
     #[serde(rename = "tr", with = "serde_safe_f64")]
     trigger_price: f64,
-    #[serde(rename = "lim", with = "serde_safe_f64")]
-    limit_price: f64,
+    #[serde(rename = "lim", with = "serde_opt_f64")]
+    limit_price: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -177,8 +198,8 @@ struct TxTakeProfit {
     size: f64,
     #[serde(rename = "tr", with = "serde_safe_f64")]
     trigger_price: f64,
-    #[serde(rename = "lim", with = "serde_safe_f64")]
-    limit_price: f64,
+    #[serde(rename = "lim", with = "serde_opt_f64")]
+    limit_price: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -193,10 +214,10 @@ struct TxRangeOco {
     collar_min: f64,
     #[serde(rename = "pmax", with = "serde_safe_f64")]
     collar_max: f64,
-    #[serde(rename = "lmin", with = "serde_safe_f64")]
-    limit_min: f64,
-    #[serde(rename = "lmax", with = "serde_safe_f64")]
-    limit_max: f64,
+    #[serde(rename = "lmin", with = "serde_opt_f64")]
+    limit_min: Option<f64>,
+    #[serde(rename = "lmax", with = "serde_opt_f64")]
+    limit_max: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -231,7 +252,7 @@ struct TxTrailingStop {
     trail_bps: u32,
     #[serde(rename = "stb")]
     step_bps: u32,
-    #[serde(rename = "lim")]
+    #[serde(rename = "lim", with = "serde_opt_f64")]
     limit_price: Option<f64>,
 }
 
@@ -290,16 +311,27 @@ enum TxAction {
     OnFill(TxOnFill),
     #[serde(rename = "px")]
     Price(TxPrice),
+    #[allow(dead_code)]
+    ReservedCorrs,
     #[serde(rename = "o")]
     PythOracle(TxPythOracle),
-    WhitelistFaucet(TxWhitelistFaucet),
     #[allow(dead_code)]
-    Reserved14,
+    ReservedBeacon,
     #[allow(dead_code)]
-    Reserved15,
+    ReservedJoin,
     Faucet(TxFaucet),
     AgentWalletCreation(TxAgentWalletCreation),
     UpdateUserSettings(TxUpdateUserSettings),
+    WhitelistFaucet(TxWhitelistFaucet),
+}
+
+#[inline]
+fn nan_to_none(v: f64) -> Option<f64> {
+    if v.is_nan() {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 #[inline]
@@ -348,14 +380,14 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             is_buy: stop.is_buy,
             size: stop.size,
             trigger_price: stop.trigger_price,
-            limit_price: stop.limit_price,
+            limit_price: nan_to_none(stop.limit_price),
         })),
         OrderItem::TakeProfit(tp) => Ok(TxAction::TakeProfit(TxTakeProfit {
             symbol: tp.symbol.clone(),
             is_buy: tp.is_buy,
             size: tp.size,
             trigger_price: tp.trigger_price,
-            limit_price: tp.limit_price,
+            limit_price: nan_to_none(tp.limit_price),
         })),
         OrderItem::RangeOco(rng) => Ok(TxAction::RangeOco(TxRangeOco {
             symbol: rng.symbol.clone(),
@@ -363,8 +395,8 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             size: rng.size,
             collar_min: rng.collar_min,
             collar_max: rng.collar_max,
-            limit_min: rng.limit_min,
-            limit_max: rng.limit_max,
+            limit_min: nan_to_none(rng.limit_min),
+            limit_max: nan_to_none(rng.limit_max),
         })),
         OrderItem::TriggerBasket(trig) => {
             let actions: Result<Vec<TxAction>> =
