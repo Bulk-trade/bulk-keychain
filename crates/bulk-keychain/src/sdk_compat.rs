@@ -105,6 +105,8 @@ struct TxMarketOrder {
     size: f64,
     #[serde(rename = "r")]
     reduce_only: bool,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -121,6 +123,8 @@ struct TxLimitOrder {
     tif: TxTimeInForce,
     #[serde(rename = "r")]
     reduce_only: bool,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -186,6 +190,8 @@ struct TxStop {
     trigger_price: f64,
     #[serde(rename = "lim", with = "serde_opt_f64")]
     limit_price: Option<f64>,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -200,6 +206,8 @@ struct TxTakeProfit {
     trigger_price: f64,
     #[serde(rename = "lim", with = "serde_opt_f64")]
     limit_price: Option<f64>,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -218,6 +226,8 @@ struct TxRangeOco {
     limit_min: Option<f64>,
     #[serde(rename = "lmax", with = "serde_opt_f64")]
     limit_max: Option<f64>,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -230,6 +240,8 @@ struct TxTriggerBasket {
     trigger_price: f64,
     #[serde(rename = "actions")]
     actions: Vec<TxAction>,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -254,6 +266,8 @@ struct TxTrailingStop {
     step_bps: u32,
     #[serde(rename = "lim", with = "serde_opt_f64")]
     limit_price: Option<f64>,
+    #[serde(rename = "i", default)]
+    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -283,6 +297,55 @@ struct TxWhitelistFaucet {
     #[serde(with = "serde_pubkey")]
     target: Pubkey,
     whitelist: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TxCreateSubAccount {
+    name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    margin_symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    margin_amount: Option<f64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TxRemoveSubAccount {
+    #[serde(with = "serde_pubkey")]
+    to_remove: Pubkey,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum TxTransferKind {
+    #[serde(rename = "internal")]
+    Internal,
+    #[serde(rename = "external")]
+    External,
+}
+
+impl From<TransferKind> for TxTransferKind {
+    #[inline]
+    fn from(value: TransferKind) -> Self {
+        match value {
+            TransferKind::Internal => Self::Internal,
+            TransferKind::External => Self::External,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TxTransfer {
+    #[serde(rename = "k")]
+    kind: TxTransferKind,
+    #[serde(with = "serde_pubkey")]
+    from: Pubkey,
+    #[serde(with = "serde_pubkey")]
+    to: Pubkey,
+    margin_symbol: String,
+    margin_amount: f64,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -323,6 +386,26 @@ enum TxAction {
     AgentWalletCreation(TxAgentWalletCreation),
     UpdateUserSettings(TxUpdateUserSettings),
     WhitelistFaucet(TxWhitelistFaucet),
+    #[allow(dead_code)]
+    Reserved20,
+    #[allow(dead_code)]
+    Reserved21,
+    #[allow(dead_code)]
+    Reserved22,
+    #[allow(dead_code)]
+    Reserved23,
+    #[allow(dead_code)]
+    Reserved24,
+    #[allow(dead_code)]
+    Reserved25,
+    #[allow(dead_code)]
+    Reserved26,
+    #[serde(rename = "createSubAccount")]
+    CreateSubAccount(TxCreateSubAccount),
+    #[serde(rename = "removeSubAccount")]
+    RemoveSubAccount(TxRemoveSubAccount),
+    #[serde(rename = "transfer")]
+    Transfer(TxTransfer),
 }
 
 #[inline]
@@ -345,6 +428,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                 size: order.size,
                 tif: TxTimeInForce::from(tif),
                 reduce_only: order.reduce_only,
+                iso: order.iso,
             })),
             OrderType::Trigger {
                 is_market,
@@ -360,6 +444,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                     is_buy: order.is_buy,
                     size: order.size,
                     reduce_only: order.reduce_only,
+                    iso: order.iso,
                 }))
             }
         },
@@ -381,6 +466,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             size: stop.size,
             trigger_price: stop.trigger_price,
             limit_price: nan_to_none(stop.limit_price),
+            iso: stop.iso,
         })),
         OrderItem::TakeProfit(tp) => Ok(TxAction::TakeProfit(TxTakeProfit {
             symbol: tp.symbol.clone(),
@@ -388,6 +474,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             size: tp.size,
             trigger_price: tp.trigger_price,
             limit_price: nan_to_none(tp.limit_price),
+            iso: tp.iso,
         })),
         OrderItem::RangeOco(rng) => Ok(TxAction::RangeOco(TxRangeOco {
             symbol: rng.symbol.clone(),
@@ -397,6 +484,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             collar_max: rng.collar_max,
             limit_min: nan_to_none(rng.limit_min),
             limit_max: nan_to_none(rng.limit_max),
+            iso: rng.iso,
         })),
         OrderItem::TriggerBasket(trig) => {
             let actions: Result<Vec<TxAction>> =
@@ -406,6 +494,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                 is_buy: trig.is_buy,
                 trigger_price: trig.trigger_price,
                 actions: actions?,
+                iso: trig.iso,
             }))
         }
         OrderItem::OnFill(of) => {
@@ -423,6 +512,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             trail_bps: trl.trail_bps,
             step_bps: trl.step_bps,
             limit_price: trl.limit_price,
+            iso: trl.iso,
         })),
     }
 }
@@ -474,6 +564,25 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
         Action::WhitelistFaucet(action) => Ok(vec![TxAction::WhitelistFaucet(TxWhitelistFaucet {
             target: action.target,
             whitelist: action.whitelist,
+        })]),
+        Action::CreateSubAccount(action) => {
+            Ok(vec![TxAction::CreateSubAccount(TxCreateSubAccount {
+                name: action.name.clone(),
+                margin_symbol: action.margin_symbol.clone(),
+                margin_amount: action.margin_amount,
+            })])
+        }
+        Action::RemoveSubAccount(action) => {
+            Ok(vec![TxAction::RemoveSubAccount(TxRemoveSubAccount {
+                to_remove: action.to_remove,
+            })])
+        }
+        Action::Transfer(transfer) => Ok(vec![TxAction::Transfer(TxTransfer {
+            kind: TxTransferKind::from(transfer.kind),
+            from: transfer.from,
+            to: transfer.to,
+            margin_symbol: transfer.margin_symbol.clone(),
+            margin_amount: transfer.margin_amount,
         })]),
     }
 }

@@ -4,10 +4,11 @@
 //! It's significantly faster than pure JavaScript or WASM implementations.
 
 use bulk_keychain::{
-    prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message, Cancel,
-    CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill, OraclePrice, Order,
-    OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, Signer, Stop,
-    TakeProfit, TimeInForce, TrailingStop, TriggerBasket, UserSettings,
+    prepare_agent_wallet, prepare_all, prepare_create_sub_account, prepare_faucet, prepare_group,
+    prepare_message, prepare_remove_sub_account, prepare_transfer, Cancel, CancelAll,
+    CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill, OraclePrice,
+    Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, Signer, Stop,
+    TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket, UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -360,6 +361,82 @@ impl NativeSigner {
         Ok(signed.into())
     }
 
+    /// Sign a margin transfer between accounts
+    #[napi]
+    pub fn sign_transfer(
+        &mut self,
+        from_pubkey: String,
+        to_pubkey: String,
+        margin_symbol: String,
+        margin_amount: f64,
+        kind: Option<String>,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let from =
+            Pubkey::from_base58(&from_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+        let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+        let kind = parse_transfer_kind(kind.as_deref())?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let transfer = Transfer {
+            kind,
+            from,
+            to,
+            margin_symbol,
+            margin_amount,
+        };
+
+        let signed = self
+            .inner
+            .sign_transfer(transfer, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign a sub-account creation (optional initial margin transfer)
+    #[napi]
+    pub fn sign_create_sub_account(
+        &mut self,
+        name: String,
+        margin_symbol: Option<String>,
+        margin_amount: Option<f64>,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let nonce_val = nonce.map(|n| n as u64);
+        let sub_account = CreateSubAccount {
+            name,
+            margin_symbol,
+            margin_amount,
+        };
+
+        let signed = self
+            .inner
+            .sign_create_sub_account(sub_account, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign a sub-account removal
+    #[napi]
+    pub fn sign_remove_sub_account(
+        &mut self,
+        to_remove: String,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let target =
+            Pubkey::from_base58(&to_remove).map_err(|e| Error::from_reason(e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_remove_sub_account(target, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
     /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
     #[napi]
     pub fn sign_whitelist_faucet(
@@ -442,6 +519,7 @@ pub struct OrderInput {
     pub price: Option<f64>,
     pub size: Option<f64>,
     pub reduce_only: Option<bool>,
+    pub iso: Option<bool>,
     pub order_type: Option<OrderTypeInput>,
     pub client_id: Option<String>,
     pub order_id: Option<String>,
@@ -547,6 +625,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     .size
                     .ok_or_else(|| Error::from_reason("order.size is required"))?;
                 let reduce_only = input.reduce_only.unwrap_or(false);
+                let iso = input.iso.unwrap_or(false);
 
                 let order_type = match input.order_type {
                     Some(ot) => match ot.type_name.as_str() {
@@ -591,6 +670,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     price,
                     size,
                     reduce_only,
+                    iso,
                     order_type,
                     client_id: None,
                 };
@@ -650,6 +730,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     size,
                     trigger_price,
                     limit_price,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             "takeProfit" | "tp" => {
@@ -672,6 +753,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     size,
                     trigger_price,
                     limit_price,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             "range" | "rng" => {
@@ -700,6 +782,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     collar_max,
                     limit_min,
                     limit_max,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             "trig" => {
@@ -715,6 +798,7 @@ impl TryFrom<OrderInput> for OrderItem {
                 let raw_actions = input
                     .actions
                     .ok_or_else(|| Error::from_reason("trig.actions is required"))?;
+                let iso = input.iso.unwrap_or(false);
                 let actions: Result<Vec<OrderItem>> =
                     raw_actions.into_iter().map(|a| a.try_into()).collect();
                 Ok(OrderItem::TriggerBasket(TriggerBasket {
@@ -722,6 +806,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     is_buy,
                     trigger_price,
                     actions: actions?,
+                    iso,
                 }))
             }
             "onFill" | "of" => {
@@ -759,6 +844,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     trail_bps,
                     step_bps,
                     limit_price,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             _ => Err(Error::from_reason(format!(
@@ -819,6 +905,22 @@ pub struct PrepareOptions {
     pub signer: Option<String>,
     /// Nonce - defaults to current timestamp if not provided
     pub nonce: Option<f64>,
+}
+
+/// Options for preparing a sub-account creation
+#[napi(object)]
+#[derive(Debug)]
+pub struct CreateSubAccountOptions {
+    /// Account public key (base58) - the master trading account
+    pub account: String,
+    /// Signer public key (base58) - defaults to account if not provided
+    pub signer: Option<String>,
+    /// Nonce - defaults to current timestamp if not provided
+    pub nonce: Option<f64>,
+    /// Optional margin asset symbol to transfer. Required when marginAmount is non-zero.
+    pub margin_symbol: Option<String>,
+    /// Optional initial margin amount. Default 0.0
+    pub margin_amount: Option<f64>,
 }
 
 /// Prepared message ready for external wallet signing
@@ -1022,6 +1124,115 @@ pub fn prepare_faucet_request(options: PrepareOptions) -> Result<PreparedMessage
     let nonce = options.nonce.map(|n| n as u64);
 
     let prepared = prepare_faucet(&account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+fn parse_transfer_kind(kind: Option<&str>) -> Result<TransferKind> {
+    match kind {
+        Some("external") => Ok(TransferKind::External),
+        Some("internal") | None => Ok(TransferKind::Internal),
+        Some(other) => Err(Error::from_reason(format!(
+            "Invalid transfer kind: {}",
+            other
+        ))),
+    }
+}
+
+/// Options for preparing a margin transfer
+#[napi(object)]
+#[derive(Debug)]
+pub struct TransferOptions {
+    /// Account public key (base58) - the trading account
+    pub account: String,
+    /// Signer public key (base58) - defaults to account if not provided
+    pub signer: Option<String>,
+    /// Nonce - defaults to current timestamp if not provided
+    pub nonce: Option<f64>,
+    /// "internal" (default) or "external"
+    pub kind: Option<String>,
+}
+
+/// Prepare a margin transfer for external signing
+#[napi]
+pub fn prepare_transfer_tx(
+    from_pubkey: String,
+    to_pubkey: String,
+    margin_symbol: String,
+    margin_amount: f64,
+    options: TransferOptions,
+) -> Result<PreparedMessageOutput> {
+    let from = Pubkey::from_base58(&from_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+    let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+    let kind = parse_transfer_kind(options.kind.as_deref())?;
+
+    let transfer = Transfer {
+        kind,
+        from,
+        to,
+        margin_symbol,
+        margin_amount,
+    };
+
+    let prepared = prepare_transfer(transfer, &account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare a sub-account removal for external signing
+#[napi]
+pub fn prepare_remove_sub_account_tx(
+    to_remove: String,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let target = Pubkey::from_base58(&to_remove).map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_remove_sub_account(target, &account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare a sub-account creation for external signing
+#[napi]
+pub fn prepare_create_sub_account_tx(
+    name: String,
+    options: CreateSubAccountOptions,
+) -> Result<PreparedMessageOutput> {
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let sub_account = CreateSubAccount {
+        name,
+        margin_symbol: options.margin_symbol,
+        margin_amount: options.margin_amount,
+    };
+
+    let prepared = prepare_create_sub_account(sub_account, &account, signer.as_ref(), nonce)
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())

@@ -232,6 +232,9 @@ pub struct Order {
     /// Reduce-only flag
     #[serde(rename = "r")]
     pub reduce_only: bool,
+    /// Isolated-margin flag
+    #[serde(rename = "i", default)]
+    pub iso: bool,
     /// Order type
     #[serde(rename = "t")]
     pub order_type: OrderType,
@@ -255,6 +258,7 @@ impl Order {
             price,
             size,
             reduce_only: false,
+            iso: false,
             order_type: OrderType::limit(tif),
             client_id: None,
         }
@@ -268,6 +272,7 @@ impl Order {
             price: 0.0,
             size,
             reduce_only: false,
+            iso: false,
             order_type: OrderType::market(),
             client_id: None,
         }
@@ -276,6 +281,12 @@ impl Order {
     /// Set reduce-only flag
     pub fn reduce_only(mut self) -> Self {
         self.reduce_only = true;
+        self
+    }
+
+    /// Set isolated-margin flag
+    pub fn isolated(mut self) -> Self {
+        self.iso = true;
         self
     }
 
@@ -378,6 +389,9 @@ pub struct Stop {
     pub trigger_price: f64,
     /// Limit price; NaN means market-style fill
     pub limit_price: f64,
+    /// Isolated-margin flag
+    #[serde(default)]
+    pub iso: bool,
 }
 
 /// Take-profit order: triggers when price crosses threshold
@@ -390,6 +404,9 @@ pub struct TakeProfit {
     pub trigger_price: f64,
     /// Limit price; NaN means market-style fill
     pub limit_price: f64,
+    /// Isolated-margin flag
+    #[serde(default)]
+    pub iso: bool,
 }
 
 /// Range / OCO order: collar around a position
@@ -405,6 +422,9 @@ pub struct RangeOco {
     pub limit_min: f64,
     /// Limit price for max side; NaN means market-style fill
     pub limit_max: f64,
+    /// Isolated-margin flag
+    #[serde(default)]
+    pub iso: bool,
 }
 
 /// Trigger basket: fires a set of actions when price crosses threshold.
@@ -416,6 +436,9 @@ pub struct TriggerBasket {
     pub is_buy: bool,
     pub trigger_price: f64,
     pub actions: Vec<OrderItem>,
+    /// Isolated-margin flag
+    #[serde(default)]
+    pub iso: bool,
 }
 
 /// Trailing stop: protective stop that follows price by a fixed distance in bps,
@@ -432,6 +455,9 @@ pub struct TrailingStop {
     pub step_bps: u32,
     /// Optional triggered limit price; None means market-style trigger
     pub limit_price: Option<f64>,
+    /// Isolated-margin flag
+    #[serde(default)]
+    pub iso: bool,
 }
 
 /// On-fill consequent: one-shot follow-up actions executed on first fill of a parent action.
@@ -490,8 +516,8 @@ impl OrderItem {
             Self::TakeProfit(_) => 6,    // tp
             Self::RangeOco(_) => 7,      // rng
             Self::TriggerBasket(_) => 8, // trig
-            Self::OnFill(_) => 9,        // of
-            Self::TrailingStop(_) => 10, // trl
+            Self::TrailingStop(_) => 9,  // trl
+            Self::OnFill(_) => 10,       // of
         }
     }
 }
@@ -678,6 +704,120 @@ pub struct WhitelistFaucet {
 }
 
 // ============================================================================
+// Create Sub Account
+// ============================================================================
+
+/// Create a named sub-account under the signing master account, with an
+/// optional initial margin transfer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateSubAccount {
+    /// Sub-account display name
+    pub name: String,
+    /// Optional margin asset symbol. Must be present when `margin_amount` is non-zero.
+    pub margin_symbol: Option<String>,
+    /// Optional initial margin amount. Default 0.0
+    pub margin_amount: Option<f64>,
+}
+
+impl CreateSubAccount {
+    /// Create a sub-account with no initial margin transfer.
+    pub fn new(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            margin_symbol: None,
+            margin_amount: None,
+        }
+    }
+
+    /// Create a sub-account with an initial margin transfer.
+    pub fn with_margin(
+        name: impl Into<String>,
+        margin_symbol: impl Into<String>,
+        margin_amount: f64,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            margin_symbol: Some(margin_symbol.into()),
+            margin_amount: Some(margin_amount),
+        }
+    }
+}
+
+// ============================================================================
+// Remove Sub Account
+// ============================================================================
+
+/// Remove a sub-account belonging to the signing master account.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RemoveSubAccount {
+    pub to_remove: Pubkey,
+}
+
+impl RemoveSubAccount {
+    pub fn new(to_remove: Pubkey) -> Self {
+        Self { to_remove }
+    }
+}
+
+// ============================================================================
+// Transfer
+// ============================================================================
+
+/// Direction of a margin transfer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TransferKind {
+    /// Between two accounts inside BULK.
+    #[default]
+    Internal,
+    /// To/from an external destination.
+    External,
+}
+
+/// Transfer margin between accounts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Transfer {
+    pub kind: TransferKind,
+    pub from: Pubkey,
+    pub to: Pubkey,
+    pub margin_symbol: String,
+    pub margin_amount: f64,
+}
+
+impl Transfer {
+    /// Internal transfer between two BULK accounts.
+    pub fn internal(
+        from: Pubkey,
+        to: Pubkey,
+        margin_symbol: impl Into<String>,
+        margin_amount: f64,
+    ) -> Self {
+        Self {
+            kind: TransferKind::Internal,
+            from,
+            to,
+            margin_symbol: margin_symbol.into(),
+            margin_amount,
+        }
+    }
+
+    /// External transfer in/out of BULK.
+    pub fn external(
+        from: Pubkey,
+        to: Pubkey,
+        margin_symbol: impl Into<String>,
+        margin_amount: f64,
+    ) -> Self {
+        Self {
+            kind: TransferKind::External,
+            from,
+            to,
+            margin_symbol: margin_symbol.into(),
+            margin_amount,
+        }
+    }
+}
+
+// ============================================================================
 // Action (main enum)
 // ============================================================================
 
@@ -698,6 +838,12 @@ pub enum Action {
     AgentWalletCreation(AgentWallet),
     /// Whitelist faucet access for an account (admin)
     WhitelistFaucet(WhitelistFaucet),
+    /// Create a named sub-account (optional initial margin transfer)
+    CreateSubAccount(CreateSubAccount),
+    /// Remove a sub-account
+    RemoveSubAccount(RemoveSubAccount),
+    /// Margin transfer between accounts
+    Transfer(Transfer),
 }
 
 impl Action {
@@ -711,6 +857,9 @@ impl Action {
             Self::UpdateUserSettings(_) => 9,
             Self::AgentWalletCreation(_) => 8,
             Self::WhitelistFaucet(_) => 10,
+            Self::CreateSubAccount(_) => 27,
+            Self::RemoveSubAccount(_) => 28,
+            Self::Transfer(_) => 29,
         }
     }
 
@@ -724,6 +873,9 @@ impl Action {
             Self::UpdateUserSettings(_) => "updateUserSettings",
             Self::AgentWalletCreation(_) => "agentWalletCreation",
             Self::WhitelistFaucet(_) => "whitelistFaucet",
+            Self::CreateSubAccount(_) => "createSubAccount",
+            Self::RemoveSubAccount(_) => "removeSubAccount",
+            Self::Transfer(_) => "transfer",
         }
     }
 }
