@@ -3,10 +3,12 @@
 //! This module provides high-performance Python bindings using PyO3.
 
 use bulk_keychain::{
-    compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
-    prepare_message, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
-    Signer, Stop, TakeProfit, TimeInForce, TrailingStop, TriggerBasket, UserSettings,
+    compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_create_sub_account,
+    prepare_faucet, prepare_group, prepare_message, prepare_remove_sub_account, prepare_transfer,
+    Cancel, CancelAll, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy,
+    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
+    RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
+    TriggerBasket, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -321,6 +323,82 @@ impl PySigner {
         Python::with_gil(|py| signed_to_py(py, &signed))
     }
 
+    /// Sign a sub-account removal
+    #[pyo3(signature = (to_remove, nonce=None))]
+    fn sign_remove_sub_account(
+        &mut self,
+        to_remove: &str,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let target =
+            Pubkey::from_base58(to_remove).map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let signed = self
+            .inner
+            .sign_remove_sub_account(target, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign a margin transfer between accounts.
+    ///
+    /// `kind` is "internal" (default) or "external".
+    #[pyo3(signature = (from_pubkey, to_pubkey, margin_symbol, margin_amount, kind=None, nonce=None))]
+    fn sign_transfer(
+        &mut self,
+        from_pubkey: &str,
+        to_pubkey: &str,
+        margin_symbol: String,
+        margin_amount: f64,
+        kind: Option<&str>,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let from =
+            Pubkey::from_base58(from_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let to =
+            Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let kind = parse_transfer_kind(kind)?;
+
+        let transfer = Transfer {
+            kind,
+            from,
+            to,
+            margin_symbol,
+            margin_amount,
+        };
+
+        let signed = self
+            .inner
+            .sign_transfer(transfer, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign a sub-account creation (optional initial margin transfer)
+    #[pyo3(signature = (name, margin_symbol=None, margin_amount=None, nonce=None))]
+    fn sign_create_sub_account(
+        &mut self,
+        name: String,
+        margin_symbol: Option<String>,
+        margin_amount: Option<f64>,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let sub_account = CreateSubAccount {
+            name,
+            margin_symbol,
+            margin_amount,
+        };
+
+        let signed = self
+            .inner
+            .sign_create_sub_account(sub_account, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
     /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
     #[pyo3(signature = (target_pubkey, whitelist, nonce=None))]
     fn sign_whitelist_faucet(
@@ -425,6 +503,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("reduce_only")?
                 .map(|v| v.extract().unwrap_or(false))
                 .unwrap_or(false);
+            let iso: bool = dict
+                .get_item("iso")?
+                .map(|v| v.extract().unwrap_or(false))
+                .unwrap_or(false);
 
             let order_type = if let Some(ot) = dict.get_item("order_type")? {
                 let ot_dict = ot.downcast::<PyDict>()?;
@@ -493,6 +575,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 price,
                 size,
                 reduce_only,
+                iso,
                 order_type,
                 client_id,
             }))
@@ -557,12 +640,17 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("limit_price")?
                 .map(|v| v.extract().unwrap_or(f64::NAN))
                 .unwrap_or(f64::NAN);
+            let iso: bool = dict
+                .get_item("iso")?
+                .map(|v| v.extract().unwrap_or(false))
+                .unwrap_or(false);
             Ok(OrderItem::Stop(Stop {
                 symbol,
                 is_buy,
                 size,
                 trigger_price,
                 limit_price,
+                iso,
             }))
         }
         "take_profit" | "tp" => {
@@ -586,12 +674,17 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("limit_price")?
                 .map(|v| v.extract().unwrap_or(f64::NAN))
                 .unwrap_or(f64::NAN);
+            let iso: bool = dict
+                .get_item("iso")?
+                .map(|v| v.extract().unwrap_or(false))
+                .unwrap_or(false);
             Ok(OrderItem::TakeProfit(TakeProfit {
                 symbol,
                 is_buy,
                 size,
                 trigger_price,
                 limit_price,
+                iso,
             }))
         }
         "range" | "rng" => {
@@ -623,6 +716,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .get_item("lmax")?
                 .map(|v| v.extract().unwrap_or(f64::NAN))
                 .unwrap_or(f64::NAN);
+            let iso: bool = dict
+                .get_item("iso")?
+                .map(|v| v.extract().unwrap_or(false))
+                .unwrap_or(false);
             Ok(OrderItem::RangeOco(RangeOco {
                 symbol,
                 is_buy,
@@ -631,6 +728,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 collar_max,
                 limit_min,
                 limit_max,
+                iso,
             }))
         }
         "trig" => {
@@ -649,6 +747,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
             let raw_actions = dict
                 .get_item("actions")?
                 .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
+            let iso: bool = dict
+                .get_item("iso")?
+                .map(|v| v.extract().unwrap_or(false))
+                .unwrap_or(false);
             let actions_list = raw_actions.downcast::<PyList>()?;
             let actions: PyResult<Vec<OrderItem>> =
                 actions_list.iter().map(|a| parse_order_item(&a)).collect();
@@ -657,6 +759,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 is_buy,
                 trigger_price,
                 actions: actions?,
+                iso,
             }))
         }
         "on_fill" | "of" => {
@@ -698,6 +801,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 .extract()?;
             let limit_price: Option<f64> =
                 dict.get_item("limit_price")?.and_then(|v| v.extract().ok());
+            let iso: bool = dict
+                .get_item("iso")?
+                .map(|v| v.extract().unwrap_or(false))
+                .unwrap_or(false);
             Ok(OrderItem::TrailingStop(TrailingStop {
                 symbol,
                 is_buy,
@@ -705,6 +812,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 trail_bps,
                 step_bps,
                 limit_price,
+                iso,
             }))
         }
         _ => Err(PyValueError::new_err(format!(
@@ -745,6 +853,10 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
             .get_item("r")?
             .map(|v| v.extract().unwrap_or(false))
             .unwrap_or(false);
+        let iso: bool = limit
+            .get_item("i")?
+            .map(|v| v.extract().unwrap_or(false))
+            .unwrap_or(false);
         let tif_str: String = limit
             .get_item("tif")?
             .map(|v| v.extract().unwrap_or("GTC".to_string()))
@@ -768,6 +880,7 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
             price,
             size,
             reduce_only,
+            iso,
             order_type: OrderType::Limit { tif },
             client_id,
         }));
@@ -791,6 +904,10 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
             .get_item("r")?
             .map(|v| v.extract().unwrap_or(false))
             .unwrap_or(false);
+        let iso: bool = market
+            .get_item("i")?
+            .map(|v| v.extract().unwrap_or(false))
+            .unwrap_or(false);
 
         return Ok(OrderItem::Order(Order {
             symbol,
@@ -798,6 +915,7 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
             price: 0.0,
             size,
             reduce_only,
+            iso,
             order_type: OrderType::Trigger {
                 is_market: true,
                 trigger_px: 0.0,
@@ -1192,6 +1310,110 @@ fn py_prepare_faucet_request(
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
+fn parse_transfer_kind(kind: Option<&str>) -> PyResult<TransferKind> {
+    match kind {
+        Some("external") => Ok(TransferKind::External),
+        Some("internal") | None => Ok(TransferKind::Internal),
+        Some(other) => Err(PyValueError::new_err(format!(
+            "Invalid transfer kind: {}",
+            other
+        ))),
+    }
+}
+
+/// Prepare a sub-account removal for external signing
+#[pyfunction]
+#[pyo3(signature = (to_remove, account, signer=None, nonce=None))]
+fn py_prepare_remove_sub_account(
+    to_remove: &str,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let target =
+        Pubkey::from_base58(to_remove).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_remove_sub_account(target, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare a margin transfer for external signing
+#[pyfunction]
+#[pyo3(signature = (from_pubkey, to_pubkey, margin_symbol, margin_amount, account, kind=None, signer=None, nonce=None))]
+#[allow(clippy::too_many_arguments)]
+fn py_prepare_transfer(
+    from_pubkey: &str,
+    to_pubkey: &str,
+    margin_symbol: String,
+    margin_amount: f64,
+    account: &str,
+    kind: Option<&str>,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let from =
+        Pubkey::from_base58(from_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let to = Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let kind = parse_transfer_kind(kind)?;
+
+    let transfer = Transfer {
+        kind,
+        from,
+        to,
+        margin_symbol,
+        margin_amount,
+    };
+
+    let prepared = prepare_transfer(transfer, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare a sub-account creation for external signing
+#[pyfunction]
+#[pyo3(signature = (name, account, margin_symbol=None, margin_amount=None, signer=None, nonce=None))]
+fn py_prepare_create_sub_account(
+    name: String,
+    account: &str,
+    margin_symbol: Option<String>,
+    margin_amount: Option<f64>,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let sub_account = CreateSubAccount {
+        name,
+        margin_symbol,
+        margin_amount,
+    };
+
+    let prepared = prepare_create_sub_account(sub_account, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
 /// Finalize a prepared message with a signature from an external wallet
 ///
 /// Args:
@@ -1269,6 +1491,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_prepare_order_group, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_agent_wallet_auth, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_faucet_request, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_create_sub_account, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_remove_sub_account, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_transfer, m)?)?;
     m.add_function(wrap_pyfunction!(py_finalize_transaction, m)?)?;
     Ok(())
 }

@@ -4,11 +4,12 @@
 //! enabling high-performance transaction signing in browser environments.
 
 use bulk_keychain::{
-    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group,
-    prepare_message, prepare_user_settings, Cancel, CancelAll, Hash, Keypair, Modify, NonceManager,
-    NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey,
-    PythOraclePrice, RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, TriggerBasket,
-    UserSettings,
+    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_create_sub_account,
+    prepare_faucet, prepare_group, prepare_message, prepare_remove_sub_account, prepare_transfer,
+    prepare_user_settings, Cancel, CancelAll, CreateSubAccount, Hash, Keypair, Modify,
+    NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage,
+    Pubkey, PythOraclePrice, RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop,
+    Transfer, TransferKind, TriggerBasket, UserSettings,
 };
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -346,6 +347,93 @@ impl WasmSigner {
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// Sign a margin transfer between accounts
+    ///
+    /// @param kind - "internal" or "external" (defaults to "internal")
+    /// @param fromPubkey - source account pubkey (base58)
+    /// @param toPubkey - destination account pubkey (base58)
+    /// @param marginSymbol - margin asset symbol (e.g. "USDC")
+    /// @param marginAmount - amount to transfer
+    /// @param nonce - optional nonce
+    #[wasm_bindgen(js_name = signTransfer)]
+    pub fn sign_transfer(
+        &mut self,
+        kind: Option<String>,
+        from_pubkey: &str,
+        to_pubkey: &str,
+        margin_symbol: String,
+        margin_amount: f64,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let from = Pubkey::from_base58(from_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+        let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+        let kind = match kind.as_deref() {
+            Some("external") => TransferKind::External,
+            Some("internal") | None => TransferKind::Internal,
+            Some(other) => return Err(JsError::new(&format!("Invalid transfer kind: {}", other))),
+        };
+        let nonce_val = nonce.map(|n| n as u64);
+        let transfer = Transfer {
+            kind,
+            from,
+            to,
+            margin_symbol,
+            margin_amount,
+        };
+
+        let signed = self
+            .inner
+            .sign_transfer(transfer, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a sub-account creation (optional initial margin transfer)
+    #[wasm_bindgen(js_name = signCreateSubAccount)]
+    pub fn sign_create_sub_account(
+        &mut self,
+        name: String,
+        margin_symbol: Option<String>,
+        margin_amount: Option<f64>,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let nonce_val = nonce.map(|n| n as u64);
+        let sub_account = CreateSubAccount {
+            name,
+            margin_symbol,
+            margin_amount,
+        };
+
+        let signed = self
+            .inner
+            .sign_create_sub_account(sub_account, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a sub-account removal
+    ///
+    /// @param toRemove - sub-account pubkey to remove (base58)
+    /// @param nonce - optional nonce
+    #[wasm_bindgen(js_name = signRemoveSubAccount)]
+    pub fn sign_remove_sub_account(
+        &mut self,
+        to_remove: &str,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let target = Pubkey::from_base58(to_remove).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_remove_sub_account(target, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
     /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
     #[wasm_bindgen(js_name = signWhitelistFaucet)]
     pub fn sign_whitelist_faucet(
@@ -426,6 +514,7 @@ struct OrderInput {
     price: Option<f64>,
     size: Option<f64>,
     reduce_only: Option<bool>,
+    iso: Option<bool>,
     order_type: Option<OrderTypeInput>,
     client_id: Option<String>,
     order_id: Option<String>,
@@ -487,6 +576,7 @@ impl TryFrom<OrderInput> for OrderItem {
                 let price = input.price.ok_or("order.price is required")?;
                 let size = input.size.ok_or("order.size is required")?;
                 let reduce_only = input.reduce_only.unwrap_or(false);
+                let iso = input.iso.unwrap_or(false);
 
                 let order_type = match input.order_type {
                     Some(ot) => match ot.type_name.as_str() {
@@ -521,6 +611,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     price,
                     size,
                     reduce_only,
+                    iso,
                     order_type,
                     client_id: None,
                 };
@@ -562,6 +653,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     size,
                     trigger_price,
                     limit_price,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             "takeProfit" | "tp" => {
@@ -578,6 +670,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     size,
                     trigger_price,
                     limit_price,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             "range" | "rng" => {
@@ -596,6 +689,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     collar_max,
                     limit_min,
                     limit_max,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             "trig" => {
@@ -603,6 +697,7 @@ impl TryFrom<OrderInput> for OrderItem {
                 let is_buy = input.is_buy.ok_or("trig.isBuy is required")?;
                 let trigger_price = input.trigger_price.ok_or("trig.triggerPrice is required")?;
                 let raw_actions = input.actions.ok_or("trig.actions is required")?;
+                let iso = input.iso.unwrap_or(false);
                 let actions: Result<Vec<OrderItem>, String> =
                     raw_actions.into_iter().map(|a| a.try_into()).collect();
                 Ok(OrderItem::TriggerBasket(TriggerBasket {
@@ -610,6 +705,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     is_buy,
                     trigger_price,
                     actions: actions?,
+                    iso,
                 }))
             }
             "onFill" | "of" => {
@@ -635,6 +731,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     trail_bps,
                     step_bps,
                     limit_price,
+                    iso: input.iso.unwrap_or(false),
                 }))
             }
             _ => Err(format!("Invalid item type: {}", input.item_type)),
@@ -991,6 +1088,138 @@ pub fn wasm_prepare_update_user_settings(
 
     let user_settings = UserSettings::new(settings_input.max_leverage);
     let prepared = prepare_user_settings(user_settings, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a margin transfer for external signing
+///
+/// @param fromPubkey - source account pubkey (base58)
+/// @param toPubkey - destination account pubkey (base58)
+/// @param marginSymbol - margin asset symbol
+/// @param marginAmount - amount to transfer
+/// @param options - { account: string, signer?: string, nonce?: number, kind?: "internal" | "external" }
+#[wasm_bindgen(js_name = prepareTransfer)]
+pub fn wasm_prepare_transfer(
+    from_pubkey: &str,
+    to_pubkey: &str,
+    margin_symbol: String,
+    margin_amount: f64,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct TransferOptions {
+        account: String,
+        #[serde(default)]
+        signer: Option<String>,
+        #[serde(default)]
+        nonce: Option<f64>,
+        #[serde(default)]
+        kind: Option<String>,
+    }
+
+    let opts: TransferOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let from = Pubkey::from_base58(from_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+    let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+    let kind = match opts.kind.as_deref() {
+        Some("external") => TransferKind::External,
+        Some("internal") | None => TransferKind::Internal,
+        Some(other) => return Err(JsError::new(&format!("Invalid transfer kind: {}", other))),
+    };
+
+    let transfer = Transfer {
+        kind,
+        from,
+        to,
+        margin_symbol,
+        margin_amount,
+    };
+
+    let prepared = prepare_transfer(transfer, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a sub-account removal for external signing
+///
+/// @param toRemove - sub-account pubkey to remove (base58)
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareRemoveSubAccount)]
+pub fn wasm_prepare_remove_sub_account(
+    to_remove: &str,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let target = Pubkey::from_base58(to_remove).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_remove_sub_account(target, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a sub-account creation for external signing
+///
+/// @param name - Sub-account display name
+/// @param options - { account: string, signer?: string, nonce?: number, marginSymbol?: string, marginAmount?: number }
+#[wasm_bindgen(js_name = prepareCreateSubAccount)]
+pub fn wasm_prepare_create_sub_account(
+    name: String,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CreateSubAccountOptions {
+        account: String,
+        #[serde(default)]
+        signer: Option<String>,
+        #[serde(default)]
+        nonce: Option<f64>,
+        #[serde(default)]
+        margin_symbol: Option<String>,
+        #[serde(default)]
+        margin_amount: Option<f64>,
+    }
+
+    let opts: CreateSubAccountOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let sub_account = CreateSubAccount {
+        name,
+        margin_symbol: opts.margin_symbol,
+        margin_amount: opts.margin_amount,
+    };
+
+    let prepared = prepare_create_sub_account(sub_account, &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })

@@ -64,8 +64,9 @@ pub use order_id::{
 };
 pub use prepare::{
     finalize_all, finalize_transaction, finalize_transaction_bytes, prepare_action,
-    prepare_agent_wallet, prepare_all, prepare_faucet, prepare_group, prepare_message,
-    prepare_user_settings, PreparedMessage,
+    prepare_agent_wallet, prepare_all, prepare_create_sub_account, prepare_faucet, prepare_group,
+    prepare_message, prepare_remove_sub_account, prepare_transfer, prepare_user_settings,
+    PreparedMessage,
 };
 pub use sign::Signer;
 pub use types::*;

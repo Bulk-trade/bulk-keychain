@@ -52,6 +52,7 @@ pub fn compute_limit_order_id(
         size: amount,
         order_type: OrderType::Limit { tif },
         reduce_only,
+        iso: false,
         client_id: None,
     };
     compute_order_id(&order, nonce, owner)
@@ -77,6 +78,7 @@ pub fn compute_market_order_id(
             trigger_px: 0.0,
         },
         reduce_only,
+        iso: false,
         client_id: None,
     };
     compute_order_id(&order, nonce, owner)
@@ -97,6 +99,7 @@ fn compute_order_id_at_index(order: &Order, seqno: u32, nonce: u64, owner: &Pubk
                 trigger_px: 0.0,
             },
             reduce_only: order.reduce_only,
+            iso: order.iso,
             client_id: order.client_id,
         },
     };
@@ -301,7 +304,7 @@ mod tests {
         let id = compute_order_item_id(&item, nonce, &owner).unwrap();
         assert_eq!(
             id.to_base58(),
-            "5svLrSpPocB8umQANMcwMjpc6G7hJvcvHefiraE9MQYV"
+            "9rsNanYXKgkHaB12DJMW85cLh6dTGkZ53jv1shnaTZ8J"
         );
     }
 

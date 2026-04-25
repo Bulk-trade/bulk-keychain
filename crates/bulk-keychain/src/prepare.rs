@@ -110,6 +110,39 @@ pub fn prepare_user_settings(
     prepare_action(&action, account, signer, nonce)
 }
 
+/// Prepare a sub-account creation transaction.
+pub fn prepare_create_sub_account(
+    sub_account: CreateSubAccount,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::CreateSubAccount(sub_account);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a sub-account removal transaction.
+pub fn prepare_remove_sub_account(
+    to_remove: Pubkey,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::RemoveSubAccount(RemoveSubAccount { to_remove });
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a margin transfer transaction.
+pub fn prepare_transfer(
+    transfer: Transfer,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::Transfer(transfer);
+    prepare_action(&action, account, signer, nonce)
+}
+
 /// Low-level action preparation.
 pub fn prepare_action(
     action: &Action,
@@ -323,6 +356,33 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "whitelist": action.whitelist
             }
         })]),
+        Action::CreateSubAccount(action) => {
+            let mut obj = json!({ "name": action.name });
+            if let Some(symbol) = &action.margin_symbol {
+                obj["marginSymbol"] = json!(symbol);
+            }
+            if let Some(amount) = action.margin_amount {
+                obj["marginAmount"] = json!(amount);
+            }
+            Ok(vec![json!({ "createSubAccount": obj })])
+        }
+        Action::RemoveSubAccount(action) => Ok(vec![json!({
+            "removeSubAccount": {
+                "toRemove": action.to_remove.to_base58()
+            }
+        })]),
+        Action::Transfer(transfer) => Ok(vec![json!({
+            "transfer": {
+                "k": match transfer.kind {
+                    TransferKind::Internal => "internal",
+                    TransferKind::External => "external",
+                },
+                "from": transfer.from.to_base58(),
+                "to": transfer.to.to_base58(),
+                "marginSymbol": transfer.margin_symbol,
+                "marginAmount": transfer.margin_amount,
+            }
+        })]),
     }
 }
 
@@ -342,7 +402,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                         "px": order.price,
                         "sz": order.size,
                         "tif": tif_str,
-                        "r": order.reduce_only
+                        "r": order.reduce_only,
+                        "i": order.iso
                     }
                 }))
             }
@@ -360,7 +421,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                         "c": order.symbol,
                         "b": order.is_buy,
                         "sz": order.size,
-                        "r": order.reduce_only
+                        "r": order.reduce_only,
+                        "i": order.iso
                     }
                 }))
             }
@@ -389,7 +451,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "d": stop.is_buy,
                 "sz": stop.size,
                 "tr": stop.trigger_price,
-                "lim": stop.limit_price
+                "lim": stop.limit_price,
+                "i": stop.iso
             }
         })),
         OrderItem::TakeProfit(tp) => Ok(json!({
@@ -398,7 +461,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "d": tp.is_buy,
                 "sz": tp.size,
                 "tr": tp.trigger_price,
-                "lim": tp.limit_price
+                "lim": tp.limit_price,
+                "i": tp.iso
             }
         })),
         OrderItem::RangeOco(rng) => Ok(json!({
@@ -409,7 +473,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "pmin": rng.collar_min,
                 "pmax": rng.collar_max,
                 "lmin": rng.limit_min,
-                "lmax": rng.limit_max
+                "lmax": rng.limit_max,
+                "i": rng.iso
             }
         })),
         OrderItem::TriggerBasket(trig) => {
@@ -419,7 +484,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                     "c": trig.symbol,
                     "d": trig.is_buy,
                     "tr": trig.trigger_price,
-                    "actions": nested?
+                    "actions": nested?,
+                    "i": trig.iso
                 }
             }))
         }
@@ -439,7 +505,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "sz": trl.size,
                 "trb": trl.trail_bps,
                 "stb": trl.step_bps,
-                "lim": trl.limit_price
+                "lim": trl.limit_price,
+                "i": trl.iso
             }
         })),
     }

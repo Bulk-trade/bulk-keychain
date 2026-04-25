@@ -210,6 +210,36 @@ class Signer:
         """Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)"""
         ...
 
+    def sign_create_sub_account(
+        self,
+        name: str,
+        margin_symbol: str | None = None,
+        margin_amount: float | None = None,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign a sub-account creation (optional initial margin transfer)"""
+        ...
+
+    def sign_transfer(
+        self,
+        from_pubkey: str,
+        to_pubkey: str,
+        margin_symbol: str,
+        margin_amount: float,
+        kind: str | None = None,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign a margin transfer between accounts (kind: "internal" or "external")"""
+        ...
+
+    def sign_remove_sub_account(
+        self,
+        to_remove: str,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign a sub-account removal"""
+        ...
+
     # ========================================================================
     # Legacy methods (deprecated)
     # ========================================================================
@@ -339,6 +369,39 @@ def prepare_faucet(
     nonce: int | None = None
 ) -> PreparedMessage:
     """Prepare faucet request for external signing"""
+    ...
+
+def prepare_create_sub_account(
+    name: str,
+    account: str,
+    margin_symbol: str | None = None,
+    margin_amount: float | None = None,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare a sub-account creation for external signing"""
+    ...
+
+def prepare_transfer(
+    from_pubkey: str,
+    to_pubkey: str,
+    margin_symbol: str,
+    margin_amount: float,
+    account: str,
+    kind: str | None = None,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare a margin transfer for external signing (kind: "internal" or "external")"""
+    ...
+
+def prepare_remove_sub_account(
+    to_remove: str,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare a sub-account removal for external signing"""
     ...
 
 def finalize_transaction(

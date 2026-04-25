@@ -300,6 +300,39 @@ impl Signer {
         self.sign_action_self(&action, nonce)
     }
 
+    /// Sign a sub-account creation (optionally with initial margin transfer).
+    pub fn sign_create_sub_account(
+        &mut self,
+        sub_account: CreateSubAccount,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::CreateSubAccount(sub_account);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a sub-account removal.
+    pub fn sign_remove_sub_account(
+        &mut self,
+        to_remove: Pubkey,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::RemoveSubAccount(RemoveSubAccount { to_remove });
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a margin transfer between accounts.
+    pub fn sign_transfer(
+        &mut self,
+        transfer: Transfer,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::Transfer(transfer);
+        self.sign_action_self(&action, nonce)
+    }
+
     /// Deprecated compatibility alias.
     #[deprecated(
         since = "0.2.0",
@@ -500,6 +533,33 @@ impl Signer {
                     "whitelist": action.whitelist
                 }
             })]),
+            Action::CreateSubAccount(action) => {
+                let mut obj = json!({ "name": action.name });
+                if let Some(symbol) = &action.margin_symbol {
+                    obj["marginSymbol"] = json!(symbol);
+                }
+                if let Some(amount) = action.margin_amount {
+                    obj["marginAmount"] = json!(amount);
+                }
+                Ok(vec![json!({ "createSubAccount": obj })])
+            }
+            Action::RemoveSubAccount(action) => Ok(vec![json!({
+                "removeSubAccount": {
+                    "toRemove": action.to_remove.to_base58()
+                }
+            })]),
+            Action::Transfer(transfer) => Ok(vec![json!({
+                "transfer": {
+                    "k": match transfer.kind {
+                        TransferKind::Internal => "internal",
+                        TransferKind::External => "external",
+                    },
+                    "from": transfer.from.to_base58(),
+                    "to": transfer.to.to_base58(),
+                    "marginSymbol": transfer.margin_symbol,
+                    "marginAmount": transfer.margin_amount,
+                }
+            })]),
         }
     }
 
@@ -519,7 +579,8 @@ impl Signer {
                             "px": order.price,
                             "sz": order.size,
                             "tif": tif_str,
-                            "r": order.reduce_only
+                            "r": order.reduce_only,
+                            "i": order.iso
                         }
                     }))
                 }
@@ -537,7 +598,8 @@ impl Signer {
                             "c": order.symbol,
                             "b": order.is_buy,
                             "sz": order.size,
-                            "r": order.reduce_only
+                            "r": order.reduce_only,
+                            "i": order.iso
                         }
                     }))
                 }
@@ -566,7 +628,8 @@ impl Signer {
                     "d": stop.is_buy,
                     "sz": stop.size,
                     "tr": stop.trigger_price,
-                    "lim": stop.limit_price
+                    "lim": stop.limit_price,
+                    "i": stop.iso
                 }
             })),
             OrderItem::TakeProfit(tp) => Ok(json!({
@@ -575,7 +638,8 @@ impl Signer {
                     "d": tp.is_buy,
                     "sz": tp.size,
                     "tr": tp.trigger_price,
-                    "lim": tp.limit_price
+                    "lim": tp.limit_price,
+                    "i": tp.iso
                 }
             })),
             OrderItem::RangeOco(rng) => Ok(json!({
@@ -586,7 +650,8 @@ impl Signer {
                     "pmin": rng.collar_min,
                     "pmax": rng.collar_max,
                     "lmin": rng.limit_min,
-                    "lmax": rng.limit_max
+                    "lmax": rng.limit_max,
+                    "i": rng.iso
                 }
             })),
             OrderItem::TriggerBasket(trig) => {
@@ -600,7 +665,8 @@ impl Signer {
                         "c": trig.symbol,
                         "d": trig.is_buy,
                         "tr": trig.trigger_price,
-                        "actions": nested?
+                        "actions": nested?,
+                        "i": trig.iso
                     }
                 }))
             }
@@ -624,7 +690,8 @@ impl Signer {
                     "sz": trl.size,
                     "trb": trl.trail_bps,
                     "stb": trl.step_bps,
-                    "lim": trl.limit_price
+                    "lim": trl.limit_price,
+                    "i": trl.iso
                 }
             })),
         }
@@ -769,6 +836,74 @@ mod tests {
             .unwrap();
         assert_eq!(signed.actions.len(), 1);
         assert!(signed.actions[0].get("o").is_some());
+    }
+
+    #[test]
+    fn test_sign_create_sub_account() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_create_sub_account(CreateSubAccount::new("desk-1"), Some(1234567890))
+            .unwrap();
+        assert_eq!(signed.actions.len(), 1);
+        let obj = signed.actions[0].get("createSubAccount").unwrap();
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("desk-1"));
+        assert!(obj.get("marginSymbol").is_none());
+        assert!(obj.get("marginAmount").is_none());
+    }
+
+    #[test]
+    fn test_sign_create_sub_account_with_margin() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_create_sub_account(
+                CreateSubAccount::with_margin("desk-1", "USDC", 1000.0),
+                Some(1234567890),
+            )
+            .unwrap();
+        let obj = signed.actions[0].get("createSubAccount").unwrap();
+        assert_eq!(
+            obj.get("marginSymbol").and_then(|v| v.as_str()),
+            Some("USDC")
+        );
+        assert_eq!(
+            obj.get("marginAmount").and_then(|v| v.as_f64()),
+            Some(1000.0)
+        );
+    }
+
+    #[test]
+    fn test_sign_remove_sub_account() {
+        let keypair = Keypair::generate();
+        let target = Keypair::generate().pubkey();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_remove_sub_account(target, Some(1234567890))
+            .unwrap();
+        let obj = signed.actions[0].get("removeSubAccount").unwrap();
+        assert_eq!(
+            obj.get("toRemove").and_then(|v| v.as_str()),
+            Some(target.to_base58().as_str())
+        );
+    }
+
+    #[test]
+    fn test_sign_transfer_internal() {
+        let keypair = Keypair::generate();
+        let from = keypair.pubkey();
+        let to = Keypair::generate().pubkey();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_transfer(Transfer::internal(from, to, "USDC", 10.0), Some(1234567890))
+            .unwrap();
+        let obj = signed.actions[0].get("transfer").unwrap();
+        assert_eq!(obj.get("k").and_then(|v| v.as_str()), Some("internal"));
+        assert_eq!(
+            obj.get("marginSymbol").and_then(|v| v.as_str()),
+            Some("USDC")
+        );
+        assert_eq!(obj.get("marginAmount").and_then(|v| v.as_f64()), Some(10.0));
     }
 
     #[test]

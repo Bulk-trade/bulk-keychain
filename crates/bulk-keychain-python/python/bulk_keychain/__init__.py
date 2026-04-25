@@ -40,6 +40,9 @@ from bulk_keychain._native import (
     py_prepare_order_group as prepare_order_group,
     py_prepare_agent_wallet_auth as prepare_agent_wallet,
     py_prepare_faucet_request as prepare_faucet,
+    py_prepare_create_sub_account as prepare_create_sub_account,
+    py_prepare_remove_sub_account as prepare_remove_sub_account,
+    py_prepare_transfer as prepare_transfer,
     py_finalize_transaction as finalize_transaction,
 )
 
@@ -58,7 +61,10 @@ __all__ = [
     "prepare_order_group",
     "prepare_agent_wallet",
     "prepare_faucet",
+    "prepare_create_sub_account",
+    "prepare_remove_sub_account",
+    "prepare_transfer",
     "finalize_transaction",
 ]
 
-__version__ = "0.1.12"
+__version__ = "0.1.13"
