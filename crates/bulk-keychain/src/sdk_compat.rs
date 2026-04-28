@@ -47,9 +47,15 @@ mod serde_pubkey_vec {
         serializer: S,
     ) -> std::result::Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            vals.iter().map(Pubkey::to_base58).collect::<Vec<_>>().serialize(serializer)
+            vals.iter()
+                .map(Pubkey::to_base58)
+                .collect::<Vec<_>>()
+                .serialize(serializer)
         } else {
-            vals.iter().map(Pubkey::as_bytes).collect::<Vec<_>>().serialize(serializer)
+            vals.iter()
+                .map(Pubkey::as_bytes)
+                .collect::<Vec<_>>()
+                .serialize(serializer)
         }
     }
 }
@@ -684,30 +690,30 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
                 actions,
             })])
         }
-        Action::MultisigApprove(action) => Ok(vec![TxAction::MultisigApprove(
-            TxMultisigProposalRef {
+        Action::MultisigApprove(action) => {
+            Ok(vec![TxAction::MultisigApprove(TxMultisigProposalRef {
                 multisig: action.multisig,
                 proposal_id: action.proposal_id,
-            },
-        )]),
-        Action::MultisigReject(action) => Ok(vec![TxAction::MultisigReject(
-            TxMultisigProposalRef {
+            })])
+        }
+        Action::MultisigReject(action) => {
+            Ok(vec![TxAction::MultisigReject(TxMultisigProposalRef {
                 multisig: action.multisig,
                 proposal_id: action.proposal_id,
-            },
-        )]),
-        Action::MultisigCancel(action) => Ok(vec![TxAction::MultisigCancel(
-            TxMultisigProposalRef {
+            })])
+        }
+        Action::MultisigCancel(action) => {
+            Ok(vec![TxAction::MultisigCancel(TxMultisigProposalRef {
                 multisig: action.multisig,
                 proposal_id: action.proposal_id,
-            },
-        )]),
-        Action::MultisigExecute(action) => Ok(vec![TxAction::MultisigExecute(
-            TxMultisigProposalRef {
+            })])
+        }
+        Action::MultisigExecute(action) => {
+            Ok(vec![TxAction::MultisigExecute(TxMultisigProposalRef {
                 multisig: action.multisig,
                 proposal_id: action.proposal_id,
-            },
-        )]),
+            })])
+        }
         Action::UpdateMultisigPolicy(action) => Ok(vec![TxAction::UpdateMultisigPolicy(
             TxUpdateMultisigPolicy {
                 multisig: action.multisig,

@@ -12,9 +12,9 @@ use bulk_keychain::{
     prepare_user_settings, Action, AgentWallet, Cancel, CancelAll, CreateMultisig,
     CreateSubAccount, Faucet, Hash, Keypair, Modify, MultisigApprove, MultisigCancel,
     MultisigExecute, MultisigPropose, MultisigReject, NonceManager, NonceStrategy, OnFill,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
-    RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
-    TransferKind, TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet,
+    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
+    RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
+    TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -486,7 +486,10 @@ impl WasmSigner {
 
         let signed = self
             .inner
-            .sign_multisig_approve(MultisigApprove::new(multisig, proposal_id as u64), nonce_val)
+            .sign_multisig_approve(
+                MultisigApprove::new(multisig, proposal_id as u64),
+                nonce_val,
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -543,7 +546,10 @@ impl WasmSigner {
 
         let signed = self
             .inner
-            .sign_multisig_execute(MultisigExecute::new(multisig, proposal_id as u64), nonce_val)
+            .sign_multisig_execute(
+                MultisigExecute::new(multisig, proposal_id as u64),
+                nonce_val,
+            )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -619,8 +625,7 @@ impl WasmSigner {
         name: String,
         nonce: Option<f64>,
     ) -> Result<JsValue, JsError> {
-        let account =
-            Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
+        let account = Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
         let nonce_val = nonce.map(|n| n as u64);
 
         let signed = self
@@ -944,16 +949,25 @@ fn json_obj<'a>(
     value: &'a JsonValue,
     ctx: &str,
 ) -> Result<&'a serde_json::Map<String, JsonValue>, JsError> {
-    value.as_object().ok_or_else(|| js_err(format!("{ctx} must be an object")))
+    value
+        .as_object()
+        .ok_or_else(|| js_err(format!("{ctx} must be an object")))
 }
 
-fn json_str<'a>(obj: &'a serde_json::Map<String, JsonValue>, key: &str) -> Result<&'a str, JsError> {
+fn json_str<'a>(
+    obj: &'a serde_json::Map<String, JsonValue>,
+    key: &str,
+) -> Result<&'a str, JsError> {
     obj.get(key)
         .and_then(JsonValue::as_str)
         .ok_or_else(|| js_err(format!("{key} is required")))
 }
 
-fn json_bool(obj: &serde_json::Map<String, JsonValue>, key: &str, default: bool) -> Result<bool, JsError> {
+fn json_bool(
+    obj: &serde_json::Map<String, JsonValue>,
+    key: &str,
+    default: bool,
+) -> Result<bool, JsError> {
     Ok(obj.get(key).and_then(JsonValue::as_bool).unwrap_or(default))
 }
 
@@ -1106,8 +1120,14 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 size: json_f64(p, "sz")?,
                 collar_min: json_f64(p, "pmin")?,
                 collar_max: json_f64(p, "pmax")?,
-                limit_min: p.get("lmin").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
-                limit_max: p.get("lmax").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
+                limit_min: p
+                    .get("lmin")
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or(f64::NAN),
+                limit_max: p
+                    .get("lmax")
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
             }))
         }
@@ -1156,9 +1176,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 iso: json_bool(p, "i", false)?,
             }))
         }
-        _ => parse_order_input_value(value)?
-            .try_into()
-            .map_err(js_err),
+        _ => parse_order_input_value(value)?.try_into().map_err(js_err),
     }
 }
 
@@ -1287,11 +1305,7 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
         }
         "transfer" => {
             let p = json_obj(payload, "transfer")?;
-            let kind = match p
-                .get("k")
-                .and_then(JsonValue::as_str)
-                .unwrap_or("internal")
-            {
+            let kind = match p.get("k").and_then(JsonValue::as_str).unwrap_or("internal") {
                 "internal" => TransferKind::Internal,
                 "external" => TransferKind::External,
                 other => return Err(js_err(format!("invalid transfer kind: {other}"))),
@@ -1337,7 +1351,9 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
                 .cloned()
                 .map(parse_action_value)
                 .collect::<Result<Vec<_>, _>>()?;
-            Ok(Action::MultisigPropose(MultisigPropose::new(multisig, actions)))
+            Ok(Action::MultisigPropose(MultisigPropose::new(
+                multisig, actions,
+            )))
         }
         "msa" | "multisigApprove" => {
             let p = json_obj(payload, tag)?;
@@ -1852,8 +1868,7 @@ pub fn wasm_prepare_rename_sub_account(
     let opts: PrepareOptions =
         serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
 
-    let subaccount =
-        Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
+    let subaccount = Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
     let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
     let signer = opts
         .signer
