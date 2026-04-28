@@ -324,9 +324,9 @@ struct TxWhitelistFaucet {
 #[serde(rename_all = "camelCase")]
 struct TxCreateSubAccount {
     name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     margin_symbol: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     margin_amount: Option<f64>,
 }
 
