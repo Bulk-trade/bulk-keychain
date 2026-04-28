@@ -5,10 +5,11 @@
 
 use bulk_keychain::{
     prepare_agent_wallet, prepare_all, prepare_create_sub_account, prepare_faucet, prepare_group,
-    prepare_message, prepare_remove_sub_account, prepare_transfer, Cancel, CancelAll,
-    CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill, OraclePrice,
-    Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, Signer, Stop,
-    TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket, UserSettings,
+    prepare_message, prepare_remove_sub_account, prepare_rename_sub_account, prepare_transfer,
+    Cancel, CancelAll, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy,
+    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
+    RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
+    TransferKind, TriggerBasket, UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -432,6 +433,26 @@ impl NativeSigner {
         let signed = self
             .inner
             .sign_remove_sub_account(target, nonce_val)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign a sub-account rename
+    #[napi]
+    pub fn sign_rename_sub_account(
+        &mut self,
+        subaccount: String,
+        name: String,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let account =
+            Pubkey::from_base58(&subaccount).map_err(|e| Error::from_reason(e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_rename_sub_account(RenameSubAccount { account, name }, nonce_val)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(signed.into())
@@ -1207,6 +1228,38 @@ pub fn prepare_remove_sub_account_tx(
 
     let prepared = prepare_remove_sub_account(target, &account, signer.as_ref(), nonce)
         .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare a sub-account rename for external signing
+#[napi]
+pub fn prepare_rename_sub_account_tx(
+    subaccount: String,
+    name: String,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let subaccount =
+        Pubkey::from_base58(&subaccount).map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = prepare_rename_sub_account(
+        RenameSubAccount {
+            account: subaccount,
+            name,
+        },
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }

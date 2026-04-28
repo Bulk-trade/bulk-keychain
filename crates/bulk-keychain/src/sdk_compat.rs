@@ -39,6 +39,21 @@ mod serde_pubkey {
     }
 }
 
+mod serde_pubkey_vec {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(
+        vals: &[Pubkey],
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            vals.iter().map(Pubkey::to_base58).collect::<Vec<_>>().serialize(serializer)
+        } else {
+            vals.iter().map(Pubkey::as_bytes).collect::<Vec<_>>().serialize(serializer)
+        }
+    }
+}
+
 mod serde_safe_f64 {
     use super::*;
 
@@ -318,6 +333,15 @@ struct TxRemoveSubAccount {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct TxRenameSubAccount {
+    #[serde(with = "serde_pubkey", rename = "a")]
+    account: Pubkey,
+    #[serde(rename = "n")]
+    name: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 enum TxTransferKind {
     #[serde(rename = "internal")]
     Internal,
@@ -346,6 +370,44 @@ struct TxTransfer {
     to: Pubkey,
     margin_symbol: String,
     margin_amount: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TxCreateMultisig {
+    #[serde(with = "serde_pubkey_vec")]
+    signers: Vec<Pubkey>,
+    threshold: u32,
+    time_lock_secs: u32,
+    proposal_lifetime_secs: u32,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxMultisigPropose {
+    #[serde(with = "serde_pubkey", rename = "m")]
+    multisig: Pubkey,
+    #[serde(rename = "a")]
+    actions: Vec<TxAction>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxMultisigProposalRef {
+    #[serde(with = "serde_pubkey", rename = "m")]
+    multisig: Pubkey,
+    #[serde(rename = "p")]
+    proposal_id: u64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TxUpdateMultisigPolicy {
+    #[serde(with = "serde_pubkey", rename = "m")]
+    multisig: Pubkey,
+    #[serde(with = "serde_pubkey_vec")]
+    signers: Vec<Pubkey>,
+    threshold: u32,
+    time_lock_secs: u32,
+    proposal_lifetime_secs: u32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -406,6 +468,22 @@ enum TxAction {
     RemoveSubAccount(TxRemoveSubAccount),
     #[serde(rename = "transfer")]
     Transfer(TxTransfer),
+    #[serde(rename = "createMultisig")]
+    CreateMultisig(TxCreateMultisig),
+    #[serde(rename = "msp")]
+    MultisigPropose(TxMultisigPropose),
+    #[serde(rename = "msa")]
+    MultisigApprove(TxMultisigProposalRef),
+    #[serde(rename = "msr")]
+    MultisigReject(TxMultisigProposalRef),
+    #[serde(rename = "msc")]
+    MultisigCancel(TxMultisigProposalRef),
+    #[serde(rename = "mse")]
+    MultisigExecute(TxMultisigProposalRef),
+    #[serde(rename = "msu")]
+    UpdateMultisigPolicy(TxUpdateMultisigPolicy),
+    #[serde(rename = "renameSubAccount")]
+    RenameSubAccount(TxRenameSubAccount),
 }
 
 #[inline]
@@ -577,6 +655,12 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
                 to_remove: action.to_remove,
             })])
         }
+        Action::RenameSubAccount(action) => {
+            Ok(vec![TxAction::RenameSubAccount(TxRenameSubAccount {
+                account: action.account,
+                name: action.name.clone(),
+            })])
+        }
         Action::Transfer(transfer) => Ok(vec![TxAction::Transfer(TxTransfer {
             kind: TxTransferKind::from(transfer.kind),
             from: transfer.from,
@@ -584,6 +668,55 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
             margin_symbol: transfer.margin_symbol.clone(),
             margin_amount: transfer.margin_amount,
         })]),
+        Action::CreateMultisig(action) => Ok(vec![TxAction::CreateMultisig(TxCreateMultisig {
+            signers: action.signers.clone(),
+            threshold: action.threshold,
+            time_lock_secs: action.time_lock_secs,
+            proposal_lifetime_secs: action.proposal_lifetime_secs,
+        })]),
+        Action::MultisigPropose(action) => {
+            let mut actions = Vec::new();
+            for inner in &action.actions {
+                actions.extend(action_to_tx_actions(inner)?);
+            }
+            Ok(vec![TxAction::MultisigPropose(TxMultisigPropose {
+                multisig: action.multisig,
+                actions,
+            })])
+        }
+        Action::MultisigApprove(action) => Ok(vec![TxAction::MultisigApprove(
+            TxMultisigProposalRef {
+                multisig: action.multisig,
+                proposal_id: action.proposal_id,
+            },
+        )]),
+        Action::MultisigReject(action) => Ok(vec![TxAction::MultisigReject(
+            TxMultisigProposalRef {
+                multisig: action.multisig,
+                proposal_id: action.proposal_id,
+            },
+        )]),
+        Action::MultisigCancel(action) => Ok(vec![TxAction::MultisigCancel(
+            TxMultisigProposalRef {
+                multisig: action.multisig,
+                proposal_id: action.proposal_id,
+            },
+        )]),
+        Action::MultisigExecute(action) => Ok(vec![TxAction::MultisigExecute(
+            TxMultisigProposalRef {
+                multisig: action.multisig,
+                proposal_id: action.proposal_id,
+            },
+        )]),
+        Action::UpdateMultisigPolicy(action) => Ok(vec![TxAction::UpdateMultisigPolicy(
+            TxUpdateMultisigPolicy {
+                multisig: action.multisig,
+                signers: action.signers.clone(),
+                threshold: action.threshold,
+                time_lock_secs: action.time_lock_secs,
+                proposal_lifetime_secs: action.proposal_lifetime_secs,
+            },
+        )]),
     }
 }
 

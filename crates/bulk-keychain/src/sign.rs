@@ -322,6 +322,17 @@ impl Signer {
         self.sign_action_self(&action, nonce)
     }
 
+    /// Sign a sub-account rename.
+    pub fn sign_rename_sub_account(
+        &mut self,
+        rename: RenameSubAccount,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::RenameSubAccount(rename);
+        self.sign_action_self(&action, nonce)
+    }
+
     /// Sign a margin transfer between accounts.
     pub fn sign_transfer(
         &mut self,
@@ -330,6 +341,83 @@ impl Signer {
     ) -> Result<SignedTransaction> {
         let nonce = nonce.unwrap_or_else(|| self.next_nonce());
         let action = Action::Transfer(transfer);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig creation.
+    pub fn sign_create_multisig(
+        &mut self,
+        create_multisig: CreateMultisig,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::CreateMultisig(create_multisig);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig proposal.
+    pub fn sign_multisig_propose(
+        &mut self,
+        propose: MultisigPropose,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::MultisigPropose(propose);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig approval.
+    pub fn sign_multisig_approve(
+        &mut self,
+        approve: MultisigApprove,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::MultisigApprove(approve);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig rejection.
+    pub fn sign_multisig_reject(
+        &mut self,
+        reject: MultisigReject,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::MultisigReject(reject);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig cancellation.
+    pub fn sign_multisig_cancel(
+        &mut self,
+        cancel: MultisigCancel,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::MultisigCancel(cancel);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig execution.
+    pub fn sign_multisig_execute(
+        &mut self,
+        execute: MultisigExecute,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::MultisigExecute(execute);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a multisig policy update.
+    pub fn sign_update_multisig_policy(
+        &mut self,
+        update: UpdateMultisigPolicy,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::UpdateMultisigPolicy(update);
         self.sign_action_self(&action, nonce)
     }
 
@@ -494,10 +582,10 @@ impl Signer {
                 }
             })]),
             Action::UpdateUserSettings(settings) => {
-                let leverage: Vec<_> = settings
+                let leverage: serde_json::Map<String, serde_json::Value> = settings
                     .max_leverage
                     .iter()
-                    .map(|(symbol, lev)| json!([symbol, lev]))
+                    .map(|(symbol, lev)| (symbol.clone(), json!(lev)))
                     .collect();
                 Ok(vec![json!({ "updateUserSettings": { "m": leverage } })])
             }
@@ -548,6 +636,12 @@ impl Signer {
                     "toRemove": action.to_remove.to_base58()
                 }
             })]),
+            Action::RenameSubAccount(action) => Ok(vec![json!({
+                "renameSubAccount": {
+                    "account": action.account.to_base58(),
+                    "name": action.name
+                }
+            })]),
             Action::Transfer(transfer) => Ok(vec![json!({
                 "transfer": {
                     "k": match transfer.kind {
@@ -558,6 +652,59 @@ impl Signer {
                     "to": transfer.to.to_base58(),
                     "marginSymbol": transfer.margin_symbol,
                     "marginAmount": transfer.margin_amount,
+                }
+            })]),
+            Action::CreateMultisig(action) => Ok(vec![json!({
+                "createMultisig": {
+                    "signers": action.signers.iter().map(Pubkey::to_base58).collect::<Vec<_>>(),
+                    "threshold": action.threshold,
+                    "timeLockSecs": action.time_lock_secs,
+                    "proposalLifetimeSecs": action.proposal_lifetime_secs,
+                }
+            })]),
+            Action::MultisigPropose(action) => {
+                let mut inner_actions = Vec::new();
+                for inner in &action.actions {
+                    inner_actions.extend(self.action_to_json(inner)?);
+                }
+                Ok(vec![json!({
+                    "msp": {
+                        "m": action.multisig.to_base58(),
+                        "a": inner_actions,
+                    }
+                })])
+            }
+            Action::MultisigApprove(action) => Ok(vec![json!({
+                "msa": {
+                    "m": action.multisig.to_base58(),
+                    "p": action.proposal_id,
+                }
+            })]),
+            Action::MultisigReject(action) => Ok(vec![json!({
+                "msr": {
+                    "m": action.multisig.to_base58(),
+                    "p": action.proposal_id,
+                }
+            })]),
+            Action::MultisigCancel(action) => Ok(vec![json!({
+                "msc": {
+                    "m": action.multisig.to_base58(),
+                    "p": action.proposal_id,
+                }
+            })]),
+            Action::MultisigExecute(action) => Ok(vec![json!({
+                "mse": {
+                    "m": action.multisig.to_base58(),
+                    "p": action.proposal_id,
+                }
+            })]),
+            Action::UpdateMultisigPolicy(action) => Ok(vec![json!({
+                "msu": {
+                    "m": action.multisig.to_base58(),
+                    "signers": action.signers.iter().map(Pubkey::to_base58).collect::<Vec<_>>(),
+                    "threshold": action.threshold,
+                    "timeLockSecs": action.time_lock_secs,
+                    "proposalLifetimeSecs": action.proposal_lifetime_secs,
                 }
             })]),
         }
@@ -839,6 +986,22 @@ mod tests {
     }
 
     #[test]
+    fn test_sign_user_settings_uses_sdk_map_shape() {
+        let keypair = Keypair::generate();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_user_settings(
+                UserSettings::new(vec![("BTC".to_string(), 5.0), ("ETH".to_string(), 3.0)]),
+                Some(1234567890),
+            )
+            .unwrap();
+        let obj = signed.actions[0].get("updateUserSettings").unwrap();
+        let leverage = obj.get("m").and_then(|v| v.as_object()).unwrap();
+        assert_eq!(leverage.get("BTC").and_then(|v| v.as_f64()), Some(5.0));
+        assert_eq!(leverage.get("ETH").and_then(|v| v.as_f64()), Some(3.0));
+    }
+
+    #[test]
     fn test_sign_create_sub_account() {
         let keypair = Keypair::generate();
         let mut signer = Signer::new(keypair);
@@ -886,6 +1049,22 @@ mod tests {
             obj.get("toRemove").and_then(|v| v.as_str()),
             Some(target.to_base58().as_str())
         );
+    }
+
+    #[test]
+    fn test_sign_rename_sub_account() {
+        let keypair = Keypair::generate();
+        let target = Keypair::generate().pubkey();
+        let mut signer = Signer::new(keypair);
+        let signed = signer
+            .sign_rename_sub_account(RenameSubAccount::new(target, "desk-2"), Some(1234567890))
+            .unwrap();
+        let obj = signed.actions[0].get("renameSubAccount").unwrap();
+        assert_eq!(
+            obj.get("account").and_then(|v| v.as_str()),
+            Some(target.to_base58().as_str())
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("desk-2"));
     }
 
     #[test]

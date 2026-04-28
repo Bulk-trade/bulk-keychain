@@ -760,6 +760,26 @@ impl RemoveSubAccount {
 }
 
 // ============================================================================
+// Rename Sub Account
+// ============================================================================
+
+/// Rename a sub-account belonging to the signing master account.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenameSubAccount {
+    pub account: Pubkey,
+    pub name: String,
+}
+
+impl RenameSubAccount {
+    pub fn new(account: Pubkey, name: impl Into<String>) -> Self {
+        Self {
+            account,
+            name: name.into(),
+        }
+    }
+}
+
+// ============================================================================
 // Transfer
 // ============================================================================
 
@@ -818,6 +838,122 @@ impl Transfer {
 }
 
 // ============================================================================
+// Multisig
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateMultisig {
+    pub signers: Vec<Pubkey>,
+    pub threshold: u32,
+    pub time_lock_secs: u32,
+    pub proposal_lifetime_secs: u32,
+}
+
+impl CreateMultisig {
+    pub fn new(signers: Vec<Pubkey>, threshold: u32) -> Self {
+        Self {
+            signers,
+            threshold,
+            time_lock_secs: 0,
+            proposal_lifetime_secs: 7 * 24 * 3600,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultisigPropose {
+    pub multisig: Pubkey,
+    pub actions: Vec<Action>,
+}
+
+impl MultisigPropose {
+    pub fn new(multisig: Pubkey, actions: Vec<Action>) -> Self {
+        Self { multisig, actions }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultisigApprove {
+    pub multisig: Pubkey,
+    pub proposal_id: u64,
+}
+
+impl MultisigApprove {
+    pub fn new(multisig: Pubkey, proposal_id: u64) -> Self {
+        Self {
+            multisig,
+            proposal_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultisigReject {
+    pub multisig: Pubkey,
+    pub proposal_id: u64,
+}
+
+impl MultisigReject {
+    pub fn new(multisig: Pubkey, proposal_id: u64) -> Self {
+        Self {
+            multisig,
+            proposal_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultisigCancel {
+    pub multisig: Pubkey,
+    pub proposal_id: u64,
+}
+
+impl MultisigCancel {
+    pub fn new(multisig: Pubkey, proposal_id: u64) -> Self {
+        Self {
+            multisig,
+            proposal_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultisigExecute {
+    pub multisig: Pubkey,
+    pub proposal_id: u64,
+}
+
+impl MultisigExecute {
+    pub fn new(multisig: Pubkey, proposal_id: u64) -> Self {
+        Self {
+            multisig,
+            proposal_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UpdateMultisigPolicy {
+    pub multisig: Pubkey,
+    pub signers: Vec<Pubkey>,
+    pub threshold: u32,
+    pub time_lock_secs: u32,
+    pub proposal_lifetime_secs: u32,
+}
+
+impl UpdateMultisigPolicy {
+    pub fn new(multisig: Pubkey, signers: Vec<Pubkey>, threshold: u32) -> Self {
+        Self {
+            multisig,
+            signers,
+            threshold,
+            time_lock_secs: 0,
+            proposal_lifetime_secs: 7 * 24 * 3600,
+        }
+    }
+}
+
+// ============================================================================
 // Action (main enum)
 // ============================================================================
 
@@ -842,8 +978,24 @@ pub enum Action {
     CreateSubAccount(CreateSubAccount),
     /// Remove a sub-account
     RemoveSubAccount(RemoveSubAccount),
+    /// Rename a sub-account
+    RenameSubAccount(RenameSubAccount),
     /// Margin transfer between accounts
     Transfer(Transfer),
+    /// Create a multisig account
+    CreateMultisig(CreateMultisig),
+    /// Propose one or more actions for a multisig account
+    MultisigPropose(MultisigPropose),
+    /// Approve a multisig proposal
+    MultisigApprove(MultisigApprove),
+    /// Reject a multisig proposal
+    MultisigReject(MultisigReject),
+    /// Cancel a multisig proposal
+    MultisigCancel(MultisigCancel),
+    /// Execute a multisig proposal
+    MultisigExecute(MultisigExecute),
+    /// Update a multisig policy
+    UpdateMultisigPolicy(UpdateMultisigPolicy),
 }
 
 impl Action {
@@ -860,6 +1012,14 @@ impl Action {
             Self::CreateSubAccount(_) => 27,
             Self::RemoveSubAccount(_) => 28,
             Self::Transfer(_) => 29,
+            Self::CreateMultisig(_) => 30,
+            Self::MultisigPropose(_) => 31,
+            Self::MultisigApprove(_) => 32,
+            Self::MultisigReject(_) => 33,
+            Self::MultisigCancel(_) => 34,
+            Self::MultisigExecute(_) => 35,
+            Self::UpdateMultisigPolicy(_) => 36,
+            Self::RenameSubAccount(_) => 37,
         }
     }
 
@@ -876,7 +1036,63 @@ impl Action {
             Self::CreateSubAccount(_) => "createSubAccount",
             Self::RemoveSubAccount(_) => "removeSubAccount",
             Self::Transfer(_) => "transfer",
+            Self::CreateMultisig(_) => "createMultisig",
+            Self::MultisigPropose(_) => "msp",
+            Self::MultisigApprove(_) => "msa",
+            Self::MultisigReject(_) => "msr",
+            Self::MultisigCancel(_) => "msc",
+            Self::MultisigExecute(_) => "mse",
+            Self::UpdateMultisigPolicy(_) => "msu",
+            Self::RenameSubAccount(_) => "renameSubAccount",
         }
+    }
+}
+
+impl From<RenameSubAccount> for Action {
+    fn from(action: RenameSubAccount) -> Self {
+        Self::RenameSubAccount(action)
+    }
+}
+
+impl From<CreateMultisig> for Action {
+    fn from(action: CreateMultisig) -> Self {
+        Self::CreateMultisig(action)
+    }
+}
+
+impl From<MultisigPropose> for Action {
+    fn from(action: MultisigPropose) -> Self {
+        Self::MultisigPropose(action)
+    }
+}
+
+impl From<MultisigApprove> for Action {
+    fn from(action: MultisigApprove) -> Self {
+        Self::MultisigApprove(action)
+    }
+}
+
+impl From<MultisigReject> for Action {
+    fn from(action: MultisigReject) -> Self {
+        Self::MultisigReject(action)
+    }
+}
+
+impl From<MultisigCancel> for Action {
+    fn from(action: MultisigCancel) -> Self {
+        Self::MultisigCancel(action)
+    }
+}
+
+impl From<MultisigExecute> for Action {
+    fn from(action: MultisigExecute) -> Self {
+        Self::MultisigExecute(action)
+    }
+}
+
+impl From<UpdateMultisigPolicy> for Action {
+    fn from(action: UpdateMultisigPolicy) -> Self {
+        Self::UpdateMultisigPolicy(action)
     }
 }
 
