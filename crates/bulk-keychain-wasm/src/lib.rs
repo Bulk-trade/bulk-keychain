@@ -4,14 +4,20 @@
 //! enabling high-performance transaction signing in browser environments.
 
 use bulk_keychain::{
-    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_create_sub_account,
-    prepare_faucet, prepare_group, prepare_message, prepare_remove_sub_account, prepare_transfer,
-    prepare_user_settings, Cancel, CancelAll, CreateSubAccount, Hash, Keypair, Modify,
-    NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage,
-    Pubkey, PythOraclePrice, RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop,
-    Transfer, TransferKind, TriggerBasket, UserSettings,
+    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_create_multisig,
+    prepare_create_sub_account, prepare_faucet, prepare_group, prepare_message,
+    prepare_multisig_approve, prepare_multisig_cancel, prepare_multisig_execute,
+    prepare_multisig_propose, prepare_multisig_reject, prepare_remove_sub_account,
+    prepare_rename_sub_account, prepare_transfer, prepare_update_multisig_policy,
+    prepare_user_settings, Action, AgentWallet, Cancel, CancelAll, CreateMultisig,
+    CreateSubAccount, Faucet, Hash, Keypair, Modify, MultisigApprove, MultisigCancel,
+    MultisigExecute, MultisigPropose, MultisigReject, NonceManager, NonceStrategy, OnFill,
+    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
+    RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
+    TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet,
 };
 use serde::Deserialize;
+use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
 
 // Initialize panic hook for better error messages in development
@@ -413,6 +419,179 @@ impl WasmSigner {
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
+    /// Sign a multisig creation
+    #[wasm_bindgen(js_name = signCreateMultisig)]
+    pub fn sign_create_multisig(
+        &mut self,
+        signers: JsValue,
+        threshold: u32,
+        time_lock_secs: Option<u32>,
+        proposal_lifetime_secs: Option<u32>,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let signer_inputs: Vec<String> =
+            serde_wasm_bindgen::from_value(signers).map_err(|e| JsError::new(&e.to_string()))?;
+        let signers = signer_inputs
+            .into_iter()
+            .map(|s| Pubkey::from_base58(&s).map_err(|e| JsError::new(&e.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_create_multisig(
+                CreateMultisig {
+                    signers,
+                    threshold,
+                    time_lock_secs: time_lock_secs.unwrap_or(0),
+                    proposal_lifetime_secs: proposal_lifetime_secs.unwrap_or(7 * 24 * 3600),
+                },
+                nonce_val,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a multisig proposal
+    #[wasm_bindgen(js_name = signMultisigPropose)]
+    pub fn sign_multisig_propose(
+        &mut self,
+        multisig: &str,
+        actions: JsValue,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+        let actions = parse_action_values(actions)?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_multisig_propose(MultisigPropose::new(multisig, actions), nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a multisig approval
+    #[wasm_bindgen(js_name = signMultisigApprove)]
+    pub fn sign_multisig_approve(
+        &mut self,
+        multisig: &str,
+        proposal_id: f64,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_multisig_approve(
+                MultisigApprove::new(multisig, proposal_id as u64),
+                nonce_val,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a multisig rejection
+    #[wasm_bindgen(js_name = signMultisigReject)]
+    pub fn sign_multisig_reject(
+        &mut self,
+        multisig: &str,
+        proposal_id: f64,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_multisig_reject(MultisigReject::new(multisig, proposal_id as u64), nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a multisig cancellation
+    #[wasm_bindgen(js_name = signMultisigCancel)]
+    pub fn sign_multisig_cancel(
+        &mut self,
+        multisig: &str,
+        proposal_id: f64,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_multisig_cancel(MultisigCancel::new(multisig, proposal_id as u64), nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a multisig execution
+    #[wasm_bindgen(js_name = signMultisigExecute)]
+    pub fn sign_multisig_execute(
+        &mut self,
+        multisig: &str,
+        proposal_id: f64,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_multisig_execute(
+                MultisigExecute::new(multisig, proposal_id as u64),
+                nonce_val,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a multisig policy update
+    #[wasm_bindgen(js_name = signUpdateMultisigPolicy)]
+    pub fn sign_update_multisig_policy(
+        &mut self,
+        multisig: &str,
+        signers: JsValue,
+        threshold: u32,
+        time_lock_secs: Option<u32>,
+        proposal_lifetime_secs: Option<u32>,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+        let signer_inputs: Vec<String> =
+            serde_wasm_bindgen::from_value(signers).map_err(|e| JsError::new(&e.to_string()))?;
+        let signers = signer_inputs
+            .into_iter()
+            .map(|s| Pubkey::from_base58(&s).map_err(|e| JsError::new(&e.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_update_multisig_policy(
+                UpdateMultisigPolicy {
+                    multisig,
+                    signers,
+                    threshold,
+                    time_lock_secs: time_lock_secs.unwrap_or(0),
+                    proposal_lifetime_secs: proposal_lifetime_secs.unwrap_or(7 * 24 * 3600),
+                },
+                nonce_val,
+            )
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
     /// Sign a sub-account removal
     ///
     /// @param toRemove - sub-account pubkey to remove (base58)
@@ -429,6 +608,29 @@ impl WasmSigner {
         let signed = self
             .inner
             .sign_remove_sub_account(target, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a sub-account rename
+    ///
+    /// @param subaccount - sub-account pubkey to rename (base58)
+    /// @param name - new display name
+    /// @param nonce - optional nonce
+    #[wasm_bindgen(js_name = signRenameSubAccount)]
+    pub fn sign_rename_sub_account(
+        &mut self,
+        subaccount: &str,
+        name: String,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let account = Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
+        let nonce_val = nonce.map(|n| n as u64);
+
+        let signed = self
+            .inner
+            .sign_rename_sub_account(RenameSubAccount { account, name }, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -737,6 +939,479 @@ impl TryFrom<OrderInput> for OrderItem {
             _ => Err(format!("Invalid item type: {}", input.item_type)),
         }
     }
+}
+
+fn js_err(message: impl Into<String>) -> JsError {
+    JsError::new(&message.into())
+}
+
+fn json_obj<'a>(
+    value: &'a JsonValue,
+    ctx: &str,
+) -> Result<&'a serde_json::Map<String, JsonValue>, JsError> {
+    value
+        .as_object()
+        .ok_or_else(|| js_err(format!("{ctx} must be an object")))
+}
+
+fn json_str<'a>(
+    obj: &'a serde_json::Map<String, JsonValue>,
+    key: &str,
+) -> Result<&'a str, JsError> {
+    obj.get(key)
+        .and_then(JsonValue::as_str)
+        .ok_or_else(|| js_err(format!("{key} is required")))
+}
+
+fn json_bool(
+    obj: &serde_json::Map<String, JsonValue>,
+    key: &str,
+    default: bool,
+) -> Result<bool, JsError> {
+    Ok(obj.get(key).and_then(JsonValue::as_bool).unwrap_or(default))
+}
+
+fn json_f64(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<f64, JsError> {
+    obj.get(key)
+        .and_then(JsonValue::as_f64)
+        .ok_or_else(|| js_err(format!("{key} is required")))
+}
+
+fn json_u32(
+    obj: &serde_json::Map<String, JsonValue>,
+    key: &str,
+    default: Option<u32>,
+) -> Result<u32, JsError> {
+    match obj.get(key).and_then(JsonValue::as_u64) {
+        Some(v) => u32::try_from(v).map_err(|_| js_err(format!("{key} out of range"))),
+        None => default.ok_or_else(|| js_err(format!("{key} is required"))),
+    }
+}
+
+fn json_u64(
+    obj: &serde_json::Map<String, JsonValue>,
+    key: &str,
+    default: Option<u64>,
+) -> Result<u64, JsError> {
+    match obj.get(key).and_then(JsonValue::as_u64) {
+        Some(v) => Ok(v),
+        None => default.ok_or_else(|| js_err(format!("{key} is required"))),
+    }
+}
+
+fn json_pubkey(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<Pubkey, JsError> {
+    Pubkey::from_base58(json_str(obj, key)?).map_err(|e| js_err(e.to_string()))
+}
+
+fn json_hash(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<Hash, JsError> {
+    Hash::from_base58(json_str(obj, key)?).map_err(|e| js_err(e.to_string()))
+}
+
+fn parse_order_input_value(value: JsonValue) -> Result<OrderInput, JsError> {
+    serde_json::from_value(value).map_err(|e| js_err(e.to_string()))
+}
+
+fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
+    let obj = json_obj(&value, "order item")?;
+    let (tag, payload) = obj
+        .iter()
+        .next()
+        .ok_or_else(|| js_err("order item cannot be empty"))?;
+
+    if obj.len() != 1 {
+        return Err(js_err("order item must have exactly one top-level key"));
+    }
+
+    match tag.as_str() {
+        "l" => {
+            let p = json_obj(payload, "l")?;
+            let tif = match json_str(p, "tif")?.to_uppercase().as_str() {
+                "GTC" => TimeInForce::Gtc,
+                "IOC" => TimeInForce::Ioc,
+                "ALO" => TimeInForce::Alo,
+                other => return Err(js_err(format!("invalid tif: {other}"))),
+            };
+            Ok(OrderItem::Order(Order {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "b", false)?,
+                price: json_f64(p, "px")?,
+                size: json_f64(p, "sz")?,
+                reduce_only: json_bool(p, "r", false)?,
+                iso: json_bool(p, "i", false)?,
+                order_type: OrderType::limit(tif),
+                client_id: p
+                    .get("cloid")
+                    .and_then(JsonValue::as_str)
+                    .map(Hash::from_base58)
+                    .transpose()
+                    .map_err(|e| js_err(e.to_string()))?,
+            }))
+        }
+        "m" => {
+            let p = json_obj(payload, "m")?;
+            Ok(OrderItem::Order(Order {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "b", false)?,
+                price: 0.0,
+                size: json_f64(p, "sz")?,
+                reduce_only: json_bool(p, "r", false)?,
+                iso: json_bool(p, "i", false)?,
+                order_type: OrderType::market(),
+                client_id: None,
+            }))
+        }
+        "cx" => {
+            let p = json_obj(payload, "cx")?;
+            Ok(OrderItem::Cancel(Cancel::new(
+                json_str(p, "c")?.to_string(),
+                json_hash(p, "oid")?,
+            )))
+        }
+        "mod" => {
+            let p = json_obj(payload, "mod")?;
+            Ok(OrderItem::Modify(Modify::new(
+                json_hash(p, "oid")?,
+                json_str(p, "c")?.to_string(),
+                json_f64(p, "sz")?,
+            )))
+        }
+        "cxa" => {
+            let p = json_obj(payload, "cxa")?;
+            let symbols = p
+                .get("c")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("c is required"))?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(ToOwned::to_owned)
+                        .ok_or_else(|| js_err("symbol must be a string"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(OrderItem::CancelAll(CancelAll::for_symbols(symbols)))
+        }
+        "st" => {
+            let p = json_obj(payload, "st")?;
+            Ok(OrderItem::Stop(Stop {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "d", false)?,
+                size: json_f64(p, "sz")?,
+                trigger_price: json_f64(p, "tr")?,
+                limit_price: p.get("lim").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
+                iso: json_bool(p, "i", false)?,
+            }))
+        }
+        "tp" => {
+            let p = json_obj(payload, "tp")?;
+            Ok(OrderItem::TakeProfit(TakeProfit {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "d", false)?,
+                size: json_f64(p, "sz")?,
+                trigger_price: json_f64(p, "tr")?,
+                limit_price: p.get("lim").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
+                iso: json_bool(p, "i", false)?,
+            }))
+        }
+        "rng" => {
+            let p = json_obj(payload, "rng")?;
+            Ok(OrderItem::RangeOco(RangeOco {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "d", false)?,
+                size: json_f64(p, "sz")?,
+                collar_min: json_f64(p, "pmin")?,
+                collar_max: json_f64(p, "pmax")?,
+                limit_min: p
+                    .get("lmin")
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or(f64::NAN),
+                limit_max: p
+                    .get("lmax")
+                    .and_then(JsonValue::as_f64)
+                    .unwrap_or(f64::NAN),
+                iso: json_bool(p, "i", false)?,
+            }))
+        }
+        "trig" => {
+            let p = json_obj(payload, "trig")?;
+            let nested = p
+                .get("actions")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("actions is required"))?
+                .iter()
+                .cloned()
+                .map(parse_order_item_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(OrderItem::TriggerBasket(TriggerBasket {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "d", false)?,
+                trigger_price: json_f64(p, "tr")?,
+                actions: nested,
+                iso: json_bool(p, "i", false)?,
+            }))
+        }
+        "of" => {
+            let p = json_obj(payload, "of")?;
+            let nested = p
+                .get("actions")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("actions is required"))?
+                .iter()
+                .cloned()
+                .map(parse_order_item_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(OrderItem::OnFill(OnFill {
+                p: json_u32(p, "p", Some(0))?,
+                actions: nested,
+            }))
+        }
+        "trl" => {
+            let p = json_obj(payload, "trl")?;
+            Ok(OrderItem::TrailingStop(TrailingStop {
+                symbol: json_str(p, "c")?.to_string(),
+                is_buy: json_bool(p, "b", false)?,
+                size: json_f64(p, "sz")?,
+                trail_bps: json_u32(p, "trb", None)?,
+                step_bps: json_u32(p, "stb", None)?,
+                limit_price: p.get("lim").and_then(JsonValue::as_f64),
+                iso: json_bool(p, "i", false)?,
+            }))
+        }
+        _ => parse_order_input_value(value)?.try_into().map_err(js_err),
+    }
+}
+
+fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
+    let obj = json_obj(&value, "action")?;
+    let (tag, payload) = obj
+        .iter()
+        .next()
+        .ok_or_else(|| js_err("action cannot be empty"))?;
+
+    if obj.len() != 1 {
+        return Err(js_err("action must have exactly one top-level key"));
+    }
+
+    match tag.as_str() {
+        "l" | "m" | "cx" | "mod" | "cxa" | "st" | "tp" | "rng" | "trig" | "of" | "trl" => {
+            Ok(Action::Order {
+                orders: vec![parse_order_item_value(value)?],
+            })
+        }
+        "order" => {
+            let orders = match payload {
+                JsonValue::Array(items) => items
+                    .iter()
+                    .cloned()
+                    .map(parse_order_item_value)
+                    .collect::<Result<Vec<_>, _>>()?,
+                _ => vec![parse_order_item_value(payload.clone())?],
+            };
+            Ok(Action::Order { orders })
+        }
+        "faucet" => {
+            let p = json_obj(payload, "faucet")?;
+            let mut faucet = Faucet::new(json_pubkey(p, "u").or_else(|_| json_pubkey(p, "user"))?);
+            faucet.amount = p.get("amount").and_then(JsonValue::as_f64);
+            Ok(Action::Faucet(faucet))
+        }
+        "agentWalletCreation" => {
+            let p = json_obj(payload, "agentWalletCreation")?;
+            Ok(Action::AgentWalletCreation(AgentWallet {
+                agent: json_pubkey(p, "a").or_else(|_| json_pubkey(p, "agent"))?,
+                delete: json_bool(p, "d", false).or_else(|_| json_bool(p, "delete", false))?,
+            }))
+        }
+        "updateUserSettings" => {
+            let p = json_obj(payload, "updateUserSettings")?;
+            let leverage_map = p
+                .get("m")
+                .or_else(|| p.get("maxLeverage"))
+                .and_then(JsonValue::as_object)
+                .ok_or_else(|| js_err("m is required"))?;
+            let max_leverage = leverage_map
+                .iter()
+                .map(|(k, v)| {
+                    v.as_f64()
+                        .map(|lev| (k.clone(), lev))
+                        .ok_or_else(|| js_err("max leverage values must be numbers"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Action::UpdateUserSettings(UserSettings::new(max_leverage)))
+        }
+        "px" => {
+            let p = json_obj(payload, "px")?;
+            Ok(Action::Oracle {
+                oracles: vec![OraclePrice {
+                    timestamp: json_u64(p, "t", None)?,
+                    asset: json_str(p, "c")?.to_string(),
+                    price: json_f64(p, "px")?,
+                }],
+            })
+        }
+        "o" => {
+            let p = json_obj(payload, "o")?;
+            let entries = p
+                .get("oracles")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("oracles is required"))?;
+            let oracles = entries
+                .iter()
+                .map(|entry| {
+                    let e = json_obj(entry, "oracle")?;
+                    Ok(PythOraclePrice {
+                        timestamp: json_u64(e, "t", None)?,
+                        feed_index: json_u64(e, "fi", None)?,
+                        price: json_u64(e, "px", None)?,
+                        exponent: e
+                            .get("e")
+                            .and_then(JsonValue::as_i64)
+                            .and_then(|v| i16::try_from(v).ok())
+                            .ok_or_else(|| js_err("e is required"))?,
+                    })
+                })
+                .collect::<Result<Vec<_>, JsError>>()?;
+            Ok(Action::PythOracle { oracles })
+        }
+        "whitelistFaucet" => {
+            let p = json_obj(payload, "whitelistFaucet")?;
+            Ok(Action::WhitelistFaucet(WhitelistFaucet {
+                target: json_pubkey(p, "target")?,
+                whitelist: json_bool(p, "whitelist", false)?,
+            }))
+        }
+        "createSubAccount" => {
+            let p = json_obj(payload, "createSubAccount")?;
+            Ok(Action::CreateSubAccount(CreateSubAccount {
+                name: json_str(p, "name")?.to_string(),
+                margin_symbol: p
+                    .get("marginSymbol")
+                    .and_then(JsonValue::as_str)
+                    .map(ToOwned::to_owned),
+                margin_amount: p.get("marginAmount").and_then(JsonValue::as_f64),
+            }))
+        }
+        "removeSubAccount" => {
+            let p = json_obj(payload, "removeSubAccount")?;
+            Ok(Action::RemoveSubAccount(bulk_keychain::RemoveSubAccount {
+                to_remove: json_pubkey(p, "toRemove")?,
+            }))
+        }
+        "renameSubAccount" => {
+            let p = json_obj(payload, "renameSubAccount")?;
+            Ok(Action::RenameSubAccount(RenameSubAccount {
+                account: json_pubkey(p, "account")?,
+                name: json_str(p, "name")?.to_string(),
+            }))
+        }
+        "transfer" => {
+            let p = json_obj(payload, "transfer")?;
+            let kind = match p.get("k").and_then(JsonValue::as_str).unwrap_or("internal") {
+                "internal" => TransferKind::Internal,
+                "external" => TransferKind::External,
+                other => return Err(js_err(format!("invalid transfer kind: {other}"))),
+            };
+            Ok(Action::Transfer(Transfer {
+                kind,
+                from: json_pubkey(p, "from")?,
+                to: json_pubkey(p, "to")?,
+                margin_symbol: json_str(p, "marginSymbol")?.to_string(),
+                margin_amount: json_f64(p, "marginAmount")?,
+            }))
+        }
+        "createMultisig" => {
+            let p = json_obj(payload, "createMultisig")?;
+            let signers = p
+                .get("signers")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("signers is required"))?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .ok_or_else(|| js_err("signer must be a string"))
+                        .and_then(|s| Pubkey::from_base58(s).map_err(|e| js_err(e.to_string())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Action::CreateMultisig(CreateMultisig {
+                signers,
+                threshold: json_u32(p, "threshold", None)?,
+                time_lock_secs: json_u32(p, "timeLockSecs", Some(0))?,
+                proposal_lifetime_secs: json_u32(p, "proposalLifetimeSecs", Some(7 * 24 * 3600))?,
+            }))
+        }
+        "msp" | "multisigPropose" => {
+            let p = json_obj(payload, tag)?;
+            let multisig = json_pubkey(p, "m").or_else(|_| json_pubkey(p, "multisig"))?;
+            let raw_actions = p
+                .get("a")
+                .or_else(|| p.get("actions"))
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("actions is required"))?;
+            let actions = raw_actions
+                .iter()
+                .cloned()
+                .map(parse_action_value)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Action::MultisigPropose(MultisigPropose::new(
+                multisig, actions,
+            )))
+        }
+        "msa" | "multisigApprove" => {
+            let p = json_obj(payload, tag)?;
+            Ok(Action::MultisigApprove(MultisigApprove::new(
+                json_pubkey(p, "m").or_else(|_| json_pubkey(p, "multisig"))?,
+                json_u64(p, "p", p.get("proposalId").and_then(JsonValue::as_u64))?,
+            )))
+        }
+        "msr" | "multisigReject" => {
+            let p = json_obj(payload, tag)?;
+            Ok(Action::MultisigReject(MultisigReject::new(
+                json_pubkey(p, "m").or_else(|_| json_pubkey(p, "multisig"))?,
+                json_u64(p, "p", p.get("proposalId").and_then(JsonValue::as_u64))?,
+            )))
+        }
+        "msc" | "multisigCancel" => {
+            let p = json_obj(payload, tag)?;
+            Ok(Action::MultisigCancel(MultisigCancel::new(
+                json_pubkey(p, "m").or_else(|_| json_pubkey(p, "multisig"))?,
+                json_u64(p, "p", p.get("proposalId").and_then(JsonValue::as_u64))?,
+            )))
+        }
+        "mse" | "multisigExecute" => {
+            let p = json_obj(payload, tag)?;
+            Ok(Action::MultisigExecute(MultisigExecute::new(
+                json_pubkey(p, "m").or_else(|_| json_pubkey(p, "multisig"))?,
+                json_u64(p, "p", p.get("proposalId").and_then(JsonValue::as_u64))?,
+            )))
+        }
+        "msu" | "updateMultisigPolicy" => {
+            let p = json_obj(payload, tag)?;
+            let signers = p
+                .get("signers")
+                .and_then(JsonValue::as_array)
+                .ok_or_else(|| js_err("signers is required"))?
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .ok_or_else(|| js_err("signer must be a string"))
+                        .and_then(|s| Pubkey::from_base58(s).map_err(|e| js_err(e.to_string())))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(Action::UpdateMultisigPolicy(UpdateMultisigPolicy {
+                multisig: json_pubkey(p, "m").or_else(|_| json_pubkey(p, "multisig"))?,
+                signers,
+                threshold: json_u32(p, "threshold", None)?,
+                time_lock_secs: json_u32(p, "timeLockSecs", Some(0))?,
+                proposal_lifetime_secs: json_u32(p, "proposalLifetimeSecs", Some(7 * 24 * 3600))?,
+            }))
+        }
+        _ => Err(js_err(format!("unsupported action type: {tag}"))),
+    }
+}
+
+fn parse_action_values(value: JsValue) -> Result<Vec<Action>, JsError> {
+    let raw: Vec<JsonValue> =
+        serde_wasm_bindgen::from_value(value).map_err(|e| js_err(e.to_string()))?;
+    raw.into_iter().map(parse_action_value).collect()
 }
 
 // ============================================================================
@@ -1179,6 +1854,43 @@ pub fn wasm_prepare_remove_sub_account(
     Ok(WasmPreparedMessage { inner: prepared })
 }
 
+/// Prepare a sub-account rename for external signing
+///
+/// @param subaccount - sub-account pubkey to rename (base58)
+/// @param name - new display name
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareRenameSubAccount)]
+pub fn wasm_prepare_rename_sub_account(
+    subaccount: &str,
+    name: String,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let subaccount = Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_rename_sub_account(
+        RenameSubAccount {
+            account: subaccount,
+            name,
+        },
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
 /// Prepare a sub-account creation for external signing
 ///
 /// @param name - Sub-account display name
@@ -1220,6 +1932,266 @@ pub fn wasm_prepare_create_sub_account(
     };
 
     let prepared = prepare_create_sub_account(sub_account, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig creation for external signing
+///
+/// @param signers - signer pubkeys (base58)
+/// @param threshold - approvals required
+/// @param options - { account: string, signer?: string, nonce?: number, timeLockSecs?: number, proposalLifetimeSecs?: number }
+#[wasm_bindgen(js_name = prepareCreateMultisig)]
+pub fn wasm_prepare_create_multisig(
+    signers: JsValue,
+    threshold: u32,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct CreateMultisigOptions {
+        account: String,
+        #[serde(default)]
+        signer: Option<String>,
+        #[serde(default)]
+        nonce: Option<f64>,
+        #[serde(default)]
+        time_lock_secs: Option<u32>,
+        #[serde(default)]
+        proposal_lifetime_secs: Option<u32>,
+    }
+
+    let signer_inputs: Vec<String> =
+        serde_wasm_bindgen::from_value(signers).map_err(|e| JsError::new(&e.to_string()))?;
+    let signers = signer_inputs
+        .into_iter()
+        .map(|s| Pubkey::from_base58(&s).map_err(|e| JsError::new(&e.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let opts: CreateMultisigOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let create_multisig = CreateMultisig {
+        signers,
+        threshold,
+        time_lock_secs: opts.time_lock_secs.unwrap_or(0),
+        proposal_lifetime_secs: opts.proposal_lifetime_secs.unwrap_or(7 * 24 * 3600),
+    };
+
+    let prepared = prepare_create_multisig(create_multisig, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig proposal for external signing
+#[wasm_bindgen(js_name = prepareMultisigPropose)]
+pub fn wasm_prepare_multisig_propose(
+    multisig: &str,
+    actions: JsValue,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+    let actions = parse_action_values(actions)?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_multisig_propose(
+        MultisigPropose::new(multisig, actions),
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig approval for external signing
+#[wasm_bindgen(js_name = prepareMultisigApprove)]
+pub fn wasm_prepare_multisig_approve(
+    multisig: &str,
+    proposal_id: f64,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_multisig_approve(
+        MultisigApprove::new(multisig, proposal_id as u64),
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig rejection for external signing
+#[wasm_bindgen(js_name = prepareMultisigReject)]
+pub fn wasm_prepare_multisig_reject(
+    multisig: &str,
+    proposal_id: f64,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_multisig_reject(
+        MultisigReject::new(multisig, proposal_id as u64),
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig cancellation for external signing
+#[wasm_bindgen(js_name = prepareMultisigCancel)]
+pub fn wasm_prepare_multisig_cancel(
+    multisig: &str,
+    proposal_id: f64,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_multisig_cancel(
+        MultisigCancel::new(multisig, proposal_id as u64),
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig execution for external signing
+#[wasm_bindgen(js_name = prepareMultisigExecute)]
+pub fn wasm_prepare_multisig_execute(
+    multisig: &str,
+    proposal_id: f64,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_multisig_execute(
+        MultisigExecute::new(multisig, proposal_id as u64),
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a multisig policy update for external signing
+#[wasm_bindgen(js_name = prepareUpdateMultisigPolicy)]
+pub fn wasm_prepare_update_multisig_policy(
+    multisig: &str,
+    signers: JsValue,
+    threshold: u32,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct UpdateMultisigPolicyOptions {
+        account: String,
+        #[serde(default)]
+        signer: Option<String>,
+        #[serde(default)]
+        nonce: Option<f64>,
+        #[serde(default)]
+        time_lock_secs: Option<u32>,
+        #[serde(default)]
+        proposal_lifetime_secs: Option<u32>,
+    }
+
+    let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer_inputs: Vec<String> =
+        serde_wasm_bindgen::from_value(signers).map_err(|e| JsError::new(&e.to_string()))?;
+    let signers = signer_inputs
+        .into_iter()
+        .map(|s| Pubkey::from_base58(&s).map_err(|e| JsError::new(&e.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let opts: UpdateMultisigPolicyOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let update = UpdateMultisigPolicy {
+        multisig,
+        signers,
+        threshold,
+        time_lock_secs: opts.time_lock_secs.unwrap_or(0),
+        proposal_lifetime_secs: opts.proposal_lifetime_secs.unwrap_or(7 * 24 * 3600),
+    };
+
+    let prepared = prepare_update_multisig_policy(update, &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })

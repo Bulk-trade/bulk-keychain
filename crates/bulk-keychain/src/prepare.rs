@@ -132,6 +132,17 @@ pub fn prepare_remove_sub_account(
     prepare_action(&action, account, signer, nonce)
 }
 
+/// Prepare a sub-account rename transaction.
+pub fn prepare_rename_sub_account(
+    rename: RenameSubAccount,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::RenameSubAccount(rename);
+    prepare_action(&action, account, signer, nonce)
+}
+
 /// Prepare a margin transfer transaction.
 pub fn prepare_transfer(
     transfer: Transfer,
@@ -140,6 +151,83 @@ pub fn prepare_transfer(
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::Transfer(transfer);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig creation transaction.
+pub fn prepare_create_multisig(
+    create_multisig: CreateMultisig,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::CreateMultisig(create_multisig);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig proposal transaction.
+pub fn prepare_multisig_propose(
+    propose: MultisigPropose,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::MultisigPropose(propose);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig approve transaction.
+pub fn prepare_multisig_approve(
+    approve: MultisigApprove,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::MultisigApprove(approve);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig reject transaction.
+pub fn prepare_multisig_reject(
+    reject: MultisigReject,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::MultisigReject(reject);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig cancel transaction.
+pub fn prepare_multisig_cancel(
+    cancel: MultisigCancel,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::MultisigCancel(cancel);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig execute transaction.
+pub fn prepare_multisig_execute(
+    execute: MultisigExecute,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::MultisigExecute(execute);
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare a multisig policy update transaction.
+pub fn prepare_update_multisig_policy(
+    update: UpdateMultisigPolicy,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::UpdateMultisigPolicy(update);
     prepare_action(&action, account, signer, nonce)
 }
 
@@ -371,6 +459,12 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "toRemove": action.to_remove.to_base58()
             }
         })]),
+        Action::RenameSubAccount(action) => Ok(vec![json!({
+            "renameSubAccount": {
+                "account": action.account.to_base58(),
+                "name": action.name
+            }
+        })]),
         Action::Transfer(transfer) => Ok(vec![json!({
             "transfer": {
                 "k": match transfer.kind {
@@ -381,6 +475,59 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "to": transfer.to.to_base58(),
                 "marginSymbol": transfer.margin_symbol,
                 "marginAmount": transfer.margin_amount,
+            }
+        })]),
+        Action::CreateMultisig(action) => Ok(vec![json!({
+            "createMultisig": {
+                "signers": action.signers.iter().map(Pubkey::to_base58).collect::<Vec<_>>(),
+                "threshold": action.threshold,
+                "timeLockSecs": action.time_lock_secs,
+                "proposalLifetimeSecs": action.proposal_lifetime_secs,
+            }
+        })]),
+        Action::MultisigPropose(action) => {
+            let mut inner_actions = Vec::new();
+            for inner in &action.actions {
+                inner_actions.extend(action_to_json(inner)?);
+            }
+            Ok(vec![json!({
+                "msp": {
+                    "m": action.multisig.to_base58(),
+                    "a": inner_actions,
+                }
+            })])
+        }
+        Action::MultisigApprove(action) => Ok(vec![json!({
+            "msa": {
+                "m": action.multisig.to_base58(),
+                "p": action.proposal_id,
+            }
+        })]),
+        Action::MultisigReject(action) => Ok(vec![json!({
+            "msr": {
+                "m": action.multisig.to_base58(),
+                "p": action.proposal_id,
+            }
+        })]),
+        Action::MultisigCancel(action) => Ok(vec![json!({
+            "msc": {
+                "m": action.multisig.to_base58(),
+                "p": action.proposal_id,
+            }
+        })]),
+        Action::MultisigExecute(action) => Ok(vec![json!({
+            "mse": {
+                "m": action.multisig.to_base58(),
+                "p": action.proposal_id,
+            }
+        })]),
+        Action::UpdateMultisigPolicy(action) => Ok(vec![json!({
+            "msu": {
+                "m": action.multisig.to_base58(),
+                "signers": action.signers.iter().map(Pubkey::to_base58).collect::<Vec<_>>(),
+                "threshold": action.threshold,
+                "timeLockSecs": action.time_lock_secs,
+                "proposalLifetimeSecs": action.proposal_lifetime_secs,
             }
         })]),
     }
@@ -595,5 +742,27 @@ mod tests {
         assert_eq!(signed.actions, prepared.actions);
         assert_eq!(signed.signature, "sig");
         assert_eq!(signed.order_ids, prepared.order_ids);
+    }
+
+    #[test]
+    fn test_prepare_rename_sub_account() {
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let subaccount = Keypair::generate().pubkey();
+        let prepared = prepare_rename_sub_account(
+            RenameSubAccount::new(subaccount, "desk-2"),
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.actions.len(), 1);
+        let obj = prepared.actions[0].get("renameSubAccount").unwrap();
+        assert_eq!(
+            obj.get("account").and_then(|v| v.as_str()),
+            Some(subaccount.to_base58().as_str())
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("desk-2"));
     }
 }
