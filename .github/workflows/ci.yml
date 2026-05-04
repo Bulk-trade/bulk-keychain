@@ -64,6 +64,13 @@ jobs:
         working-directory: packages/bulk-keychain-node
         run: node -e "const { NativeKeypair } = require('.'); console.log('OK:', new NativeKeypair().pubkey)"
 
+      - name: Verify npm pack includes JS entrypoints
+        working-directory: packages/bulk-keychain-node
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/npm-pack-dry-run.log
+          grep -q 'index.js' /tmp/npm-pack-dry-run.log || { echo 'npm pack missing index.js'; exit 1; }
+          grep -q 'index.d.ts' /tmp/npm-pack-dry-run.log || { echo 'npm pack missing index.d.ts'; exit 1; }
+
   build-python:
     name: Build Python
     runs-on: ubuntu-latest

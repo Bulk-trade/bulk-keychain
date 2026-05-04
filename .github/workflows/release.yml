@@ -347,6 +347,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -366,13 +374,28 @@ jobs:
       - name: List artifacts
         run: ls -la packages/bulk-keychain-node/artifacts/
 
-      - name: Move artifacts to package root
-        working-directory: packages/bulk-keychain-node
-        run: mv artifacts/*.node . || true
-
       - name: Install dependencies
         working-directory: packages/bulk-keychain-node
         run: pnpm install --ignore-scripts
+
+      # index.js / index.d.ts are NAPI-RS build outputs and are not committed to git.
+      # Without this step, npm publish packs only package.json + *.node and consumers get MODULE_NOT_FOUND for index.js.
+      - name: Generate JS bindings (index.js, index.d.ts)
+        working-directory: packages/bulk-keychain-node
+        run: pnpm build --target x86_64-unknown-linux-gnu
+
+      - name: Overlay cross-platform .node binaries from CI matrix
+        working-directory: packages/bulk-keychain-node
+        run: mv artifacts/*.node . || true
+
+      - name: Verify npm tarball includes entrypoints
+        working-directory: packages/bulk-keychain-node
+        run: |
+          npm pack --pack-destination /tmp
+          TAR=$(ls -1 /tmp/bulk-keychain-*.tgz | tail -1)
+          tar -tzf "$TAR" | tee /tmp/npm-pack-list.txt
+          grep -q 'package/index.js' /tmp/npm-pack-list.txt || { echo 'missing index.js in npm pack'; exit 1; }
+          grep -q 'package/index.d.ts' /tmp/npm-pack-list.txt || { echo 'missing index.d.ts in npm pack'; exit 1; }
 
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
