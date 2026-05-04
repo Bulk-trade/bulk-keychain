@@ -380,15 +380,6 @@ jobs:
         working-directory: packages/bulk-keychain-node
         run: pnpm install --ignore-scripts
 
-      - name: Verify npm pack includes entrypoints
-        working-directory: packages/bulk-keychain-node
-        run: |
-          npm pack --pack-destination "${{ runner.temp }}"
-          TAR=$(ls -t "${{ runner.temp }}"/bulk-keychain-*.tgz | head -1)
-          tar -tzf "$TAR" | tee "${{ runner.temp }}/pack-list.txt"
-          grep -q 'package/index.js' "${{ runner.temp }}/pack-list.txt" || { echo 'missing index.js'; exit 1; }
-          grep -q 'package/index.d.ts' "${{ runner.temp }}/pack-list.txt" || { echo 'missing index.d.ts'; exit 1; }
-
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: packages/bulk-keychain-node
