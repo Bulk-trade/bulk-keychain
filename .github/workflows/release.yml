@@ -383,8 +383,7 @@ jobs:
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: packages/bulk-keychain-node
-        # Skip lifecycle scripts: we ship one tarball with all *.node from CI; prepublishOnly targets per-platform npm packages we do not publish.
-        run: npm publish --access public --ignore-scripts
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
