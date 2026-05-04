@@ -347,6 +347,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -374,10 +379,25 @@ jobs:
         working-directory: packages/bulk-keychain-node
         run: pnpm install --ignore-scripts
 
+      # *.node come from matrix artifacts; index.js / index.d.ts are NAPI outputs and are not uploaded.
+      - name: Generate JS bindings (index.js, index.d.ts)
+        working-directory: packages/bulk-keychain-node
+        run: pnpm build --target x86_64-unknown-linux-gnu
+
+      - name: Verify npm pack includes entrypoints
+        working-directory: packages/bulk-keychain-node
+        run: |
+          npm pack --pack-destination "${{ runner.temp }}" --ignore-scripts
+          TAR=$(ls -t "${{ runner.temp }}"/bulk-keychain-*.tgz | head -1)
+          tar -tzf "$TAR" | tee "${{ runner.temp }}/pack-list.txt"
+          grep -q 'package/index.js' "${{ runner.temp }}/pack-list.txt" || { echo 'missing index.js'; exit 1; }
+          grep -q 'package/index.d.ts' "${{ runner.temp }}/pack-list.txt" || { echo 'missing index.d.ts'; exit 1; }
+
       - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         working-directory: packages/bulk-keychain-node
-        run: npm publish --access public
+        # Skip prepublishOnly (napi prepublish) — we ship one tarball with all .node; optional platform packages are not on npm.
+        run: npm publish --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
