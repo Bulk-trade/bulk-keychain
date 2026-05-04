@@ -184,7 +184,8 @@ jobs:
         working-directory: packages/bulk-keychain-node
         run: |
           set -euo pipefail
-          npm pack --pack-destination "${{ runner.temp }}"
+          # Match publish-npm (--ignore-scripts so prepublishOnly does not rewrite package.json)
+          npm pack --ignore-scripts --pack-destination "${{ runner.temp }}"
           TAR=$(ls -t "${{ runner.temp }}"/bulk-keychain-*.tgz | head -1)
           echo "Packed: $TAR"
           tar -tzf "$TAR" | tee "${{ runner.temp }}/pack-list.txt"
