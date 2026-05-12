@@ -368,7 +368,6 @@ impl NativeSigner {
         &mut self,
         from_pubkey: String,
         to_pubkey: String,
-        margin_symbol: String,
         margin_amount: f64,
         kind: Option<String>,
         nonce: Option<f64>,
@@ -383,7 +382,6 @@ impl NativeSigner {
             kind,
             from,
             to,
-            margin_symbol,
             margin_amount,
         };
 
@@ -400,14 +398,12 @@ impl NativeSigner {
     pub fn sign_create_sub_account(
         &mut self,
         name: String,
-        margin_symbol: Option<String>,
         margin_amount: Option<f64>,
         nonce: Option<f64>,
     ) -> Result<SignedTransactionOutput> {
         let nonce_val = nonce.map(|n| n as u64);
         let sub_account = CreateSubAccount {
             name,
-            margin_symbol,
             margin_amount,
         };
 
@@ -938,8 +934,6 @@ pub struct CreateSubAccountOptions {
     pub signer: Option<String>,
     /// Nonce - defaults to current timestamp if not provided
     pub nonce: Option<f64>,
-    /// Optional margin asset symbol to transfer. Required when marginAmount is non-zero.
-    pub margin_symbol: Option<String>,
     /// Optional initial margin amount. Default 0.0
     pub margin_amount: Option<f64>,
 }
@@ -1180,7 +1174,6 @@ pub struct TransferOptions {
 pub fn prepare_transfer_tx(
     from_pubkey: String,
     to_pubkey: String,
-    margin_symbol: String,
     margin_amount: f64,
     options: TransferOptions,
 ) -> Result<PreparedMessageOutput> {
@@ -1200,7 +1193,6 @@ pub fn prepare_transfer_tx(
         kind,
         from,
         to,
-        margin_symbol,
         margin_amount,
     };
 
@@ -1281,7 +1273,6 @@ pub fn prepare_create_sub_account_tx(
 
     let sub_account = CreateSubAccount {
         name,
-        margin_symbol: options.margin_symbol,
         margin_amount: options.margin_amount,
     };
 

@@ -713,8 +713,6 @@ pub struct WhitelistFaucet {
 pub struct CreateSubAccount {
     /// Sub-account display name
     pub name: String,
-    /// Optional margin asset symbol. Must be present when `margin_amount` is non-zero.
-    pub margin_symbol: Option<String>,
     /// Optional initial margin amount. Default 0.0
     pub margin_amount: Option<f64>,
 }
@@ -724,20 +722,14 @@ impl CreateSubAccount {
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
-            margin_symbol: None,
             margin_amount: None,
         }
     }
 
     /// Create a sub-account with an initial margin transfer.
-    pub fn with_margin(
-        name: impl Into<String>,
-        margin_symbol: impl Into<String>,
-        margin_amount: f64,
-    ) -> Self {
+    pub fn with_margin(name: impl Into<String>, margin_amount: f64) -> Self {
         Self {
             name: name.into(),
-            margin_symbol: Some(margin_symbol.into()),
             margin_amount: Some(margin_amount),
         }
     }
@@ -799,39 +791,26 @@ pub struct Transfer {
     pub kind: TransferKind,
     pub from: Pubkey,
     pub to: Pubkey,
-    pub margin_symbol: String,
     pub margin_amount: f64,
 }
 
 impl Transfer {
     /// Internal transfer between two BULK accounts.
-    pub fn internal(
-        from: Pubkey,
-        to: Pubkey,
-        margin_symbol: impl Into<String>,
-        margin_amount: f64,
-    ) -> Self {
+    pub fn internal(from: Pubkey, to: Pubkey, margin_amount: f64) -> Self {
         Self {
             kind: TransferKind::Internal,
             from,
             to,
-            margin_symbol: margin_symbol.into(),
             margin_amount,
         }
     }
 
     /// External transfer in/out of BULK.
-    pub fn external(
-        from: Pubkey,
-        to: Pubkey,
-        margin_symbol: impl Into<String>,
-        margin_amount: f64,
-    ) -> Self {
+    pub fn external(from: Pubkey, to: Pubkey, margin_amount: f64) -> Self {
         Self {
             kind: TransferKind::External,
             from,
             to,
-            margin_symbol: margin_symbol.into(),
             margin_amount,
         }
     }

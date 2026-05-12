@@ -213,7 +213,6 @@ class Signer:
     def sign_create_sub_account(
         self,
         name: str,
-        margin_symbol: str | None = None,
         margin_amount: float | None = None,
         nonce: int | None = None
     ) -> SignedTransaction:
@@ -224,7 +223,6 @@ class Signer:
         self,
         from_pubkey: str,
         to_pubkey: str,
-        margin_symbol: str,
         margin_amount: float,
         kind: str | None = None,
         nonce: int | None = None
@@ -374,7 +372,6 @@ def prepare_faucet(
 def prepare_create_sub_account(
     name: str,
     account: str,
-    margin_symbol: str | None = None,
     margin_amount: float | None = None,
     signer: str | None = None,
     nonce: int | None = None
@@ -385,7 +382,6 @@ def prepare_create_sub_account(
 def prepare_transfer(
     from_pubkey: str,
     to_pubkey: str,
-    margin_symbol: str,
     margin_amount: float,
     account: str,
     kind: str | None = None,
