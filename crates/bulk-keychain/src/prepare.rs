@@ -405,11 +405,12 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
             }
         })]),
         Action::UpdateUserSettings(settings) => {
-            let m: serde_json::Map<String, serde_json::Value> = settings
-                .max_leverage
-                .iter()
-                .map(|(symbol, lev)| (symbol.clone(), json!(lev)))
-                .collect();
+            let mut ordered = settings.max_leverage.clone();
+            ordered.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+            let mut m = serde_json::Map::with_capacity(ordered.len());
+            for (symbol, lev) in ordered {
+                m.insert(symbol, json!(lev));
+            }
             Ok(vec![json!({ "updateUserSettings": { "m": m } })])
         }
         Action::Oracle { oracles } => Ok(oracles
@@ -446,9 +447,6 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
         })]),
         Action::CreateSubAccount(action) => {
             let mut obj = json!({ "name": action.name });
-            if let Some(symbol) = &action.margin_symbol {
-                obj["marginSymbol"] = json!(symbol);
-            }
             if let Some(amount) = action.margin_amount {
                 obj["marginAmount"] = json!(amount);
             }
@@ -473,7 +471,6 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 },
                 "from": transfer.from.to_base58(),
                 "to": transfer.to.to_base58(),
-                "marginSymbol": transfer.margin_symbol,
                 "marginAmount": transfer.margin_amount,
             }
         })]),
@@ -764,5 +761,45 @@ mod tests {
             Some(subaccount.to_base58().as_str())
         );
         assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("desk-2"));
+    }
+
+    #[test]
+    fn test_prepare_create_sub_account_with_margin_uses_current_sdk_shape() {
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let prepared = prepare_create_sub_account(
+            CreateSubAccount::with_margin("desk-1", 1000.0),
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+
+        let obj = prepared.actions[0].get("createSubAccount").unwrap();
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("desk-1"));
+        assert!(obj.get("marginSymbol").is_none());
+        assert_eq!(
+            obj.get("marginAmount").and_then(|v| v.as_f64()),
+            Some(1000.0)
+        );
+    }
+
+    #[test]
+    fn test_prepare_transfer_uses_current_sdk_shape() {
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let to = Keypair::generate().pubkey();
+        let prepared = prepare_transfer(
+            Transfer::internal(account, to, 10.0),
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+
+        let obj = prepared.actions[0].get("transfer").unwrap();
+        assert_eq!(obj.get("k").and_then(|v| v.as_str()), Some("internal"));
+        assert!(obj.get("marginSymbol").is_none());
+        assert_eq!(obj.get("marginAmount").and_then(|v| v.as_f64()), Some(10.0));
     }
 }

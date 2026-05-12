@@ -344,12 +344,11 @@ impl PySigner {
     /// Sign a margin transfer between accounts.
     ///
     /// `kind` is "internal" (default) or "external".
-    #[pyo3(signature = (from_pubkey, to_pubkey, margin_symbol, margin_amount, kind=None, nonce=None))]
+    #[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, kind=None, nonce=None))]
     fn sign_transfer(
         &mut self,
         from_pubkey: &str,
         to_pubkey: &str,
-        margin_symbol: String,
         margin_amount: f64,
         kind: Option<&str>,
         nonce: Option<u64>,
@@ -364,7 +363,6 @@ impl PySigner {
             kind,
             from,
             to,
-            margin_symbol,
             margin_amount,
         };
 
@@ -377,17 +375,15 @@ impl PySigner {
     }
 
     /// Sign a sub-account creation (optional initial margin transfer)
-    #[pyo3(signature = (name, margin_symbol=None, margin_amount=None, nonce=None))]
+    #[pyo3(signature = (name, margin_amount=None, nonce=None))]
     fn sign_create_sub_account(
         &mut self,
         name: String,
-        margin_symbol: Option<String>,
         margin_amount: Option<f64>,
         nonce: Option<u64>,
     ) -> PyResult<PyObject> {
         let sub_account = CreateSubAccount {
             name,
-            margin_symbol,
             margin_amount,
         };
 
@@ -1347,12 +1343,11 @@ fn py_prepare_remove_sub_account(
 
 /// Prepare a margin transfer for external signing
 #[pyfunction]
-#[pyo3(signature = (from_pubkey, to_pubkey, margin_symbol, margin_amount, account, kind=None, signer=None, nonce=None))]
+#[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, account, kind=None, signer=None, nonce=None))]
 #[allow(clippy::too_many_arguments)]
 fn py_prepare_transfer(
     from_pubkey: &str,
     to_pubkey: &str,
-    margin_symbol: String,
     margin_amount: f64,
     account: &str,
     kind: Option<&str>,
@@ -1374,7 +1369,6 @@ fn py_prepare_transfer(
         kind,
         from,
         to,
-        margin_symbol,
         margin_amount,
     };
 
@@ -1386,11 +1380,10 @@ fn py_prepare_transfer(
 
 /// Prepare a sub-account creation for external signing
 #[pyfunction]
-#[pyo3(signature = (name, account, margin_symbol=None, margin_amount=None, signer=None, nonce=None))]
+#[pyo3(signature = (name, account, margin_amount=None, signer=None, nonce=None))]
 fn py_prepare_create_sub_account(
     name: String,
     account: &str,
-    margin_symbol: Option<String>,
     margin_amount: Option<f64>,
     signer: Option<&str>,
     nonce: Option<u64>,
@@ -1404,7 +1397,6 @@ fn py_prepare_create_sub_account(
 
     let sub_account = CreateSubAccount {
         name,
-        margin_symbol,
         margin_amount,
     };
 

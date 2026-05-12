@@ -358,7 +358,6 @@ impl WasmSigner {
     /// @param kind - "internal" or "external" (defaults to "internal")
     /// @param fromPubkey - source account pubkey (base58)
     /// @param toPubkey - destination account pubkey (base58)
-    /// @param marginSymbol - margin asset symbol (e.g. "USDC")
     /// @param marginAmount - amount to transfer
     /// @param nonce - optional nonce
     #[wasm_bindgen(js_name = signTransfer)]
@@ -367,7 +366,6 @@ impl WasmSigner {
         kind: Option<String>,
         from_pubkey: &str,
         to_pubkey: &str,
-        margin_symbol: String,
         margin_amount: f64,
         nonce: Option<f64>,
     ) -> Result<JsValue, JsError> {
@@ -383,7 +381,6 @@ impl WasmSigner {
             kind,
             from,
             to,
-            margin_symbol,
             margin_amount,
         };
 
@@ -400,14 +397,12 @@ impl WasmSigner {
     pub fn sign_create_sub_account(
         &mut self,
         name: String,
-        margin_symbol: Option<String>,
         margin_amount: Option<f64>,
         nonce: Option<f64>,
     ) -> Result<JsValue, JsError> {
         let nonce_val = nonce.map(|n| n as u64);
         let sub_account = CreateSubAccount {
             name,
-            margin_symbol,
             margin_amount,
         };
 
@@ -1283,10 +1278,6 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
             let p = json_obj(payload, "createSubAccount")?;
             Ok(Action::CreateSubAccount(CreateSubAccount {
                 name: json_str(p, "name")?.to_string(),
-                margin_symbol: p
-                    .get("marginSymbol")
-                    .and_then(JsonValue::as_str)
-                    .map(ToOwned::to_owned),
                 margin_amount: p.get("marginAmount").and_then(JsonValue::as_f64),
             }))
         }
@@ -1314,7 +1305,6 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
                 kind,
                 from: json_pubkey(p, "from")?,
                 to: json_pubkey(p, "to")?,
-                margin_symbol: json_str(p, "marginSymbol")?.to_string(),
                 margin_amount: json_f64(p, "marginAmount")?,
             }))
         }
@@ -1772,14 +1762,12 @@ pub fn wasm_prepare_update_user_settings(
 ///
 /// @param fromPubkey - source account pubkey (base58)
 /// @param toPubkey - destination account pubkey (base58)
-/// @param marginSymbol - margin asset symbol
 /// @param marginAmount - amount to transfer
 /// @param options - { account: string, signer?: string, nonce?: number, kind?: "internal" | "external" }
 #[wasm_bindgen(js_name = prepareTransfer)]
 pub fn wasm_prepare_transfer(
     from_pubkey: &str,
     to_pubkey: &str,
-    margin_symbol: String,
     margin_amount: f64,
     options: JsValue,
 ) -> Result<WasmPreparedMessage, JsError> {
@@ -1817,7 +1805,6 @@ pub fn wasm_prepare_transfer(
         kind,
         from,
         to,
-        margin_symbol,
         margin_amount,
     };
 
@@ -1894,7 +1881,7 @@ pub fn wasm_prepare_rename_sub_account(
 /// Prepare a sub-account creation for external signing
 ///
 /// @param name - Sub-account display name
-/// @param options - { account: string, signer?: string, nonce?: number, marginSymbol?: string, marginAmount?: number }
+/// @param options - { account: string, signer?: string, nonce?: number, marginAmount?: number }
 #[wasm_bindgen(js_name = prepareCreateSubAccount)]
 pub fn wasm_prepare_create_sub_account(
     name: String,
@@ -1908,8 +1895,6 @@ pub fn wasm_prepare_create_sub_account(
         signer: Option<String>,
         #[serde(default)]
         nonce: Option<f64>,
-        #[serde(default)]
-        margin_symbol: Option<String>,
         #[serde(default)]
         margin_amount: Option<f64>,
     }
@@ -1927,7 +1912,6 @@ pub fn wasm_prepare_create_sub_account(
 
     let sub_account = CreateSubAccount {
         name,
-        margin_symbol: opts.margin_symbol,
         margin_amount: opts.margin_amount,
     };
 

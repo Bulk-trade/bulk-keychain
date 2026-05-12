@@ -5,7 +5,7 @@ use crate::{Error, Result};
 use serde::Serialize;
 use serde::Serializer;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 const SCALE: f64 = 1e8;
 
@@ -309,7 +309,7 @@ struct TxAgentWalletCreation {
 #[derive(Clone, Debug, Serialize)]
 struct TxUpdateUserSettings {
     #[serde(rename = "m")]
-    max_leverage: HashMap<String, f64>,
+    max_leverage: BTreeMap<String, f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -324,8 +324,6 @@ struct TxWhitelistFaucet {
 #[serde(rename_all = "camelCase")]
 struct TxCreateSubAccount {
     name: String,
-    #[serde(default)]
-    margin_symbol: Option<String>,
     #[serde(default)]
     margin_amount: Option<f64>,
 }
@@ -374,7 +372,6 @@ struct TxTransfer {
     from: Pubkey,
     #[serde(with = "serde_pubkey")]
     to: Pubkey,
-    margin_symbol: String,
     margin_amount: f64,
 }
 
@@ -637,7 +634,7 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
             })])
         }
         Action::UpdateUserSettings(settings) => {
-            let mut max_leverage = HashMap::with_capacity(settings.max_leverage.len());
+            let mut max_leverage = BTreeMap::new();
             for (symbol, leverage) in &settings.max_leverage {
                 max_leverage.insert(symbol.clone(), *leverage);
             }
@@ -652,7 +649,6 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
         Action::CreateSubAccount(action) => {
             Ok(vec![TxAction::CreateSubAccount(TxCreateSubAccount {
                 name: action.name.clone(),
-                margin_symbol: action.margin_symbol.clone(),
                 margin_amount: action.margin_amount,
             })])
         }
@@ -671,7 +667,6 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
             kind: TxTransferKind::from(transfer.kind),
             from: transfer.from,
             to: transfer.to,
-            margin_symbol: transfer.margin_symbol.clone(),
             margin_amount: transfer.margin_amount,
         })]),
         Action::CreateMultisig(action) => Ok(vec![TxAction::CreateMultisig(TxCreateMultisig {

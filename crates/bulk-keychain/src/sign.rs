@@ -582,11 +582,12 @@ impl Signer {
                 }
             })]),
             Action::UpdateUserSettings(settings) => {
-                let leverage: serde_json::Map<String, serde_json::Value> = settings
-                    .max_leverage
-                    .iter()
-                    .map(|(symbol, lev)| (symbol.clone(), json!(lev)))
-                    .collect();
+                let mut ordered = settings.max_leverage.clone();
+                ordered.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+                let mut leverage = serde_json::Map::with_capacity(ordered.len());
+                for (symbol, lev) in ordered {
+                    leverage.insert(symbol, json!(lev));
+                }
                 Ok(vec![json!({ "updateUserSettings": { "m": leverage } })])
             }
             Action::Oracle { oracles } => Ok(oracles
@@ -623,9 +624,6 @@ impl Signer {
             })]),
             Action::CreateSubAccount(action) => {
                 let mut obj = json!({ "name": action.name });
-                if let Some(symbol) = &action.margin_symbol {
-                    obj["marginSymbol"] = json!(symbol);
-                }
                 if let Some(amount) = action.margin_amount {
                     obj["marginAmount"] = json!(amount);
                 }
@@ -650,7 +648,6 @@ impl Signer {
                     },
                     "from": transfer.from.to_base58(),
                     "to": transfer.to.to_base58(),
-                    "marginSymbol": transfer.margin_symbol,
                     "marginAmount": transfer.margin_amount,
                 }
             })]),
@@ -1002,6 +999,28 @@ mod tests {
     }
 
     #[test]
+    fn test_sign_user_settings_is_stable_across_input_order() {
+        let keypair = Keypair::generate();
+        let settings_a =
+            UserSettings::new(vec![("BTC".to_string(), 5.0), ("ETH".to_string(), 3.0)]);
+        let settings_b =
+            UserSettings::new(vec![("ETH".to_string(), 3.0), ("BTC".to_string(), 5.0)]);
+
+        let mut signer_a = Signer::new(keypair.clone());
+        let mut signer_b = Signer::new(keypair);
+
+        let signed_a = signer_a
+            .sign_user_settings(settings_a, Some(1234567890))
+            .unwrap();
+        let signed_b = signer_b
+            .sign_user_settings(settings_b, Some(1234567890))
+            .unwrap();
+
+        assert_eq!(signed_a.signature, signed_b.signature);
+        assert_eq!(signed_a.actions, signed_b.actions);
+    }
+
+    #[test]
     fn test_sign_create_sub_account() {
         let keypair = Keypair::generate();
         let mut signer = Signer::new(keypair);
@@ -1021,15 +1040,12 @@ mod tests {
         let mut signer = Signer::new(keypair);
         let signed = signer
             .sign_create_sub_account(
-                CreateSubAccount::with_margin("desk-1", "USDC", 1000.0),
+                CreateSubAccount::with_margin("desk-1", 1000.0),
                 Some(1234567890),
             )
             .unwrap();
         let obj = signed.actions[0].get("createSubAccount").unwrap();
-        assert_eq!(
-            obj.get("marginSymbol").and_then(|v| v.as_str()),
-            Some("USDC")
-        );
+        assert!(obj.get("marginSymbol").is_none());
         assert_eq!(
             obj.get("marginAmount").and_then(|v| v.as_f64()),
             Some(1000.0)
@@ -1074,14 +1090,11 @@ mod tests {
         let to = Keypair::generate().pubkey();
         let mut signer = Signer::new(keypair);
         let signed = signer
-            .sign_transfer(Transfer::internal(from, to, "USDC", 10.0), Some(1234567890))
+            .sign_transfer(Transfer::internal(from, to, 10.0), Some(1234567890))
             .unwrap();
         let obj = signed.actions[0].get("transfer").unwrap();
         assert_eq!(obj.get("k").and_then(|v| v.as_str()), Some("internal"));
-        assert_eq!(
-            obj.get("marginSymbol").and_then(|v| v.as_str()),
-            Some("USDC")
-        );
+        assert!(obj.get("marginSymbol").is_none());
         assert_eq!(obj.get("marginAmount").and_then(|v| v.as_f64()), Some(10.0));
     }
 
