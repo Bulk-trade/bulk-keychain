@@ -94,6 +94,12 @@ response = requests.post(
 }
 ```
 
+## Builder Codes
+
+Builder codes are optional commission fees for routed limit and market orders.
+Python order input uses `builder_code`; API JSON emits `builderCode` on orders
+and `abc`/`rbc` approval actions.
+
 ## Batch Signing
 
 For high-frequency trading, sign many transactions in parallel:
@@ -159,6 +165,8 @@ signed = signer.sign_user_settings(max_leverage=[("BTC-USD", 5.0)], nonce=None)
 signed = signer.sign_oracle_prices([(1704067200000000000, "BTC-USD", 102500.0)], nonce=None)
 signed = signer.sign_pyth_oracle([(1704067200000000000, 1, 10250000000000, -8)], nonce=None)
 signed = signer.sign_whitelist_faucet(target_pubkey, whitelist=True, nonce=None)
+signed = signer.sign_approve_builder_code(builder_pubkey, fee=5, nonce=None)
+signed = signer.sign_revoke_builder_code(builder_pubkey, nonce=None)
 signed_list = signer.sign_all(orders, base_nonce=None)
 ```
 

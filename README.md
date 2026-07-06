@@ -117,8 +117,14 @@ let json = signed.to_json()?;
 | `signOraclePrices([{ timestamp, asset, price }])` | Sign oracle `px` updates | `SignedTransaction` |
 | `signPythOracle([{ timestamp, feedIndex, price, exponent }])` | Sign Pyth oracle `o` batch | `SignedTransaction` |
 | `signWhitelistFaucet(targetPubkey, whitelist)` | Sign whitelist faucet admin action | `SignedTransaction` |
+| `signApproveBuilderCode(toPubkey, fee)` | Approve a builder-code recipient (`abc`) | `SignedTransaction` |
+| `signRevokeBuilderCode(toPubkey)` | Revoke a builder-code recipient approval (`rbc`) | `SignedTransaction` |
 
-Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, and `sign_whitelist_faucet`. Rust equivalents are `sign_oracle_prices`, `sign_pyth_oracle`, and `sign_whitelist_faucet`.
+Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelist_faucet`, `sign_approve_builder_code`, and `sign_revoke_builder_code`. Rust equivalents are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelist_faucet`, `sign_approve_builder_code`, and `sign_revoke_builder_code`.
+
+## Builder Codes
+
+Builder codes are optional commission fees for routed limit and market orders. API JSON uses `builderCode` on orders and `abc`/`rbc` approval actions.
 
 ## Pre-computed Order ID
 

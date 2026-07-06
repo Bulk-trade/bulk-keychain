@@ -99,6 +99,62 @@ pub fn prepare_agent_wallet(
     prepare_action(&action, account, signer, nonce)
 }
 
+/// Prepare builder-code recipient approval.
+///
+/// Builder codes are encoded as commission fees on the wire.
+pub fn prepare_approve_commission_fee(
+    to: &Pubkey,
+    fee: u8,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    if fee == 0 || fee > MAX_COMMISSION_FEE_BPS {
+        return Err(Error::InvalidOrder(
+            "commission fee must be 1..=15 bps".to_string(),
+        ));
+    }
+    let action = Action::ApproveCommissionFee(ApproveCommissionFee {
+        to: *to,
+        max_fee: fee,
+    });
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare builder-code recipient approval.
+#[inline]
+pub fn prepare_approve_builder_code(
+    to: &Pubkey,
+    fee: u8,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    prepare_approve_commission_fee(to, fee, account, signer, nonce)
+}
+
+/// Prepare builder-code recipient revocation.
+pub fn prepare_revoke_commission_fee(
+    to: &Pubkey,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::RevokeCommissionFee(RevokeCommissionFee { to: *to });
+    prepare_action(&action, account, signer, nonce)
+}
+
+/// Prepare builder-code recipient revocation.
+#[inline]
+pub fn prepare_revoke_builder_code(
+    to: &Pubkey,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    prepare_revoke_commission_fee(to, account, signer, nonce)
+}
+
 /// Prepare a user settings transaction.
 pub fn prepare_user_settings(
     settings: UserSettings,
@@ -564,6 +620,17 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "proposalLifetimeSecs": action.proposal_lifetime_secs,
             }
         })]),
+        Action::ApproveCommissionFee(action) => Ok(vec![json!({
+            "abc": {
+                "to": action.to.to_base58(),
+                "fee": action.max_fee
+            }
+        })]),
+        Action::RevokeCommissionFee(action) => Ok(vec![json!({
+            "rbc": {
+                "to": action.to.to_base58()
+            }
+        })]),
     }
 }
 
@@ -576,17 +643,22 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                     TimeInForce::Ioc => "IOC",
                     TimeInForce::Alo => "ALO",
                 };
-                Ok(json!({
-                    "l": {
-                        "c": order.symbol,
-                        "b": order.is_buy,
-                        "px": order.price,
-                        "sz": order.size,
-                        "tif": tif_str,
-                        "r": order.reduce_only,
-                        "i": order.iso
-                    }
-                }))
+                let mut body = json!({
+                    "c": order.symbol,
+                    "b": order.is_buy,
+                    "px": order.price,
+                    "sz": order.size,
+                    "tif": tif_str,
+                    "r": order.reduce_only,
+                    "i": order.iso
+                });
+                if let Some(commission) = order.commission {
+                    body["builderCode"] = json!({
+                        "to": commission.to.to_base58(),
+                        "fee": commission.fee
+                    });
+                }
+                Ok(json!({ "l": body }))
             }
             OrderType::Trigger {
                 is_market,
@@ -597,15 +669,20 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                         "trigger orders are not supported by BULK API; use market".to_string(),
                     ));
                 }
-                Ok(json!({
-                    "m": {
-                        "c": order.symbol,
-                        "b": order.is_buy,
-                        "sz": order.size,
-                        "r": order.reduce_only,
-                        "i": order.iso
-                    }
-                }))
+                let mut body = json!({
+                    "c": order.symbol,
+                    "b": order.is_buy,
+                    "sz": order.size,
+                    "r": order.reduce_only,
+                        "i": order.iso,
+                });
+                if let Some(commission) = order.commission {
+                    body["builderCode"] = json!({
+                        "to": commission.to.to_base58(),
+                        "fee": commission.fee
+                    });
+                }
+                Ok(json!({ "m": body }))
             }
         },
         OrderItem::Modify(modify) => Ok(json!({
@@ -738,6 +815,58 @@ mod tests {
         assert_eq!(prepared.actions.len(), 2);
         assert!(prepared.order_id.is_none());
         assert_eq!(prepared.order_ids.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn test_prepare_commission_order_omits_absent_and_includes_present() {
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let recipient = Pubkey::from_bytes([9u8; 32]);
+        let plain = prepare_message(
+            Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+        let commissioned = prepare_message(
+            Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc)
+                .with_builder_code(recipient, 5)
+                .unwrap()
+                .into(),
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+
+        assert!(plain.actions[0]["l"].get("builderCode").is_none());
+        assert_eq!(commissioned.actions[0]["l"]["builderCode"]["fee"], 5);
+        assert_eq!(
+            commissioned.actions[0]["l"]["builderCode"]["to"],
+            recipient.to_base58()
+        );
+        assert_eq!(plain.order_id, commissioned.order_id);
+        assert_ne!(plain.message_bytes, commissioned.message_bytes);
+    }
+
+    #[test]
+    fn test_prepare_commission_approval_actions() {
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let recipient = Pubkey::from_bytes([7u8; 32]);
+        let approve =
+            prepare_approve_builder_code(&recipient, 5, &account, None, Some(1234567890)).unwrap();
+        let revoke =
+            prepare_revoke_builder_code(&recipient, &account, None, Some(1234567891)).unwrap();
+
+        assert_eq!(approve.actions[0]["abc"]["fee"], 5);
+        assert_eq!(approve.actions[0]["abc"]["to"], recipient.to_base58());
+        assert_eq!(revoke.actions[0]["rbc"]["to"], recipient.to_base58());
+        assert!(approve.order_id.is_none());
+        assert!(revoke.order_id.is_none());
+        assert!(prepare_approve_builder_code(&recipient, 0, &account, None, None).is_err());
+        assert!(prepare_approve_builder_code(&recipient, 16, &account, None, None).is_err());
     }
 
     #[test]
