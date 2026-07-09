@@ -129,7 +129,7 @@ impl TryFrom<Commission> for TxCommission {
     fn try_from(value: Commission) -> Result<Self> {
         if value.fee == 0 || value.fee > MAX_COMMISSION_FEE_BPS {
             return Err(Error::InvalidOrder(
-                "commission fee must be 1..=15 bps".to_string(),
+                "builder-code fee must be 1..=15 bps".to_string(),
             ));
         }
         Ok(Self {
@@ -857,7 +857,7 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
         Action::ApproveCommissionFee(action) => {
             if action.max_fee == 0 || action.max_fee > MAX_COMMISSION_FEE_BPS {
                 return Err(Error::InvalidOrder(
-                    "commission fee must be 1..=15 bps".to_string(),
+                    "builder-code fee must be 1..=15 bps".to_string(),
                 ));
             }
             Ok(vec![TxAction::ApproveCommissionFee(

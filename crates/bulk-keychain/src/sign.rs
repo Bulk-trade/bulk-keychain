@@ -256,7 +256,7 @@ impl Signer {
     ) -> Result<SignedTransaction> {
         if fee == 0 || fee > MAX_COMMISSION_FEE_BPS {
             return Err(Error::InvalidOrder(
-                "commission fee must be 1..=15 bps".to_string(),
+                "builder-code fee must be 1..=15 bps".to_string(),
             ));
         }
         let nonce = nonce.unwrap_or_else(|| self.next_nonce());

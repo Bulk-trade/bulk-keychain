@@ -263,7 +263,7 @@ impl Commission {
     pub fn new(to: Pubkey, fee: u8) -> crate::Result<Self> {
         if fee == 0 || fee > MAX_COMMISSION_FEE_BPS {
             return Err(crate::Error::InvalidOrder(
-                "commission fee must be 1..=15 bps".to_string(),
+                "builder-code fee must be 1..=15 bps".to_string(),
             ));
         }
         Ok(Self { to, fee })

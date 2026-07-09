@@ -897,17 +897,17 @@ fn parse_commission(value: Option<Bound<'_, PyAny>>) -> PyResult<Option<Commissi
     };
     if value.is_none() {
         return Err(PyValueError::new_err(
-            "commission must be omitted or an object",
+            "builder_code must be omitted or an object",
         ));
     }
     let dict = value.downcast::<PyDict>()?;
     let to: String = dict
         .get_item("to")?
-        .ok_or_else(|| PyValueError::new_err("Missing commission.to"))?
+        .ok_or_else(|| PyValueError::new_err("Missing builder_code.to"))?
         .extract()?;
     let fee: u8 = dict
         .get_item("fee")?
-        .ok_or_else(|| PyValueError::new_err("Missing commission.fee"))?
+        .ok_or_else(|| PyValueError::new_err("Missing builder_code.fee"))?
         .extract()?;
     Commission::new(
         Pubkey::from_base58(&to).map_err(|e| PyValueError::new_err(e.to_string()))?,

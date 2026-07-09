@@ -111,7 +111,7 @@ pub fn prepare_approve_commission_fee(
 ) -> Result<PreparedMessage> {
     if fee == 0 || fee > MAX_COMMISSION_FEE_BPS {
         return Err(Error::InvalidOrder(
-            "commission fee must be 1..=15 bps".to_string(),
+            "builder-code fee must be 1..=15 bps".to_string(),
         ));
     }
     let action = Action::ApproveCommissionFee(ApproveCommissionFee {
