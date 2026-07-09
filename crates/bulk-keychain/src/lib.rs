@@ -68,7 +68,8 @@ pub use prepare::{
     prepare_faucet, prepare_group, prepare_message, prepare_multisig_approve,
     prepare_multisig_cancel, prepare_multisig_execute, prepare_multisig_propose,
     prepare_multisig_reject, prepare_remove_sub_account, prepare_rename_sub_account,
-    prepare_transfer, prepare_update_multisig_policy, prepare_user_settings, PreparedMessage,
+    prepare_transfer, prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
+    prepare_withdraw_lock_recover, PreparedMessage,
 };
 pub use sign::Signer;
 pub use types::*;

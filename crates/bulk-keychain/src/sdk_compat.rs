@@ -376,6 +376,27 @@ struct TxTransfer {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct TxWithdraw {
+    #[serde(with = "serde_pubkey")]
+    user: Pubkey,
+    #[serde(with = "serde_pubkey")]
+    vault: Pubkey,
+    #[serde(with = "serde_pubkey")]
+    recipient_token_account: Pubkey,
+    amount: u64,
+    #[serde(with = "serde_hash")]
+    blockhash: Hash,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxWithdrawLockRecover {
+    #[serde(with = "serde_pubkey", rename = "u")]
+    user: Pubkey,
+    #[serde(with = "serde_hash", rename = "h")]
+    hash: Hash,
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TxCreateMultisig {
     #[serde(with = "serde_pubkey_vec")]
@@ -487,6 +508,32 @@ enum TxAction {
     UpdateMultisigPolicy(TxUpdateMultisigPolicy),
     #[serde(rename = "renameSubAccount")]
     RenameSubAccount(TxRenameSubAccount),
+    #[allow(dead_code)]
+    Reserved38,
+    #[allow(dead_code)]
+    Reserved39,
+    #[allow(dead_code)]
+    Reserved40,
+    #[serde(rename = "withdraw")]
+    Withdraw(TxWithdraw),
+    #[allow(dead_code)]
+    Reserved42,
+    #[allow(dead_code)]
+    Reserved43,
+    #[allow(dead_code)]
+    Reserved44,
+    #[allow(dead_code)]
+    Reserved45,
+    #[allow(dead_code)]
+    Reserved46,
+    #[allow(dead_code)]
+    Reserved47,
+    #[allow(dead_code)]
+    Reserved48,
+    #[allow(dead_code)]
+    Reserved49,
+    #[serde(rename = "withdrawLockRecover")]
+    WithdrawLockRecover(TxWithdrawLockRecover),
 }
 
 #[inline]
@@ -669,6 +716,19 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
             to: transfer.to,
             margin_amount: transfer.margin_amount,
         })]),
+        Action::Withdraw(withdraw) => Ok(vec![TxAction::Withdraw(TxWithdraw {
+            user: withdraw.user,
+            vault: withdraw.vault,
+            recipient_token_account: withdraw.recipient_token_account,
+            amount: withdraw.amount,
+            blockhash: withdraw.blockhash,
+        })]),
+        Action::WithdrawLockRecover(recover) => {
+            Ok(vec![TxAction::WithdrawLockRecover(TxWithdrawLockRecover {
+                user: recover.user,
+                hash: recover.hash,
+            })])
+        }
         Action::CreateMultisig(action) => Ok(vec![TxAction::CreateMultisig(TxCreateMultisig {
             signers: action.signers.clone(),
             threshold: action.threshold,
