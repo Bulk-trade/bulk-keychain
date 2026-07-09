@@ -9,12 +9,13 @@ use bulk_keychain::{
     prepare_multisig_approve, prepare_multisig_cancel, prepare_multisig_execute,
     prepare_multisig_propose, prepare_multisig_reject, prepare_remove_sub_account,
     prepare_rename_sub_account, prepare_transfer, prepare_update_multisig_policy,
-    prepare_user_settings, Action, AgentWallet, Cancel, CancelAll, CreateMultisig,
-    CreateSubAccount, Faucet, Hash, Keypair, Modify, MultisigApprove, MultisigCancel,
-    MultisigExecute, MultisigPropose, MultisigReject, NonceManager, NonceStrategy, OnFill,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
-    RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
-    TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet,
+    prepare_user_settings, prepare_withdraw, prepare_withdraw_lock_recover, Action, AgentWallet,
+    Cancel, CancelAll, CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, Modify,
+    MultisigApprove, MultisigCancel, MultisigExecute, MultisigPropose, MultisigReject,
+    NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage,
+    Pubkey, PythOraclePrice, RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce,
+    TrailingStop, Transfer, TransferKind, TriggerBasket, UpdateMultisigPolicy, UserSettings,
+    WhitelistFaucet, Withdraw, WithdrawLockRecover,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -994,6 +995,13 @@ fn json_u64(
     }
 }
 
+fn f64_to_u64(value: f64, key: &str) -> Result<u64, JsError> {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > u64::MAX as f64 {
+        return Err(js_err(format!("{key} must be a non-negative integer u64")));
+    }
+    Ok(value as u64)
+}
+
 fn json_pubkey(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<Pubkey, JsError> {
     Pubkey::from_base58(json_str(obj, key)?).map_err(|e| js_err(e.to_string()))
 }
@@ -1306,6 +1314,24 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
                 from: json_pubkey(p, "from")?,
                 to: json_pubkey(p, "to")?,
                 margin_amount: json_f64(p, "marginAmount")?,
+            }))
+        }
+        "wtd" | "withdraw" => {
+            let p = json_obj(payload, tag)?;
+            Ok(Action::Withdraw(Withdraw {
+                user: json_pubkey(p, "u").or_else(|_| json_pubkey(p, "user"))?,
+                vault: json_pubkey(p, "v").or_else(|_| json_pubkey(p, "vault"))?,
+                recipient_token_account: json_pubkey(p, "rta")
+                    .or_else(|_| json_pubkey(p, "recipientTokenAccount"))?,
+                amount: json_u64(p, "a", None).or_else(|_| json_u64(p, "amount", None))?,
+                blockhash: json_hash(p, "b").or_else(|_| json_hash(p, "blockhash"))?,
+            }))
+        }
+        "withdrawLockRecover" => {
+            let p = json_obj(payload, "withdrawLockRecover")?;
+            Ok(Action::WithdrawLockRecover(WithdrawLockRecover {
+                user: json_pubkey(p, "u").or_else(|_| json_pubkey(p, "user"))?,
+                hash: json_hash(p, "h").or_else(|_| json_hash(p, "hash"))?,
             }))
         }
         "createMultisig" => {
@@ -1809,6 +1835,82 @@ pub fn wasm_prepare_transfer(
     };
 
     let prepared = prepare_transfer(transfer, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a portfolio withdraw for external signing
+///
+/// @param amount - base-unit amount to withdraw
+/// @param blockhash - recent Solana blockhash (base58)
+/// @param user - user wallet pubkey (base58)
+/// @param vault - vault pubkey (base58)
+/// @param recipientTokenAccount - recipient token account pubkey (base58)
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareWithdraw)]
+pub fn wasm_prepare_withdraw(
+    amount: f64,
+    blockhash: &str,
+    user: &str,
+    vault: &str,
+    recipient_token_account: &str,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let withdraw = Withdraw {
+        user: Pubkey::from_base58(user).map_err(|e| JsError::new(&e.to_string()))?,
+        vault: Pubkey::from_base58(vault).map_err(|e| JsError::new(&e.to_string()))?,
+        recipient_token_account: Pubkey::from_base58(recipient_token_account)
+            .map_err(|e| JsError::new(&e.to_string()))?,
+        amount: f64_to_u64(amount, "amount")?,
+        blockhash: Hash::from_base58(blockhash).map_err(|e| JsError::new(&e.to_string()))?,
+    };
+
+    let prepared = prepare_withdraw(withdraw, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a withdraw-lock recovery for external signing
+///
+/// @param user - user wallet pubkey (base58)
+/// @param hash - withdrawal lock hash (base58)
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareWithdrawLockRecover)]
+pub fn wasm_prepare_withdraw_lock_recover(
+    user: &str,
+    hash: &str,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let recover = WithdrawLockRecover {
+        user: Pubkey::from_base58(user).map_err(|e| JsError::new(&e.to_string()))?,
+        hash: Hash::from_base58(hash).map_err(|e| JsError::new(&e.to_string()))?,
+    };
+
+    let prepared = prepare_withdraw_lock_recover(recover, &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })

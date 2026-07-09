@@ -817,6 +817,27 @@ impl Transfer {
 }
 
 // ============================================================================
+// Portfolio withdraw
+// ============================================================================
+
+/// Portfolio withdraw from the deposit/withdraw vault.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Withdraw {
+    pub user: Pubkey,
+    pub vault: Pubkey,
+    pub recipient_token_account: Pubkey,
+    pub amount: u64,
+    pub blockhash: Hash,
+}
+
+/// Recover a withdraw lock after a withdraw is rejected or interrupted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WithdrawLockRecover {
+    pub user: Pubkey,
+    pub hash: Hash,
+}
+
+// ============================================================================
 // Multisig
 // ============================================================================
 
@@ -961,6 +982,10 @@ pub enum Action {
     RenameSubAccount(RenameSubAccount),
     /// Margin transfer between accounts
     Transfer(Transfer),
+    /// Portfolio withdraw
+    Withdraw(Withdraw),
+    /// Recover a withdraw lock
+    WithdrawLockRecover(WithdrawLockRecover),
     /// Create a multisig account
     CreateMultisig(CreateMultisig),
     /// Propose one or more actions for a multisig account
@@ -999,6 +1024,8 @@ impl Action {
             Self::MultisigExecute(_) => 35,
             Self::UpdateMultisigPolicy(_) => 36,
             Self::RenameSubAccount(_) => 37,
+            Self::Withdraw(_) => 41,
+            Self::WithdrawLockRecover(_) => 50,
         }
     }
 
@@ -1023,6 +1050,8 @@ impl Action {
             Self::MultisigExecute(_) => "mse",
             Self::UpdateMultisigPolicy(_) => "msu",
             Self::RenameSubAccount(_) => "renameSubAccount",
+            Self::Withdraw(_) => "withdraw",
+            Self::WithdrawLockRecover(_) => "withdrawLockRecover",
         }
     }
 }

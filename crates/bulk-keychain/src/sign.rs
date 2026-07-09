@@ -344,6 +344,28 @@ impl Signer {
         self.sign_action_self(&action, nonce)
     }
 
+    /// Sign a portfolio withdraw.
+    pub fn sign_withdraw(
+        &mut self,
+        withdraw: Withdraw,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::Withdraw(withdraw);
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign a withdraw-lock recovery.
+    pub fn sign_withdraw_lock_recover(
+        &mut self,
+        recover: WithdrawLockRecover,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::WithdrawLockRecover(recover);
+        self.sign_action_self(&action, nonce)
+    }
+
     /// Sign a multisig creation.
     pub fn sign_create_multisig(
         &mut self,
@@ -649,6 +671,21 @@ impl Signer {
                     "from": transfer.from.to_base58(),
                     "to": transfer.to.to_base58(),
                     "marginAmount": transfer.margin_amount,
+                }
+            })]),
+            Action::Withdraw(withdraw) => Ok(vec![json!({
+                "withdraw": {
+                    "u": withdraw.user.to_base58(),
+                    "v": withdraw.vault.to_base58(),
+                    "rta": withdraw.recipient_token_account.to_base58(),
+                    "a": withdraw.amount,
+                    "b": withdraw.blockhash.to_base58(),
+                }
+            })]),
+            Action::WithdrawLockRecover(recover) => Ok(vec![json!({
+                "withdrawLockRecover": {
+                    "u": recover.user.to_base58(),
+                    "h": recover.hash.to_base58(),
                 }
             })]),
             Action::CreateMultisig(action) => Ok(vec![json!({
