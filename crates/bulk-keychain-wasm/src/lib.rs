@@ -2494,11 +2494,8 @@ mod tests {
     // serde_wasm_bindgen deserializes structs from JS objects, so serialize
     // the JSON as plain objects (not Maps) via the json-compatible serializer.
     fn to_js_object(value: serde_json::Value) -> JsValue {
-        serde::Serialize::serialize(
-            &value,
-            &serde_wasm_bindgen::Serializer::json_compatible(),
-        )
-        .unwrap()
+        serde::Serialize::serialize(&value, &serde_wasm_bindgen::Serializer::json_compatible())
+            .unwrap()
     }
 
     fn limit_order_json() -> JsValue {
