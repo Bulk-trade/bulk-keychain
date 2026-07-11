@@ -132,6 +132,19 @@ class Signer:
         """Whether batch order ID computation is enabled"""
         ...
 
+    def sign_bytes(self, message: bytes) -> str:
+        """Sign raw message bytes and return a base58 Ed25519 signature"""
+        ...
+
+    def sign_prepared(self, prepared: "PreparedMessage") -> SignedTransaction:
+        """Sign a prepared message and finalize it into a signed transaction.
+
+        Supports agent-wallet flows where prepared["account"] is the trading
+        account and prepared["signer"] is this signer's pubkey. Raises
+        ValueError if prepared["signer"] does not match this signer's pubkey.
+        """
+        ...
+
     # ========================================================================
     # Simplified API
     # ========================================================================
