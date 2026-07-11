@@ -1024,8 +1024,8 @@ impl Action {
             Self::MultisigExecute(_) => 35,
             Self::UpdateMultisigPolicy(_) => 36,
             Self::RenameSubAccount(_) => 37,
-            Self::Withdraw(_) => 41,
-            Self::WithdrawLockRecover(_) => 50,
+            Self::Withdraw(_) => 45,
+            Self::WithdrawLockRecover(_) => 54,
         }
     }
 

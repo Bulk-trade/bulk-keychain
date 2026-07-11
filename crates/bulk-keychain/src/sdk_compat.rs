@@ -514,16 +514,16 @@ enum TxAction {
     Reserved39,
     #[allow(dead_code)]
     Reserved40,
-    #[serde(rename = "withdraw")]
-    Withdraw(TxWithdraw),
+    #[allow(dead_code)]
+    Reserved41,
     #[allow(dead_code)]
     Reserved42,
     #[allow(dead_code)]
     Reserved43,
     #[allow(dead_code)]
     Reserved44,
-    #[allow(dead_code)]
-    Reserved45,
+    #[serde(rename = "withdraw")]
+    Withdraw(TxWithdraw),
     #[allow(dead_code)]
     Reserved46,
     #[allow(dead_code)]
@@ -532,6 +532,14 @@ enum TxAction {
     Reserved48,
     #[allow(dead_code)]
     Reserved49,
+    #[allow(dead_code)]
+    Reserved50,
+    #[allow(dead_code)]
+    Reserved51,
+    #[allow(dead_code)]
+    Reserved52,
+    #[allow(dead_code)]
+    Reserved53,
     #[serde(rename = "withdrawLockRecover")]
     WithdrawLockRecover(TxWithdrawLockRecover),
 }

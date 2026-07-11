@@ -859,7 +859,7 @@ mod tests {
 
         let mut expected = Vec::new();
         expected.extend_from_slice(&1u64.to_le_bytes());
-        expected.extend_from_slice(&41u32.to_le_bytes());
+        expected.extend_from_slice(&45u32.to_le_bytes());
         expected.extend_from_slice(account.as_bytes());
         expected.extend_from_slice(vault.as_bytes());
         expected.extend_from_slice(recipient_token_account.as_bytes());
@@ -898,7 +898,7 @@ mod tests {
 
         let mut expected = Vec::new();
         expected.extend_from_slice(&1u64.to_le_bytes());
-        expected.extend_from_slice(&50u32.to_le_bytes());
+        expected.extend_from_slice(&54u32.to_le_bytes());
         expected.extend_from_slice(user.as_bytes());
         expected.extend_from_slice(hash.as_bytes());
         expected.extend_from_slice(&nonce.to_le_bytes());
