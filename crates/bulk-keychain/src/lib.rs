@@ -64,11 +64,13 @@ pub use order_id::{
 };
 pub use prepare::{
     finalize_all, finalize_transaction, finalize_transaction_bytes, prepare_action,
-    prepare_agent_wallet, prepare_all, prepare_create_multisig, prepare_create_sub_account,
+    prepare_agent_wallet, prepare_all, prepare_approve_builder_code,
+    prepare_approve_commission_fee, prepare_create_multisig, prepare_create_sub_account,
     prepare_faucet, prepare_group, prepare_message, prepare_multisig_approve,
     prepare_multisig_cancel, prepare_multisig_execute, prepare_multisig_propose,
     prepare_multisig_reject, prepare_remove_sub_account, prepare_rename_sub_account,
-    prepare_transfer, prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
+    prepare_revoke_builder_code, prepare_revoke_commission_fee, prepare_transfer,
+    prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
     prepare_withdraw_lock_recover, PreparedMessage,
 };
 pub use sign::Signer;

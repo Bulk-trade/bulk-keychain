@@ -4,18 +4,19 @@
 //! enabling high-performance transaction signing in browser environments.
 
 use bulk_keychain::{
-    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_create_multisig,
-    prepare_create_sub_account, prepare_faucet, prepare_group, prepare_message,
-    prepare_multisig_approve, prepare_multisig_cancel, prepare_multisig_execute,
+    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_approve_commission_fee,
+    prepare_create_multisig, prepare_create_sub_account, prepare_faucet, prepare_group,
+    prepare_message, prepare_multisig_approve, prepare_multisig_cancel, prepare_multisig_execute,
     prepare_multisig_propose, prepare_multisig_reject, prepare_remove_sub_account,
-    prepare_rename_sub_account, prepare_transfer, prepare_update_multisig_policy,
-    prepare_user_settings, prepare_withdraw, prepare_withdraw_lock_recover, Action, AgentWallet,
-    Cancel, CancelAll, CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, Modify,
-    MultisigApprove, MultisigCancel, MultisigExecute, MultisigPropose, MultisigReject,
-    NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage,
-    Pubkey, PythOraclePrice, RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce,
-    TrailingStop, Transfer, TransferKind, TriggerBasket, UpdateMultisigPolicy, UserSettings,
-    WhitelistFaucet, Withdraw, WithdrawLockRecover,
+    prepare_rename_sub_account, prepare_revoke_commission_fee, prepare_transfer,
+    prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
+    prepare_withdraw_lock_recover, Action, AgentWallet, Cancel, CancelAll, Commission,
+    CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, Modify, MultisigApprove,
+    MultisigCancel, MultisigExecute, MultisigPropose, MultisigReject, NonceManager, NonceStrategy,
+    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
+    RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
+    TransferKind, TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet, Withdraw,
+    WithdrawLockRecover,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -276,6 +277,60 @@ impl WasmSigner {
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign builder-code recipient approval (`abc`)
+    #[wasm_bindgen(js_name = signApproveCommissionFee)]
+    pub fn sign_approve_commission_fee(
+        &mut self,
+        to_pubkey: &str,
+        fee: u8,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+        let signed = self
+            .inner
+            .sign_approve_commission_fee(to, fee, nonce.map(|n| n as u64))
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign builder-code recipient approval (`abc`)
+    #[wasm_bindgen(js_name = signApproveBuilderCode)]
+    pub fn sign_approve_builder_code(
+        &mut self,
+        to_pubkey: &str,
+        fee: u8,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        self.sign_approve_commission_fee(to_pubkey, fee, nonce)
+    }
+
+    /// Sign builder-code recipient revocation (`rbc`)
+    #[wasm_bindgen(js_name = signRevokeCommissionFee)]
+    pub fn sign_revoke_commission_fee(
+        &mut self,
+        to_pubkey: &str,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+        let signed = self
+            .inner
+            .sign_revoke_commission_fee(to, nonce.map(|n| n as u64))
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign builder-code recipient revocation (`rbc`)
+    #[wasm_bindgen(js_name = signRevokeBuilderCode)]
+    pub fn sign_revoke_builder_code(
+        &mut self,
+        to_pubkey: &str,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        self.sign_revoke_commission_fee(to_pubkey, nonce)
     }
 
     /// Sign user settings update
@@ -713,6 +768,7 @@ struct OrderInput {
     size: Option<f64>,
     reduce_only: Option<bool>,
     iso: Option<bool>,
+    builder_code: Option<BuilderCodeInput>,
     order_type: Option<OrderTypeInput>,
     client_id: Option<String>,
     order_id: Option<String>,
@@ -728,6 +784,13 @@ struct OrderInput {
     on_fill: Option<OnFillInput>,
     trail_bps: Option<u32>,
     step_bps: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct BuilderCodeInput {
+    to: String,
+    fee: u8,
 }
 
 #[derive(Debug, Deserialize)]
@@ -812,6 +875,17 @@ impl TryFrom<OrderInput> for OrderItem {
                     iso,
                     order_type,
                     client_id: None,
+                    commission: input
+                        .builder_code
+                        .map(|commission| {
+                            Commission::new(
+                                Pubkey::from_base58(&commission.to)
+                                    .map_err(|e| format!("Invalid builderCode.to: {}", e))?,
+                                commission.fee,
+                            )
+                            .map_err(|e| e.to_string())
+                        })
+                        .transpose()?,
                 };
                 if let Some(cid) = client_id {
                     order.client_id = Some(cid);
@@ -1048,6 +1122,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                     .map(Hash::from_base58)
                     .transpose()
                     .map_err(|e| js_err(e.to_string()))?,
+                commission: None,
             }))
         }
         "m" => {
@@ -1061,6 +1136,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 iso: json_bool(p, "i", false)?,
                 order_type: OrderType::market(),
                 client_id: None,
+                commission: None,
             }))
         }
         "cx" => {
@@ -1731,6 +1807,81 @@ pub fn wasm_prepare_agent_wallet(
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare builder-code recipient approval for external signing
+///
+/// @param toPubkey - Builder-code recipient public key
+/// @param fee - Maximum builder-code fee in bps
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareApproveCommissionFee)]
+pub fn wasm_prepare_approve_commission_fee(
+    to_pubkey: &str,
+    fee: u8,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_approve_commission_fee(&to, fee, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare builder-code recipient approval for external signing
+#[wasm_bindgen(js_name = prepareApproveBuilderCode)]
+pub fn wasm_prepare_approve_builder_code(
+    to_pubkey: &str,
+    fee: u8,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    wasm_prepare_approve_commission_fee(to_pubkey, fee, options)
+}
+
+/// Prepare builder-code recipient revocation for external signing
+///
+/// @param toPubkey - Builder-code recipient public key
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareRevokeCommissionFee)]
+pub fn wasm_prepare_revoke_commission_fee(
+    to_pubkey: &str,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_revoke_commission_fee(&to, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare builder-code recipient revocation for external signing
+#[wasm_bindgen(js_name = prepareRevokeBuilderCode)]
+pub fn wasm_prepare_revoke_builder_code(
+    to_pubkey: &str,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    wasm_prepare_revoke_commission_fee(to_pubkey, options)
 }
 
 /// Prepare faucet request for external signing

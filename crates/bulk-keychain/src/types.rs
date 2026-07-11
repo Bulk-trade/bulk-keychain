@@ -4,6 +4,9 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+pub const MAX_COMMISSION_FEE_BPS: u8 = 15;
+pub const MAX_BUILDER_CODE_FEE_BPS: u8 = MAX_COMMISSION_FEE_BPS;
+
 /// 32-byte public key (Ed25519)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pubkey(pub [u8; 32]);
@@ -232,7 +235,7 @@ pub struct Order {
     /// Reduce-only flag
     #[serde(rename = "r")]
     pub reduce_only: bool,
-    /// Isolated-margin flag
+    /// Isolated-margin lane flag
     #[serde(rename = "i", default)]
     pub iso: bool,
     /// Order type
@@ -241,6 +244,30 @@ pub struct Order {
     /// Client order ID (optional)
     #[serde(rename = "cloid", skip_serializing_if = "Option::is_none")]
     pub client_id: Option<Hash>,
+    /// Optional builder-code fee paid by this order.
+    ///
+    /// Builder codes are encoded as commission fees on the wire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commission: Option<Commission>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Commission {
+    pub to: Pubkey,
+    pub fee: u8,
+}
+
+pub type BuilderCode = Commission;
+
+impl Commission {
+    pub fn new(to: Pubkey, fee: u8) -> crate::Result<Self> {
+        if fee == 0 || fee > MAX_COMMISSION_FEE_BPS {
+            return Err(crate::Error::InvalidOrder(
+                "builder-code fee must be 1..=15 bps".to_string(),
+            ));
+        }
+        Ok(Self { to, fee })
+    }
 }
 
 impl Order {
@@ -261,6 +288,7 @@ impl Order {
             iso: false,
             order_type: OrderType::limit(tif),
             client_id: None,
+            commission: None,
         }
     }
 
@@ -275,6 +303,7 @@ impl Order {
             iso: false,
             order_type: OrderType::market(),
             client_id: None,
+            commission: None,
         }
     }
 
@@ -294,6 +323,20 @@ impl Order {
     pub fn with_client_id(mut self, client_id: Hash) -> Self {
         self.client_id = Some(client_id);
         self
+    }
+
+    pub fn iso(mut self) -> Self {
+        self.iso = true;
+        self
+    }
+
+    pub fn with_commission(mut self, to: Pubkey, fee: u8) -> crate::Result<Self> {
+        self.commission = Some(Commission::new(to, fee)?);
+        Ok(self)
+    }
+
+    pub fn with_builder_code(self, to: Pubkey, fee: u8) -> crate::Result<Self> {
+        self.with_commission(to, fee)
     }
 
     /// Generate and set a random client order ID
@@ -640,6 +683,21 @@ impl AgentWallet {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApproveCommissionFee {
+    pub to: Pubkey,
+    pub max_fee: u8,
+}
+
+pub type ApproveBuilderCode = ApproveCommissionFee;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RevokeCommissionFee {
+    pub to: Pubkey,
+}
+
+pub type RevokeBuilderCode = RevokeCommissionFee;
 
 // ============================================================================
 // User Settings
@@ -1000,6 +1058,10 @@ pub enum Action {
     MultisigExecute(MultisigExecute),
     /// Update a multisig policy
     UpdateMultisigPolicy(UpdateMultisigPolicy),
+    /// Approve a builder-code recipient
+    ApproveCommissionFee(ApproveCommissionFee),
+    /// Revoke a builder-code recipient
+    RevokeCommissionFee(RevokeCommissionFee),
 }
 
 impl Action {
@@ -1013,6 +1075,8 @@ impl Action {
             Self::UpdateUserSettings(_) => 9,
             Self::AgentWalletCreation(_) => 8,
             Self::WhitelistFaucet(_) => 10,
+            Self::ApproveCommissionFee(_) => 40,
+            Self::RevokeCommissionFee(_) => 41,
             Self::CreateSubAccount(_) => 27,
             Self::RemoveSubAccount(_) => 28,
             Self::Transfer(_) => 29,
@@ -1039,6 +1103,8 @@ impl Action {
             Self::UpdateUserSettings(_) => "updateUserSettings",
             Self::AgentWalletCreation(_) => "agentWalletCreation",
             Self::WhitelistFaucet(_) => "whitelistFaucet",
+            Self::ApproveCommissionFee(_) => "abc",
+            Self::RevokeCommissionFee(_) => "rbc",
             Self::CreateSubAccount(_) => "createSubAccount",
             Self::RemoveSubAccount(_) => "removeSubAccount",
             Self::Transfer(_) => "transfer",

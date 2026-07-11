@@ -4,9 +4,12 @@
 //! It's significantly faster than pure JavaScript or WASM implementations.
 
 use bulk_keychain::{
-    prepare_agent_wallet, prepare_all, prepare_create_sub_account, prepare_faucet, prepare_group,
-    prepare_message, prepare_remove_sub_account, prepare_rename_sub_account, prepare_transfer,
-    Cancel, CancelAll, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy,
+    prepare_agent_wallet, prepare_all,
+    prepare_approve_commission_fee as core_prepare_approve_commission_fee,
+    prepare_create_sub_account, prepare_faucet, prepare_group, prepare_message,
+    prepare_remove_sub_account, prepare_rename_sub_account,
+    prepare_revoke_commission_fee as core_prepare_revoke_commission_fee, prepare_transfer, Cancel,
+    CancelAll, Commission, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy,
     OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
     RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
     TransferKind, TriggerBasket, UserSettings,
@@ -289,6 +292,60 @@ impl NativeSigner {
         Ok(signed.into())
     }
 
+    /// Sign builder-code recipient approval (`abc`)
+    #[napi]
+    pub fn sign_approve_commission_fee(
+        &mut self,
+        to_pubkey: String,
+        fee: u32,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+        let signed = self
+            .inner
+            .sign_approve_commission_fee(to, fee as u8, nonce.map(|n| n as u64))
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign builder-code recipient approval (`abc`)
+    #[napi(js_name = "signApproveBuilderCode")]
+    pub fn sign_approve_builder_code(
+        &mut self,
+        to_pubkey: String,
+        fee: u32,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        self.sign_approve_commission_fee(to_pubkey, fee, nonce)
+    }
+
+    /// Sign builder-code recipient revocation (`rbc`)
+    #[napi]
+    pub fn sign_revoke_commission_fee(
+        &mut self,
+        to_pubkey: String,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+        let signed = self
+            .inner
+            .sign_revoke_commission_fee(to, nonce.map(|n| n as u64))
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
+    /// Sign builder-code recipient revocation (`rbc`)
+    #[napi(js_name = "signRevokeBuilderCode")]
+    pub fn sign_revoke_builder_code(
+        &mut self,
+        to_pubkey: String,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        self.sign_revoke_commission_fee(to_pubkey, nonce)
+    }
+
     /// Sign user settings update
     #[napi]
     pub fn sign_user_settings(
@@ -537,6 +594,9 @@ pub struct OrderInput {
     pub size: Option<f64>,
     pub reduce_only: Option<bool>,
     pub iso: Option<bool>,
+    #[napi(js_name = "builderCode")]
+    #[serde(rename = "builderCode")]
+    pub builder_code: Option<BuilderCodeInput>,
     pub order_type: Option<OrderTypeInput>,
     pub client_id: Option<String>,
     pub order_id: Option<String>,
@@ -552,6 +612,13 @@ pub struct OrderInput {
     pub on_fill: Option<OnFillInput>,
     pub trail_bps: Option<u32>,
     pub step_bps: Option<u32>,
+}
+
+#[napi(object)]
+#[derive(Debug, Deserialize)]
+pub struct BuilderCodeInput {
+    pub to: String,
+    pub fee: u32,
 }
 
 #[napi(object)]
@@ -690,6 +757,18 @@ impl TryFrom<OrderInput> for OrderItem {
                     iso,
                     order_type,
                     client_id: None,
+                    commission: input
+                        .builder_code
+                        .map(|commission| {
+                            Commission::new(
+                                Pubkey::from_base58(&commission.to).map_err(|e| {
+                                    Error::from_reason(format!("Invalid builderCode.to: {}", e))
+                                })?,
+                                commission.fee as u8,
+                            )
+                            .map_err(|e| Error::from_reason(e.to_string()))
+                        })
+                        .transpose()?,
                 };
                 if let Some(cid) = client_id {
                     order.client_id = Some(cid);
@@ -1124,6 +1203,71 @@ pub fn prepare_agent_wallet_auth(
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
+}
+
+/// Prepare builder-code recipient approval for external signing
+#[napi]
+pub fn prepare_approve_commission_fee(
+    to_pubkey: String,
+    fee: u32,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared =
+        core_prepare_approve_commission_fee(&to, fee as u8, &account, signer.as_ref(), nonce)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare builder-code recipient approval for external signing
+#[napi(js_name = "prepareApproveBuilderCode")]
+pub fn prepare_approve_builder_code(
+    to_pubkey: String,
+    fee: u32,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    prepare_approve_commission_fee(to_pubkey, fee, options)
+}
+
+/// Prepare builder-code recipient revocation for external signing
+#[napi]
+pub fn prepare_revoke_commission_fee(
+    to_pubkey: String,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared = core_prepare_revoke_commission_fee(&to, &account, signer.as_ref(), nonce)
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare builder-code recipient revocation for external signing
+#[napi(js_name = "prepareRevokeBuilderCode")]
+pub fn prepare_revoke_builder_code(
+    to_pubkey: String,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    prepare_revoke_commission_fee(to_pubkey, options)
 }
 
 /// Prepare faucet request for external signing

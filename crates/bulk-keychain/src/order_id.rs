@@ -54,6 +54,7 @@ pub fn compute_limit_order_id(
         reduce_only,
         iso: false,
         client_id: None,
+        commission: None,
     };
     compute_order_id(&order, nonce, owner)
 }
@@ -80,6 +81,7 @@ pub fn compute_market_order_id(
         reduce_only,
         iso: false,
         client_id: None,
+        commission: None,
     };
     compute_order_id(&order, nonce, owner)
 }
@@ -101,6 +103,7 @@ fn compute_order_id_at_index(order: &Order, seqno: u32, nonce: u64, owner: &Pubk
             reduce_only: order.reduce_only,
             iso: order.iso,
             client_id: order.client_id,
+            commission: order.commission,
         },
     };
 
@@ -278,6 +281,19 @@ mod tests {
         let expected = compute_market_order_id(1234567890, "BTC-USD", &owner, true, 0.1, false);
 
         assert_eq!(id, expected);
+    }
+
+    #[test]
+    fn test_compute_order_id_ignores_commission() {
+        let owner = Pubkey::from_bytes([42u8; 32]);
+        let recipient = Pubkey::from_bytes([7u8; 32]);
+        let order = Order::limit("BTC-USD", true, 50000.0, 0.5, TimeInForce::Gtc);
+        let commissioned = order.clone().with_commission(recipient, 5).unwrap();
+
+        assert_eq!(
+            compute_order_id(&order, 1234567890, &owner),
+            compute_order_id(&commissioned, 1234567890, &owner)
+        );
     }
 
     #[test]

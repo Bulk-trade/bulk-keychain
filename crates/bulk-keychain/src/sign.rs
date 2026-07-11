@@ -245,6 +245,57 @@ impl Signer {
         self.sign_action_self(&action, nonce)
     }
 
+    /// Sign builder-code recipient approval.
+    ///
+    /// Builder codes are encoded as commission fees on the wire.
+    pub fn sign_approve_commission_fee(
+        &mut self,
+        to: Pubkey,
+        fee: u8,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        if fee == 0 || fee > MAX_COMMISSION_FEE_BPS {
+            return Err(Error::InvalidOrder(
+                "builder-code fee must be 1..=15 bps".to_string(),
+            ));
+        }
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::ApproveCommissionFee(ApproveCommissionFee { to, max_fee: fee });
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign builder-code recipient approval.
+    #[inline]
+    pub fn sign_approve_builder_code(
+        &mut self,
+        to: Pubkey,
+        fee: u8,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        self.sign_approve_commission_fee(to, fee, nonce)
+    }
+
+    /// Sign builder-code recipient revocation.
+    pub fn sign_revoke_commission_fee(
+        &mut self,
+        to: Pubkey,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::RevokeCommissionFee(RevokeCommissionFee { to });
+        self.sign_action_self(&action, nonce)
+    }
+
+    /// Sign builder-code recipient revocation.
+    #[inline]
+    pub fn sign_revoke_builder_code(
+        &mut self,
+        to: Pubkey,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        self.sign_revoke_commission_fee(to, nonce)
+    }
+
     /// Sign user settings update.
     pub fn sign_user_settings(
         &mut self,
@@ -741,6 +792,17 @@ impl Signer {
                     "proposalLifetimeSecs": action.proposal_lifetime_secs,
                 }
             })]),
+            Action::ApproveCommissionFee(action) => Ok(vec![json!({
+                "abc": {
+                    "to": action.to.to_base58(),
+                    "fee": action.max_fee
+                }
+            })]),
+            Action::RevokeCommissionFee(action) => Ok(vec![json!({
+                "rbc": {
+                    "to": action.to.to_base58()
+                }
+            })]),
         }
     }
 
@@ -753,17 +815,22 @@ impl Signer {
                         TimeInForce::Ioc => "IOC",
                         TimeInForce::Alo => "ALO",
                     };
-                    Ok(json!({
-                        "l": {
-                            "c": order.symbol,
-                            "b": order.is_buy,
-                            "px": order.price,
-                            "sz": order.size,
-                            "tif": tif_str,
-                            "r": order.reduce_only,
-                            "i": order.iso
-                        }
-                    }))
+                    let mut body = json!({
+                        "c": order.symbol,
+                        "b": order.is_buy,
+                        "px": order.price,
+                        "sz": order.size,
+                        "tif": tif_str,
+                        "r": order.reduce_only,
+                        "i": order.iso
+                    });
+                    if let Some(commission) = order.commission {
+                        body["builderCode"] = json!({
+                            "to": commission.to.to_base58(),
+                            "fee": commission.fee
+                        });
+                    }
+                    Ok(json!({ "l": body }))
                 }
                 OrderType::Trigger {
                     is_market,
@@ -774,15 +841,20 @@ impl Signer {
                             "trigger orders are not supported by BULK API; use market".to_string(),
                         ));
                     }
-                    Ok(json!({
-                        "m": {
-                            "c": order.symbol,
-                            "b": order.is_buy,
-                            "sz": order.size,
-                            "r": order.reduce_only,
-                            "i": order.iso
-                        }
-                    }))
+                    let mut body = json!({
+                        "c": order.symbol,
+                        "b": order.is_buy,
+                        "sz": order.size,
+                        "r": order.reduce_only,
+                        "i": order.iso
+                    });
+                    if let Some(commission) = order.commission {
+                        body["builderCode"] = json!({
+                            "to": commission.to.to_base58(),
+                            "fee": commission.fee
+                        });
+                    }
+                    Ok(json!({ "m": body }))
                 }
             },
             OrderItem::Modify(modify) => Ok(json!({
@@ -1145,6 +1217,56 @@ mod tests {
             .unwrap();
         assert_eq!(signed.actions.len(), 1);
         assert!(signed.actions[0].get("whitelistFaucet").is_some());
+    }
+
+    #[test]
+    fn test_commission_order_json_and_order_id() {
+        let keypair = Keypair::generate();
+        let recipient = Pubkey::from_bytes([9u8; 32]);
+        let mut signer = Signer::new(keypair);
+        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+        let plain = signer.sign(order.clone().into(), Some(1234567890)).unwrap();
+        let commissioned = signer
+            .sign(
+                order.with_builder_code(recipient, 5).unwrap().into(),
+                Some(1234567890),
+            )
+            .unwrap();
+
+        assert!(plain.actions[0]["l"].get("builderCode").is_none());
+        assert_eq!(commissioned.actions[0]["l"]["builderCode"]["fee"], 5);
+        assert_eq!(
+            commissioned.actions[0]["l"]["builderCode"]["to"],
+            recipient.to_base58()
+        );
+        assert_eq!(plain.actions[0]["l"]["i"], false);
+        assert_eq!(plain.order_id, commissioned.order_id);
+        assert_ne!(plain.signature, commissioned.signature);
+    }
+
+    #[test]
+    fn test_sign_commission_approval_actions() {
+        let keypair = Keypair::generate();
+        let recipient = Pubkey::from_bytes([7u8; 32]);
+        let mut signer = Signer::new(keypair);
+        let approve = signer
+            .sign_approve_builder_code(recipient, 5, Some(1234567890))
+            .unwrap();
+        let revoke = signer
+            .sign_revoke_builder_code(recipient, Some(1234567891))
+            .unwrap();
+
+        assert_eq!(approve.actions[0]["abc"]["fee"], 5);
+        assert_eq!(approve.actions[0]["abc"]["to"], recipient.to_base58());
+        assert_eq!(revoke.actions[0]["rbc"]["to"], recipient.to_base58());
+        assert!(approve.order_id.is_none());
+        assert!(revoke.order_id.is_none());
+        assert!(signer
+            .sign_approve_builder_code(recipient, 0, Some(1234567892))
+            .is_err());
+        assert!(signer
+            .sign_approve_builder_code(recipient, 16, Some(1234567893))
+            .is_err());
     }
 
     #[test]

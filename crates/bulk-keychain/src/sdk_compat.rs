@@ -117,6 +117,29 @@ impl From<TimeInForce> for TxTimeInForce {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct TxCommission {
+    #[serde(with = "serde_pubkey")]
+    to: Pubkey,
+    fee: u8,
+}
+
+impl TryFrom<Commission> for TxCommission {
+    type Error = Error;
+
+    fn try_from(value: Commission) -> Result<Self> {
+        if value.fee == 0 || value.fee > MAX_COMMISSION_FEE_BPS {
+            return Err(Error::InvalidOrder(
+                "builder-code fee must be 1..=15 bps".to_string(),
+            ));
+        }
+        Ok(Self {
+            to: value.to,
+            fee: value.fee,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
 struct TxMarketOrder {
     #[serde(rename = "c")]
     symbol: String,
@@ -126,8 +149,10 @@ struct TxMarketOrder {
     size: f64,
     #[serde(rename = "r")]
     reduce_only: bool,
-    #[serde(rename = "i", default)]
+    #[serde(rename = "i")]
     iso: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commission: Option<TxCommission>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -144,7 +169,41 @@ struct TxLimitOrder {
     tif: TxTimeInForce,
     #[serde(rename = "r")]
     reduce_only: bool,
-    #[serde(rename = "i", default)]
+    #[serde(rename = "i")]
+    iso: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    commission: Option<TxCommission>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxOrderHashMarketOrder {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "b")]
+    is_buy: bool,
+    #[serde(rename = "sz", with = "serde_safe_f64")]
+    size: f64,
+    #[serde(rename = "r")]
+    reduce_only: bool,
+    #[serde(rename = "i")]
+    iso: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxOrderHashLimitOrder {
+    #[serde(rename = "c")]
+    symbol: String,
+    #[serde(rename = "b")]
+    is_buy: bool,
+    #[serde(rename = "px", with = "serde_safe_f64")]
+    price: f64,
+    #[serde(rename = "sz", with = "serde_safe_f64")]
+    size: f64,
+    #[serde(rename = "tif")]
+    tif: TxTimeInForce,
+    #[serde(rename = "r")]
+    reduce_only: bool,
+    #[serde(rename = "i")]
     iso: bool,
 }
 
@@ -435,34 +494,35 @@ struct TxUpdateMultisigPolicy {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct TxApproveCommissionFee {
+    #[serde(with = "serde_pubkey", rename = "to")]
+    to: Pubkey,
+    #[serde(rename = "fee")]
+    max_fee: u8,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxRevokeCommissionFee {
+    #[serde(with = "serde_pubkey", rename = "to")]
+    to: Pubkey,
+}
+
+#[derive(Clone, Debug, Serialize)]
 enum TxAction {
-    #[serde(rename = "m")]
     MarketOrder(TxMarketOrder),
-    #[serde(rename = "l")]
     LimitOrder(TxLimitOrder),
-    #[serde(rename = "mod")]
     ModifyOrder(TxModifyOrder),
-    #[serde(rename = "cx")]
     Cancel(TxCancelOrder),
-    #[serde(rename = "cxa")]
     CancelAll(TxCancelAll),
-    #[serde(rename = "st")]
     Stop(TxStop),
-    #[serde(rename = "tp")]
     TakeProfit(TxTakeProfit),
-    #[serde(rename = "rng")]
     RangeOco(TxRangeOco),
-    #[serde(rename = "trig")]
     TriggerBasket(TxTriggerBasket),
-    #[serde(rename = "trl")]
     TrailingStop(TxTrailingStop),
-    #[serde(rename = "of")]
     OnFill(TxOnFill),
-    #[serde(rename = "px")]
     Price(TxPrice),
     #[allow(dead_code)]
     ReservedCorrs,
-    #[serde(rename = "o")]
     PythOracle(TxPythOracle),
     #[allow(dead_code)]
     ReservedBeacon,
@@ -512,10 +572,8 @@ enum TxAction {
     Reserved38,
     #[allow(dead_code)]
     Reserved39,
-    #[allow(dead_code)]
-    Reserved40,
-    #[allow(dead_code)]
-    Reserved41,
+    ApproveCommissionFee(TxApproveCommissionFee),
+    RevokeCommissionFee(TxRevokeCommissionFee),
     #[allow(dead_code)]
     Reserved42,
     #[allow(dead_code)]
@@ -544,6 +602,14 @@ enum TxAction {
     WithdrawLockRecover(TxWithdrawLockRecover),
 }
 
+#[derive(Clone, Debug, Serialize)]
+enum TxOrderHashAction {
+    #[serde(rename = "m")]
+    MarketOrder(TxOrderHashMarketOrder),
+    #[serde(rename = "l")]
+    LimitOrder(TxOrderHashLimitOrder),
+}
+
 #[inline]
 fn nan_to_none(v: f64) -> Option<f64> {
     if v.is_nan() {
@@ -565,6 +631,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                 tif: TxTimeInForce::from(tif),
                 reduce_only: order.reduce_only,
                 iso: order.iso,
+                commission: order.commission.map(TxCommission::try_from).transpose()?,
             })),
             OrderType::Trigger {
                 is_market,
@@ -581,6 +648,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                     size: order.size,
                     reduce_only: order.reduce_only,
                     iso: order.iso,
+                    commission: order.commission.map(TxCommission::try_from).transpose()?,
                 }))
             }
         },
@@ -786,6 +854,24 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
                 proposal_lifetime_secs: action.proposal_lifetime_secs,
             },
         )]),
+        Action::ApproveCommissionFee(action) => {
+            if action.max_fee == 0 || action.max_fee > MAX_COMMISSION_FEE_BPS {
+                return Err(Error::InvalidOrder(
+                    "builder-code fee must be 1..=15 bps".to_string(),
+                ));
+            }
+            Ok(vec![TxAction::ApproveCommissionFee(
+                TxApproveCommissionFee {
+                    to: action.to,
+                    max_fee: action.max_fee,
+                },
+            )])
+        }
+        Action::RevokeCommissionFee(action) => {
+            Ok(vec![TxAction::RevokeCommissionFee(TxRevokeCommissionFee {
+                to: action.to,
+            })])
+        }
     }
 }
 
@@ -815,9 +901,40 @@ pub(crate) fn serialize_for_sdk_signing(
 }
 
 #[inline]
-fn order_item_to_order_action(item: &OrderItem) -> Result<Option<TxAction>> {
+fn order_item_to_order_hash_action(item: &OrderItem) -> Result<Option<TxOrderHashAction>> {
     match item {
-        OrderItem::Order(_) => order_item_to_tx_action(item).map(Some),
+        OrderItem::Order(order) => match order.order_type {
+            OrderType::Limit { tif } => {
+                Ok(Some(TxOrderHashAction::LimitOrder(TxOrderHashLimitOrder {
+                    symbol: order.symbol.clone(),
+                    is_buy: order.is_buy,
+                    price: order.price,
+                    size: order.size,
+                    tif: TxTimeInForce::from(tif),
+                    reduce_only: order.reduce_only,
+                    iso: order.iso,
+                })))
+            }
+            OrderType::Trigger {
+                is_market,
+                trigger_px: _,
+            } => {
+                if !is_market {
+                    return Err(Error::InvalidOrder(
+                        "trigger orders are not supported by BULK API; use market".to_string(),
+                    ));
+                }
+                Ok(Some(TxOrderHashAction::MarketOrder(
+                    TxOrderHashMarketOrder {
+                        symbol: order.symbol.clone(),
+                        is_buy: order.is_buy,
+                        size: order.size,
+                        reduce_only: order.reduce_only,
+                        iso: order.iso,
+                    },
+                )))
+            }
+        },
         _ => Ok(None),
     }
 }
@@ -830,7 +947,7 @@ pub(crate) fn compute_order_item_id_with_seqno(
     account: &Pubkey,
     scratch: &mut Vec<u8>,
 ) -> Option<Hash> {
-    let action = order_item_to_order_action(item).ok()??;
+    let action = order_item_to_order_hash_action(item).ok()??;
 
     serialize_into_buffer(&action, scratch).ok()?;
 
@@ -841,4 +958,80 @@ pub(crate) fn compute_order_item_id_with_seqno(
     hasher.update(nonce.to_le_bytes());
     let hash: [u8; 32] = hasher.finalize().into();
     Some(Hash::from_bytes(hash))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn first_action_discriminant(action: &Action) -> u32 {
+        let mut out = Vec::with_capacity(128);
+        serialize_for_sdk_signing(action, 7, &Pubkey::from_bytes([1u8; 32]), &mut out).unwrap();
+        u32::from_le_bytes(out[8..12].try_into().unwrap())
+    }
+
+    #[test]
+    fn commission_action_discriminants_match_sdk() {
+        let recipient = Pubkey::from_bytes([2u8; 32]);
+
+        assert_eq!(
+            first_action_discriminant(&Action::ApproveCommissionFee(ApproveCommissionFee {
+                to: recipient,
+                max_fee: 5,
+            })),
+            40
+        );
+        assert_eq!(
+            first_action_discriminant(&Action::RevokeCommissionFee(RevokeCommissionFee {
+                to: recipient,
+            })),
+            41
+        );
+    }
+
+    #[test]
+    fn commissioned_order_bytes_are_compact_and_order_hash_is_stable() {
+        let account = Pubkey::from_bytes([3u8; 32]);
+        let recipient = Pubkey::from_bytes([4u8; 32]);
+        let plain = OrderItem::Order(Order::limit(
+            "BTC-USD",
+            true,
+            100000.0,
+            0.1,
+            TimeInForce::Gtc,
+        ));
+        let commissioned = OrderItem::Order(
+            Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc)
+                .with_commission(recipient, 5)
+                .unwrap(),
+        );
+        let mut plain_bytes = Vec::with_capacity(256);
+        let mut commissioned_bytes = Vec::with_capacity(256);
+        let mut scratch = Vec::with_capacity(96);
+
+        serialize_for_sdk_signing(
+            &Action::Order {
+                orders: vec![plain.clone()],
+            },
+            9,
+            &account,
+            &mut plain_bytes,
+        )
+        .unwrap();
+        serialize_for_sdk_signing(
+            &Action::Order {
+                orders: vec![commissioned.clone()],
+            },
+            9,
+            &account,
+            &mut commissioned_bytes,
+        )
+        .unwrap();
+
+        assert_ne!(plain_bytes, commissioned_bytes);
+        assert_eq!(
+            compute_order_item_id_with_seqno(&plain, 0, 9, &account, &mut scratch),
+            compute_order_item_id_with_seqno(&commissioned, 0, 9, &account, &mut scratch)
+        );
+    }
 }

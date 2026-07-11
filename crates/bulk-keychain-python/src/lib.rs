@@ -3,12 +3,13 @@
 //! This module provides high-performance Python bindings using PyO3.
 
 use bulk_keychain::{
-    compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_create_sub_account,
-    prepare_faucet, prepare_group, prepare_message, prepare_remove_sub_account, prepare_transfer,
-    Cancel, CancelAll, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy,
-    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
-    RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
-    TriggerBasket, UserSettings,
+    compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_approve_commission_fee,
+    prepare_create_sub_account, prepare_faucet, prepare_group, prepare_message,
+    prepare_remove_sub_account, prepare_revoke_commission_fee, prepare_transfer, Cancel, CancelAll,
+    Commission, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill,
+    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
+    Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket,
+    UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -255,6 +256,62 @@ impl PySigner {
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign builder-code recipient approval (`abc`)
+    #[pyo3(signature = (to_pubkey, fee, nonce=None))]
+    fn sign_approve_commission_fee(
+        &mut self,
+        to_pubkey: &str,
+        fee: u8,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let to =
+            Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let signed = self
+            .inner
+            .sign_approve_commission_fee(to, fee, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign builder-code recipient approval (`abc`)
+    #[pyo3(signature = (to_pubkey, fee, nonce=None))]
+    fn sign_approve_builder_code(
+        &mut self,
+        to_pubkey: &str,
+        fee: u8,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        self.sign_approve_commission_fee(to_pubkey, fee, nonce)
+    }
+
+    /// Sign builder-code recipient revocation (`rbc`)
+    #[pyo3(signature = (to_pubkey, nonce=None))]
+    fn sign_revoke_commission_fee(
+        &mut self,
+        to_pubkey: &str,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let to =
+            Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let signed = self
+            .inner
+            .sign_revoke_commission_fee(to, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
+    /// Sign builder-code recipient revocation (`rbc`)
+    #[pyo3(signature = (to_pubkey, nonce=None))]
+    fn sign_revoke_builder_code(
+        &mut self,
+        to_pubkey: &str,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        self.sign_revoke_commission_fee(to_pubkey, nonce)
     }
 
     /// Sign user settings update
@@ -574,6 +631,14 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 iso,
                 order_type,
                 client_id,
+                commission: {
+                    if dict.get_item("commission")?.is_some() {
+                        return Err(PyValueError::new_err(
+                            "commission was renamed to builder_code",
+                        ));
+                    }
+                    parse_commission(dict.get_item("builder_code")?)?
+                },
             }))
         }
         "cancel" => {
@@ -826,6 +891,32 @@ fn parse_order_item_for_id(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
     parse_compact_order_item(dict)
 }
 
+fn parse_commission(value: Option<Bound<'_, PyAny>>) -> PyResult<Option<Commission>> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_none() {
+        return Err(PyValueError::new_err(
+            "builder_code must be omitted or an object",
+        ));
+    }
+    let dict = value.downcast::<PyDict>()?;
+    let to: String = dict
+        .get_item("to")?
+        .ok_or_else(|| PyValueError::new_err("Missing builder_code.to"))?
+        .extract()?;
+    let fee: u8 = dict
+        .get_item("fee")?
+        .ok_or_else(|| PyValueError::new_err("Missing builder_code.fee"))?
+        .extract()?;
+    Commission::new(
+        Pubkey::from_base58(&to).map_err(|e| PyValueError::new_err(e.to_string()))?,
+        fee,
+    )
+    .map(Some)
+    .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
 fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
     if let Some(limit_obj) = dict.get_item("l")? {
         let limit = limit_obj.downcast::<PyDict>()?;
@@ -879,6 +970,14 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
             iso,
             order_type: OrderType::Limit { tif },
             client_id,
+            commission: {
+                if limit.get_item("commission")?.is_some() {
+                    return Err(PyValueError::new_err(
+                        "commission was renamed to builder_code",
+                    ));
+                }
+                parse_commission(limit.get_item("builder_code")?)?
+            },
         }));
     }
 
@@ -917,6 +1016,14 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
                 trigger_px: 0.0,
             },
             client_id: None,
+            commission: {
+                if market.get_item("commission")?.is_some() {
+                    return Err(PyValueError::new_err(
+                        "commission was renamed to builder_code",
+                    ));
+                }
+                parse_commission(market.get_item("builder_code")?)?
+            },
         }));
     }
 
@@ -1285,6 +1392,78 @@ fn py_prepare_agent_wallet_auth(
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
+/// Prepare builder-code recipient approval for external signing
+#[pyfunction]
+#[pyo3(signature = (to_pubkey, fee, account, signer=None, nonce=None))]
+fn py_prepare_approve_commission_fee(
+    to_pubkey: &str,
+    fee: u8,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let to = Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_approve_commission_fee(&to, fee, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare builder-code recipient approval for external signing
+#[pyfunction]
+#[pyo3(signature = (to_pubkey, fee, account, signer=None, nonce=None))]
+fn py_prepare_approve_builder_code(
+    to_pubkey: &str,
+    fee: u8,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    py_prepare_approve_commission_fee(to_pubkey, fee, account, signer, nonce)
+}
+
+/// Prepare builder-code recipient revocation for external signing
+#[pyfunction]
+#[pyo3(signature = (to_pubkey, account, signer=None, nonce=None))]
+fn py_prepare_revoke_commission_fee(
+    to_pubkey: &str,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let to = Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_revoke_commission_fee(&to, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
+/// Prepare builder-code recipient revocation for external signing
+#[pyfunction]
+#[pyo3(signature = (to_pubkey, account, signer=None, nonce=None))]
+fn py_prepare_revoke_builder_code(
+    to_pubkey: &str,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    py_prepare_revoke_commission_fee(to_pubkey, account, signer, nonce)
+}
+
 /// Prepare faucet request for external signing
 #[pyfunction]
 #[pyo3(signature = (account, signer=None, nonce=None))]
@@ -1482,6 +1661,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_prepare_all_orders, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_order_group, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_agent_wallet_auth, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_approve_builder_code, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_approve_commission_fee, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_revoke_builder_code, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_revoke_commission_fee, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_faucet_request, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_create_sub_account, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_remove_sub_account, m)?)?;

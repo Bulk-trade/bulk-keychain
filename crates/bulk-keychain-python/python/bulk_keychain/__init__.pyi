@@ -13,6 +13,10 @@ class OrderTypeTrigger(TypedDict):
 
 OrderType = OrderTypeLimit | OrderTypeTrigger
 
+class BuilderCodeInput(TypedDict):
+    to: str
+    fee: int
+
 class OrderItem(TypedDict):
     type: Literal["order"]
     symbol: str
@@ -20,6 +24,8 @@ class OrderItem(TypedDict):
     price: float
     size: float
     reduce_only: NotRequired[bool]
+    iso: NotRequired[bool]
+    builder_code: NotRequired[BuilderCodeInput]
     order_type: NotRequired[OrderType]
     client_id: NotRequired[str]
 
@@ -175,6 +181,40 @@ class Signer:
         nonce: int | None = None
     ) -> SignedTransaction:
         """Sign agent wallet creation/deletion"""
+        ...
+
+    def sign_approve_commission_fee(
+        self,
+        to_pubkey: str,
+        fee: int,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign builder-code recipient approval (`abc`)"""
+        ...
+
+    def sign_approve_builder_code(
+        self,
+        to_pubkey: str,
+        fee: int,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign builder-code recipient approval (`abc`)"""
+        ...
+
+    def sign_revoke_commission_fee(
+        self,
+        to_pubkey: str,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign builder-code recipient revocation (`rbc`)"""
+        ...
+
+    def sign_revoke_builder_code(
+        self,
+        to_pubkey: str,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign builder-code recipient revocation (`rbc`)"""
         ...
 
     def sign_user_settings(
@@ -359,6 +399,44 @@ def prepare_agent_wallet(
     nonce: int | None = None
 ) -> PreparedMessage:
     """Prepare agent wallet creation for external signing"""
+    ...
+
+def prepare_approve_commission_fee(
+    to_pubkey: str,
+    fee: int,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare builder-code recipient approval for external signing"""
+    ...
+
+def prepare_approve_builder_code(
+    to_pubkey: str,
+    fee: int,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare builder-code recipient approval for external signing"""
+    ...
+
+def prepare_revoke_commission_fee(
+    to_pubkey: str,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare builder-code recipient revocation for external signing"""
+    ...
+
+def prepare_revoke_builder_code(
+    to_pubkey: str,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare builder-code recipient revocation for external signing"""
     ...
 
 def prepare_faucet(
