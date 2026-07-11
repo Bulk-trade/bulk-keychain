@@ -35,6 +35,9 @@ venv/
 *.swo
 .DS_Store
 
+# Claude Code local config
+.claude/
+
 # Turborepo
 .turbo/
 
