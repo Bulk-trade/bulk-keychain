@@ -169,6 +169,33 @@ impl NativeSigner {
         self.inner.computes_batch_order_ids()
     }
 
+    /// Sign raw message bytes and return a base58 Ed25519 signature.
+    #[napi(js_name = "signBytes")]
+    pub fn sign_bytes(&self, message: Buffer) -> String {
+        self.inner.sign_bytes(&message)
+    }
+
+    /// Sign a prepared message and finalize it into a signed transaction.
+    ///
+    /// This supports agent-wallet flows where prepared.account is the trading
+    /// account and prepared.signer is this NativeSigner's pubkey.
+    #[napi(js_name = "signPrepared")]
+    pub fn sign_prepared(
+        &self,
+        prepared: PreparedMessageOutput,
+    ) -> Result<SignedTransactionOutput> {
+        let signer = self.pubkey();
+        if prepared.signer != signer {
+            return Err(Error::from_reason(format!(
+                "Prepared message signer {} does not match NativeSigner pubkey {}",
+                prepared.signer, signer
+            )));
+        }
+
+        let signature = self.inner.sign_bytes(&prepared.message_bytes);
+        Ok(finalize_prepared_transaction(prepared, signature))
+    }
+
     // ========================================================================
     // Simplified API
     // ========================================================================

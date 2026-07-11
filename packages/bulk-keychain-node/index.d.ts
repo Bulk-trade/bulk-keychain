@@ -113,6 +113,8 @@ export class NativeSigner {
   setComputeBatchOrderIds(enabled: boolean): void;
   computesOrderId(): boolean;
   computesBatchOrderIds(): boolean;
+  signBytes(message: Buffer): string;
+  signPrepared(prepared: PreparedMessageOutput): SignedTransactionOutput;
   sign(order: OrderInput, nonce?: number): SignedTransactionOutput;
   signAll(orders: OrderInput[], baseNonce?: number): SignedTransactionOutput[];
   signGroup(orders: OrderInput[], nonce?: number): SignedTransactionOutput;

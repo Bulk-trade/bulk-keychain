@@ -183,6 +183,31 @@ impl WasmSigner {
         self.inner.computes_batch_order_ids()
     }
 
+    /// Sign raw message bytes and return a base58 Ed25519 signature.
+    #[wasm_bindgen(js_name = signBytes)]
+    pub fn sign_bytes(&self, message: &[u8]) -> String {
+        self.inner.sign_bytes(message)
+    }
+
+    /// Sign a prepared message and finalize it into a signed transaction.
+    ///
+    /// This supports agent-wallet flows where prepared.account is the trading
+    /// account and prepared.signer is this signer's pubkey.
+    #[wasm_bindgen(js_name = signPrepared)]
+    pub fn sign_prepared(&self, prepared: &WasmPreparedMessage) -> Result<JsValue, JsError> {
+        let signer = self.pubkey();
+        if prepared.inner.signer != signer {
+            return Err(JsError::new(&format!(
+                "Prepared message signer {} does not match signer pubkey {}",
+                prepared.inner.signer, signer
+            )));
+        }
+
+        let signature = self.inner.sign_bytes(&prepared.inner.message_bytes);
+        let signed = finalize_transaction(prepared.inner.clone(), &signature);
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
     // ========================================================================
     // Simplified API
     // ========================================================================
@@ -2464,5 +2489,63 @@ mod tests {
         let b58 = keypair.to_base58();
         let restored = WasmKeypair::from_base58(&b58).unwrap();
         assert_eq!(keypair.pubkey(), restored.pubkey());
+    }
+
+    // serde_wasm_bindgen deserializes structs from JS objects, so serialize
+    // the JSON as plain objects (not Maps) via the json-compatible serializer.
+    fn to_js_object(value: serde_json::Value) -> JsValue {
+        serde::Serialize::serialize(
+            &value,
+            &serde_wasm_bindgen::Serializer::json_compatible(),
+        )
+        .unwrap()
+    }
+
+    fn limit_order_json() -> JsValue {
+        to_js_object(serde_json::json!({
+            "type": "order",
+            "symbol": "BTC-USD",
+            "isBuy": true,
+            "price": 100000,
+            "size": 0.1,
+            "orderType": { "type": "limit", "tif": "GTC" },
+        }))
+    }
+
+    #[wasm_bindgen_test]
+    fn test_sign_prepared_account_ne_signer() {
+        let agent = WasmSigner::new(&WasmKeypair::new());
+        let target_account = WasmKeypair::new().pubkey();
+        let options = to_js_object(serde_json::json!({
+            "account": target_account,
+            "signer": agent.pubkey(),
+            "nonce": 1234567890u64,
+        }));
+
+        let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
+
+        // signPrepared with account != signer succeeds
+        assert!(agent.sign_prepared(&prepared).is_ok());
+
+        // It preserves account/signer and matches the manual signBytes + finalize path
+        let sig = agent.sign_bytes(&prepared.inner.message_bytes);
+        let expected = finalize_transaction(prepared.inner.clone(), &sig);
+        assert_eq!(expected.account, target_account);
+        assert_eq!(expected.signer, agent.pubkey());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_sign_prepared_rejects_signer_mismatch() {
+        let agent = WasmSigner::new(&WasmKeypair::new());
+        let other = WasmSigner::new(&WasmKeypair::new());
+        let options = to_js_object(serde_json::json!({
+            "account": WasmKeypair::new().pubkey(),
+            "signer": agent.pubkey(),
+            "nonce": 1234567890u64,
+        }));
+
+        let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
+
+        assert!(other.sign_prepared(&prepared).is_err());
     }
 }

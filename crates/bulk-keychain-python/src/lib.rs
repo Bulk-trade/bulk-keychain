@@ -153,6 +153,42 @@ impl PySigner {
         self.inner.computes_batch_order_ids()
     }
 
+    /// Sign raw message bytes and return a base58 Ed25519 signature.
+    fn sign_bytes(&self, message: &[u8]) -> String {
+        self.inner.sign_bytes(message)
+    }
+
+    /// Sign a prepared message and finalize it into a signed transaction.
+    ///
+    /// This supports agent-wallet flows where prepared["account"] is the trading
+    /// account and prepared["signer"] is this signer's pubkey.
+    ///
+    /// Args:
+    ///     prepared: PreparedMessage dict from prepare_* functions
+    ///
+    /// Returns:
+    ///     SignedTransaction dict ready for API submission
+    fn sign_prepared(&self, prepared: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+        let signer: String = prepared
+            .get_item("signer")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
+            .extract()?;
+        let my_pubkey = self.inner.pubkey().to_base58();
+        if signer != my_pubkey {
+            return Err(PyValueError::new_err(format!(
+                "Prepared message signer {signer} does not match signer pubkey {my_pubkey}"
+            )));
+        }
+
+        let message_bytes: Vec<u8> = prepared
+            .get_item("message_bytes")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?
+            .extract()?;
+
+        let signature = self.inner.sign_bytes(&message_bytes);
+        py_finalize_transaction(prepared, &signature)
+    }
+
     // ========================================================================
     // Simplified API
     // ========================================================================

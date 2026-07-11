@@ -340,6 +340,57 @@ const { signature } = await phantom.signMessage(prepared.messageBytes);
 const signed = prepared.finalize(bs58.encode(signature));
 ```
 
+### Local Agent Signing
+
+When your backend/app holds the agent's private key in a `Signer`, you can sign a
+prepared message for a different trading account directly — no external wallet call
+needed. This covers the `account != signer` case where `signer` is the agent.
+
+`signPrepared` (`sign_prepared` in Python) rejects the request if `prepared.signer`
+does not match the signer's pubkey. For lower-level use, `signBytes` / `sign_bytes`
+returns the base58 signature so you can call `finalize*` yourself.
+
+#### TypeScript (Node.js)
+```typescript
+import { NativeSigner, prepareOrder } from 'bulk-keychain';
+
+const agent = new NativeSigner(agentKeypair);   // holds the agent private key
+
+// Prepare for the main trading account, signed by the agent
+const prepared = prepareOrder(order, {
+  account: mainAccountPubkey,   // the trading account
+  signer: agent.pubkey,         // the agent wallet signs
+});
+
+// Agent signs the canonical message and returns a SignedTransaction
+const signed = agent.signPrepared(prepared);
+```
+
+#### TypeScript (WASM)
+```typescript
+import { WasmSigner, prepareOrder } from 'bulk-keychain-wasm';
+
+const agent = new WasmSigner(agentKeypair);
+
+const prepared = prepareOrder(order, {
+  account: mainAccountPubkey,
+  signer: agent.pubkey,
+});
+
+const signed = agent.signPrepared(prepared);
+```
+
+#### Python
+```python
+from bulk_keychain import Signer, prepare_order
+
+agent = Signer(agent_keypair)
+
+prepared = prepare_order(order, account=main_account_pubkey, signer=agent.pubkey)
+
+signed = agent.sign_prepared(prepared)
+```
+
 ## Order Types
 
 ### Limit Order
