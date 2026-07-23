@@ -17,6 +17,23 @@ class BuilderCodeInput(TypedDict):
     to: str
     fee: int
 
+class LiquidatorInstrumentConfig(TypedDict):
+    symbol: str
+    max_exposure: NotRequired[float]
+    premium_min: NotRequired[float]
+    fee: NotRequired[float]
+    volume_percent: NotRequired[float]
+    volume_min: NotRequired[float]
+    volume_rampup: NotRequired[float]
+    max_adl_notional: NotRequired[float]
+    max_adl_percent: NotRequired[float]
+
+class LiquidatorConfig(TypedDict):
+    cross_exposure: NotRequired[float]
+    scoring_skew: NotRequired[float]
+    toxicity: NotRequired[float]
+    instruments: NotRequired[list[LiquidatorInstrumentConfig]]
+
 class OrderItem(TypedDict):
     type: Literal["order"]
     symbol: str
@@ -194,6 +211,14 @@ class Signer:
         nonce: int | None = None
     ) -> SignedTransaction:
         """Sign agent wallet creation/deletion"""
+        ...
+
+    def sign_update_liquidator_config(
+        self,
+        config: LiquidatorConfig,
+        nonce: int | None = None
+    ) -> SignedTransaction:
+        """Sign a liquidator config update (`liq`)"""
         ...
 
     def sign_approve_commission_fee(
@@ -412,6 +437,15 @@ def prepare_agent_wallet(
     nonce: int | None = None
 ) -> PreparedMessage:
     """Prepare agent wallet creation for external signing"""
+    ...
+
+def prepare_update_liquidator_config(
+    config: LiquidatorConfig,
+    account: str,
+    signer: str | None = None,
+    nonce: int | None = None
+) -> PreparedMessage:
+    """Prepare a liquidator config update (`liq`) for external signing"""
     ...
 
 def prepare_approve_commission_fee(

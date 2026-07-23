@@ -700,6 +700,98 @@ pub struct RevokeCommissionFee {
 pub type RevokeBuilderCode = RevokeCommissionFee;
 
 // ============================================================================
+// Liquidator Config
+// ============================================================================
+
+/// Per-instrument liquidator limits
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LiquidatorInstrumentConfig {
+    pub symbol: String,
+    pub max_exposure: f64,
+    pub premium_min: f64,
+    pub fee: f64,
+    pub volume_percent: f64,
+    pub volume_min: f64,
+    pub volume_rampup: u64,
+    pub max_adl_notional: f64,
+    pub max_adl_percent: f64,
+}
+
+impl LiquidatorInstrumentConfig {
+    /// Create an instrument config with every limit zeroed
+    pub fn new(symbol: impl Into<String>) -> Self {
+        Self {
+            symbol: symbol.into(),
+            ..Self::default()
+        }
+    }
+}
+
+/// Update the signing account's liquidator configuration
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct LiquidatorConfig {
+    pub cross_exposure: f64,
+    pub scoring_skew: f64,
+    /// Downscales every instrument's max exposure. Range 0-100 (0 = off)
+    pub toxicity: f64,
+    pub instruments: Vec<LiquidatorInstrumentConfig>,
+}
+
+impl LiquidatorConfig {
+    /// Create a config with no instruments
+    pub fn new(cross_exposure: f64, scoring_skew: f64, toxicity: f64) -> Self {
+        Self {
+            cross_exposure,
+            scoring_skew,
+            toxicity,
+            instruments: Vec::new(),
+        }
+    }
+
+    /// Add an instrument config, replacing any existing entry for its symbol
+    pub fn with_instrument(mut self, instrument: LiquidatorInstrumentConfig) -> Self {
+        self.instruments.retain(|i| i.symbol != instrument.symbol);
+        self.instruments.push(instrument);
+        self
+    }
+
+    /// Instruments in canonical (sorted-symbol) wire order
+    pub fn sorted_instruments(&self) -> Vec<&LiquidatorInstrumentConfig> {
+        let mut sorted: Vec<_> = self.instruments.iter().collect();
+        sorted.sort_by(|a, b| a.symbol.cmp(&b.symbol));
+        sorted
+    }
+}
+
+/// Build the `liq` action body, with instruments in signed-byte order
+pub(crate) fn liquidator_config_to_json(config: &LiquidatorConfig) -> serde_json::Value {
+    let instruments: Vec<_> = config
+        .sorted_instruments()
+        .into_iter()
+        .map(|i| {
+            serde_json::json!({
+                "symbol": i.symbol,
+                "max_exposure": i.max_exposure,
+                "premium_min": i.premium_min,
+                "fee": i.fee,
+                "volume_percent": i.volume_percent,
+                "volume_min": i.volume_min,
+                "volume_rampup": i.volume_rampup,
+                "max_adl_notional": i.max_adl_notional,
+                "max_adl_percent": i.max_adl_percent,
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "cross_exposure": config.cross_exposure,
+        "scoring_skew": config.scoring_skew,
+        "toxicity": config.toxicity,
+        "instruments": instruments,
+    })
+}
+
+// ============================================================================
 // User Settings
 // ============================================================================
 
@@ -1062,6 +1154,8 @@ pub enum Action {
     ApproveCommissionFee(ApproveCommissionFee),
     /// Revoke a builder-code recipient
     RevokeCommissionFee(RevokeCommissionFee),
+    /// Update the signing account's liquidator configuration
+    UpdateLiquidatorConfig(LiquidatorConfig),
 }
 
 impl Action {
@@ -1090,6 +1184,7 @@ impl Action {
             Self::RenameSubAccount(_) => 37,
             Self::Withdraw(_) => 45,
             Self::WithdrawLockRecover(_) => 54,
+            Self::UpdateLiquidatorConfig(_) => 43,
         }
     }
 
@@ -1118,7 +1213,14 @@ impl Action {
             Self::RenameSubAccount(_) => "renameSubAccount",
             Self::Withdraw(_) => "withdraw",
             Self::WithdrawLockRecover(_) => "withdrawLockRecover",
+            Self::UpdateLiquidatorConfig(_) => "liq",
         }
+    }
+}
+
+impl From<LiquidatorConfig> for Action {
+    fn from(config: LiquidatorConfig) -> Self {
+        Self::UpdateLiquidatorConfig(config)
     }
 }
 

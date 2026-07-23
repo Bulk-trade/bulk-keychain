@@ -508,6 +508,27 @@ struct TxRevokeCommissionFee {
 }
 
 #[derive(Clone, Debug, Serialize)]
+struct TxLiquidatorInstrumentConfig {
+    symbol: String,
+    max_exposure: f64,
+    premium_min: f64,
+    fee: f64,
+    volume_percent: f64,
+    volume_min: f64,
+    volume_rampup: u64,
+    max_adl_notional: f64,
+    max_adl_percent: f64,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct TxLiquidatorConfig {
+    cross_exposure: f64,
+    scoring_skew: f64,
+    toxicity: f64,
+    instruments: Vec<TxLiquidatorInstrumentConfig>,
+}
+
+#[derive(Clone, Debug, Serialize)]
 enum TxAction {
     MarketOrder(TxMarketOrder),
     LimitOrder(TxLimitOrder),
@@ -576,8 +597,8 @@ enum TxAction {
     RevokeCommissionFee(TxRevokeCommissionFee),
     #[allow(dead_code)]
     Reserved42,
-    #[allow(dead_code)]
-    Reserved43,
+    #[serde(rename = "liq")]
+    UpdateLiquidatorConfig(TxLiquidatorConfig),
     #[allow(dead_code)]
     Reserved44,
     #[serde(rename = "withdraw")]
@@ -872,6 +893,28 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
                 to: action.to,
             })])
         }
+        Action::UpdateLiquidatorConfig(config) => {
+            Ok(vec![TxAction::UpdateLiquidatorConfig(TxLiquidatorConfig {
+                cross_exposure: config.cross_exposure,
+                scoring_skew: config.scoring_skew,
+                toxicity: config.toxicity,
+                instruments: config
+                    .sorted_instruments()
+                    .into_iter()
+                    .map(|i| TxLiquidatorInstrumentConfig {
+                        symbol: i.symbol.clone(),
+                        max_exposure: i.max_exposure,
+                        premium_min: i.premium_min,
+                        fee: i.fee,
+                        volume_percent: i.volume_percent,
+                        volume_min: i.volume_min,
+                        volume_rampup: i.volume_rampup,
+                        max_adl_notional: i.max_adl_notional,
+                        max_adl_percent: i.max_adl_percent,
+                    })
+                    .collect(),
+            })])
+        }
     }
 }
 
@@ -968,6 +1011,95 @@ mod tests {
         let mut out = Vec::with_capacity(128);
         serialize_for_sdk_signing(action, 7, &Pubkey::from_bytes([1u8; 32]), &mut out).unwrap();
         u32::from_le_bytes(out[8..12].try_into().unwrap())
+    }
+
+    fn make_liq_config() -> LiquidatorConfig {
+        let inst = |symbol: &str, max_exposure: f64| LiquidatorInstrumentConfig {
+            symbol: symbol.to_string(),
+            max_exposure,
+            premium_min: 50.0,
+            fee: 10.0,
+            volume_percent: 5.0,
+            volume_min: 1.0,
+            volume_rampup: 0,
+            max_adl_notional: 0.0,
+            max_adl_percent: 0.0,
+        };
+        LiquidatorConfig::new(15e6, 0.5, 0.0)
+            .with_instrument(inst("BTC-USD", 10e6))
+            .with_instrument(inst("ETH-USD", 5e6))
+    }
+
+    #[test]
+    fn liquidator_config_discriminant_and_layout_match_sdk() {
+        let action = Action::UpdateLiquidatorConfig(make_liq_config());
+        assert_eq!(first_action_discriminant(&action), 43);
+
+        let account = Pubkey::from_base58("4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS").unwrap();
+        let mut out = Vec::new();
+        serialize_for_sdk_signing(&action, 42, &account, &mut out).unwrap();
+
+        assert_eq!(out.len(), 242);
+
+        let f64_at = |o: usize| f64::from_le_bytes(out[o..o + 8].try_into().unwrap());
+        let u64_at = |o: usize| u64::from_le_bytes(out[o..o + 8].try_into().unwrap());
+
+        assert_eq!(u64_at(0), 1);
+        assert_eq!(f64_at(12), 15e6);
+        assert_eq!(f64_at(20), 0.5);
+        assert_eq!(f64_at(28), 0.0);
+        assert_eq!(u64_at(36), 2);
+
+        assert_eq!(u64_at(44), 7);
+        assert_eq!(&out[52..59], b"BTC-USD");
+        assert_eq!(f64_at(59), 10e6);
+        assert_eq!(f64_at(67), 50.0);
+        assert_eq!(f64_at(75), 10.0);
+        assert_eq!(f64_at(83), 5.0);
+        assert_eq!(f64_at(91), 1.0);
+        assert_eq!(u64_at(99), 0);
+        assert_eq!(f64_at(107), 0.0);
+        assert_eq!(f64_at(115), 0.0);
+
+        assert_eq!(&out[131..138], b"ETH-USD");
+        assert_eq!(f64_at(138), 5e6);
+
+        assert_eq!(u64_at(202), 42);
+        assert_eq!(&out[210..242], account.as_bytes());
+    }
+
+    #[test]
+    fn liquidator_config_signs_to_the_sdk_reference_signature() {
+        let keypair = crate::Keypair::from_secret_key(&[0u8; 32]).unwrap();
+        assert_eq!(
+            keypair.pubkey().to_base58(),
+            "4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS"
+        );
+
+        let mut signer = crate::Signer::new(keypair);
+        let signed = signer
+            .sign_update_liquidator_config(make_liq_config(), Some(42))
+            .unwrap();
+
+        assert_eq!(
+            signed.signature,
+            "3CkQEydixRavk7bjNDWuaXQmctXhsWifoXv65TWLr8WjoBKXd3zEgpdcy4ZnYVdPQcQq5PUzjqHfTkQeEdQ6FuZV"
+        );
+    }
+
+    #[test]
+    fn liquidator_instruments_serialize_in_sorted_symbol_order() {
+        let account = Pubkey::from_bytes([9u8; 32]);
+        let serialize = |config: LiquidatorConfig| {
+            let mut out = Vec::new();
+            let action = Action::UpdateLiquidatorConfig(config);
+            serialize_for_sdk_signing(&action, 42, &account, &mut out).unwrap();
+            out
+        };
+
+        let mut reversed = make_liq_config();
+        reversed.instruments.reverse();
+        assert_eq!(serialize(reversed), serialize(make_liq_config()));
     }
 
     #[test]

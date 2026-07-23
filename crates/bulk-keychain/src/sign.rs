@@ -296,6 +296,17 @@ impl Signer {
         self.sign_revoke_commission_fee(to, nonce)
     }
 
+    /// Sign a liquidator config update (`liq`).
+    pub fn sign_update_liquidator_config(
+        &mut self,
+        config: LiquidatorConfig,
+        nonce: Option<u64>,
+    ) -> Result<SignedTransaction> {
+        let nonce = nonce.unwrap_or_else(|| self.next_nonce());
+        let action = Action::UpdateLiquidatorConfig(config);
+        self.sign_action_self(&action, nonce)
+    }
+
     /// Sign user settings update.
     pub fn sign_user_settings(
         &mut self,
@@ -803,6 +814,9 @@ impl Signer {
                     "to": action.to.to_base58()
                 }
             })]),
+            Action::UpdateLiquidatorConfig(config) => {
+                Ok(vec![json!({ "liq": liquidator_config_to_json(config) })])
+            }
         }
     }
 

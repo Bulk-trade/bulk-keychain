@@ -51,6 +51,25 @@ export interface LeverageSetting {
   leverage: number;
 }
 
+export interface LiquidatorInstrumentInput {
+  symbol: string;
+  maxExposure: number;
+  premiumMin: number;
+  fee: number;
+  volumePercent: number;
+  volumeMin: number;
+  volumeRampup: number;
+  maxAdlNotional: number;
+  maxAdlPercent: number;
+}
+
+export interface LiquidatorConfigInput {
+  crossExposure: number;
+  scoringSkew: number;
+  toxicity: number;
+  instruments: LiquidatorInstrumentInput[];
+}
+
 export interface OraclePriceInput {
   timestamp: number;
   asset: string;
@@ -129,6 +148,11 @@ export class NativeSigner {
   /** Compatibility alias for signRevokeBuilderCode. */
   signRevokeCommissionFee(toPubkey: string, nonce?: number): SignedTransactionOutput;
   signUserSettings(maxLeverage: LeverageSetting[], nonce?: number): SignedTransactionOutput;
+  /** Update the signing account's liquidator config (`liq`). */
+  signUpdateLiquidatorConfig(
+    config: LiquidatorConfigInput,
+    nonce?: number,
+  ): SignedTransactionOutput;
   signOraclePrices(oracles: OraclePriceInput[], nonce?: number): SignedTransactionOutput;
   signPythOracle(oracles: PythOraclePriceInput[], nonce?: number): SignedTransactionOutput;
   signWhitelistFaucet(targetPubkey: string, whitelist: boolean, nonce?: number): SignedTransactionOutput;
@@ -172,6 +196,11 @@ export function prepareRevokeBuilderCode(
 /** Compatibility alias for prepareRevokeBuilderCode. */
 export function prepareRevokeCommissionFee(
   toPubkey: string,
+  options: PrepareOptions,
+): PreparedMessageOutput;
+/** Prepare a liquidator config update (`liq`) for external signing. */
+export function prepareUpdateLiquidatorConfig(
+  config: LiquidatorConfigInput,
   options: PrepareOptions,
 ): PreparedMessageOutput;
 export function prepareFaucetRequest(options: PrepareOptions): PreparedMessageOutput;

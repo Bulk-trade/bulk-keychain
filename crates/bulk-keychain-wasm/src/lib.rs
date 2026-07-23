@@ -9,14 +9,14 @@ use bulk_keychain::{
     prepare_message, prepare_multisig_approve, prepare_multisig_cancel, prepare_multisig_execute,
     prepare_multisig_propose, prepare_multisig_reject, prepare_remove_sub_account,
     prepare_rename_sub_account, prepare_revoke_commission_fee, prepare_transfer,
-    prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
-    prepare_withdraw_lock_recover, Action, AgentWallet, Cancel, CancelAll, Commission,
-    CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, Modify, MultisigApprove,
-    MultisigCancel, MultisigExecute, MultisigPropose, MultisigReject, NonceManager, NonceStrategy,
-    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
-    RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
-    TransferKind, TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet, Withdraw,
-    WithdrawLockRecover,
+    prepare_update_liquidator_config, prepare_update_multisig_policy, prepare_user_settings,
+    prepare_withdraw, prepare_withdraw_lock_recover, Action, AgentWallet, Cancel, CancelAll,
+    Commission, CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, LiquidatorConfig,
+    LiquidatorInstrumentConfig, Modify, MultisigApprove, MultisigCancel, MultisigExecute,
+    MultisigPropose, MultisigReject, NonceManager, NonceStrategy, OnFill, OraclePrice, Order,
+    OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount,
+    Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket,
+    UpdateMultisigPolicy, UserSettings, WhitelistFaucet, Withdraw, WithdrawLockRecover,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
@@ -374,6 +374,24 @@ impl WasmSigner {
         let signed = self
             .inner
             .sign_user_settings(user_settings, nonce_val)
+            .map_err(|e| JsError::new(&e.to_string()))?;
+
+        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Sign a liquidator config update (`liq`)
+    #[wasm_bindgen(js_name = signUpdateLiquidatorConfig)]
+    pub fn sign_update_liquidator_config(
+        &mut self,
+        config: JsValue,
+        nonce: Option<f64>,
+    ) -> Result<JsValue, JsError> {
+        let input: LiquidatorConfigInput =
+            serde_wasm_bindgen::from_value(config).map_err(|e| JsError::new(&e.to_string()))?;
+
+        let signed = self
+            .inner
+            .sign_update_liquidator_config(input.into(), nonce.map(|n| n as u64))
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -832,6 +850,65 @@ struct OrderTypeInput {
 #[serde(rename_all = "camelCase")]
 struct UserSettingsInput {
     max_leverage: Vec<(String, f64)>,
+}
+
+// Snake_case matches the backend payload; camelCase aliases are for JS callers.
+#[derive(Debug, Deserialize)]
+struct LiquidatorInstrumentInput {
+    symbol: String,
+    #[serde(default, alias = "maxExposure")]
+    max_exposure: f64,
+    #[serde(default, alias = "premiumMin")]
+    premium_min: f64,
+    #[serde(default)]
+    fee: f64,
+    #[serde(default, alias = "volumePercent")]
+    volume_percent: f64,
+    #[serde(default, alias = "volumeMin")]
+    volume_min: f64,
+    #[serde(default, alias = "volumeRampup")]
+    volume_rampup: u64,
+    #[serde(default, alias = "maxAdlNotional")]
+    max_adl_notional: f64,
+    #[serde(default, alias = "maxAdlPercent")]
+    max_adl_percent: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct LiquidatorConfigInput {
+    #[serde(default, alias = "crossExposure")]
+    cross_exposure: f64,
+    #[serde(default, alias = "scoringSkew")]
+    scoring_skew: f64,
+    #[serde(default)]
+    toxicity: f64,
+    #[serde(default)]
+    instruments: Vec<LiquidatorInstrumentInput>,
+}
+
+impl From<LiquidatorConfigInput> for LiquidatorConfig {
+    fn from(input: LiquidatorConfigInput) -> Self {
+        Self {
+            cross_exposure: input.cross_exposure,
+            scoring_skew: input.scoring_skew,
+            toxicity: input.toxicity,
+            instruments: input
+                .instruments
+                .into_iter()
+                .map(|i| LiquidatorInstrumentConfig {
+                    symbol: i.symbol,
+                    max_exposure: i.max_exposure,
+                    premium_min: i.premium_min,
+                    fee: i.fee,
+                    volume_percent: i.volume_percent,
+                    volume_min: i.volume_min,
+                    volume_rampup: i.volume_rampup,
+                    max_adl_notional: i.max_adl_notional,
+                    max_adl_percent: i.max_adl_percent,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1955,6 +2032,34 @@ pub fn wasm_prepare_update_user_settings(
 
     let user_settings = UserSettings::new(settings_input.max_leverage);
     let prepared = prepare_user_settings(user_settings, &account, signer.as_ref(), nonce)
+        .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare a liquidator config update for external signing
+///
+/// @param config - { crossExposure, scoringSkew, toxicity, instruments: [...] }
+/// @param options - { account: string, signer?: string, nonce?: number }
+#[wasm_bindgen(js_name = prepareUpdateLiquidatorConfig)]
+pub fn wasm_prepare_update_liquidator_config(
+    config: JsValue,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let input: LiquidatorConfigInput =
+        serde_wasm_bindgen::from_value(config).map_err(|e| JsError::new(&e.to_string()))?;
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = opts.nonce.map(|n| n as u64);
+
+    let prepared = prepare_update_liquidator_config(input.into(), &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
