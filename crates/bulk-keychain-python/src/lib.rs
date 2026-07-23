@@ -5,11 +5,12 @@
 use bulk_keychain::{
     compute_order_item_id, prepare_agent_wallet, prepare_all, prepare_approve_commission_fee,
     prepare_create_sub_account, prepare_faucet, prepare_group, prepare_message,
-    prepare_remove_sub_account, prepare_revoke_commission_fee, prepare_transfer, Cancel, CancelAll,
-    Commission, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy, OnFill,
-    OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco,
-    Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket,
-    UserSettings,
+    prepare_remove_sub_account, prepare_revoke_commission_fee, prepare_transfer,
+    prepare_update_liquidator_config, Cancel, CancelAll, Commission, CreateSubAccount, Hash,
+    Keypair, LiquidatorConfig, LiquidatorInstrumentConfig, Modify, NonceManager, NonceStrategy,
+    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
+    RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
+    TriggerBasket, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -367,6 +368,23 @@ impl PySigner {
         Python::with_gil(|py| signed_to_py(py, &signed))
     }
 
+    /// Sign a liquidator config update (`liq`)
+    #[pyo3(signature = (config, nonce=None))]
+    fn sign_update_liquidator_config(
+        &mut self,
+        config: &Bound<'_, PyAny>,
+        nonce: Option<u64>,
+    ) -> PyResult<PyObject> {
+        let config = parse_liquidator_config(config)?;
+
+        let signed = self
+            .inner
+            .sign_update_liquidator_config(config, nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Python::with_gil(|py| signed_to_py(py, &signed))
+    }
+
     /// Sign one or more oracle price updates (`px`)
     #[pyo3(signature = (oracles, nonce=None))]
     fn sign_oracle_prices(
@@ -561,6 +579,49 @@ impl PySigner {
 // ============================================================================
 // Helper functions
 // ============================================================================
+
+fn parse_liquidator_config(obj: &Bound<'_, PyAny>) -> PyResult<LiquidatorConfig> {
+    let dict = obj.downcast::<PyDict>()?;
+
+    let f64_field = |d: &Bound<'_, PyDict>, key: &str| -> PyResult<f64> {
+        Ok(d.get_item(key)?
+            .map(|v| v.extract::<f64>().unwrap_or(0.0))
+            .unwrap_or(0.0))
+    };
+
+    let instruments = match dict.get_item("instruments")? {
+        Some(list) => list
+            .downcast::<PyList>()?
+            .iter()
+            .map(|entry| {
+                let inst = entry.downcast::<PyDict>()?;
+                let rampup = f64_field(inst, "volume_rampup")?;
+                Ok(LiquidatorInstrumentConfig {
+                    symbol: inst
+                        .get_item("symbol")?
+                        .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
+                        .extract()?,
+                    max_exposure: f64_field(inst, "max_exposure")?,
+                    premium_min: f64_field(inst, "premium_min")?,
+                    fee: f64_field(inst, "fee")?,
+                    volume_percent: f64_field(inst, "volume_percent")?,
+                    volume_min: f64_field(inst, "volume_min")?,
+                    volume_rampup: if rampup > 0.0 { rampup as u64 } else { 0 },
+                    max_adl_notional: f64_field(inst, "max_adl_notional")?,
+                    max_adl_percent: f64_field(inst, "max_adl_percent")?,
+                })
+            })
+            .collect::<PyResult<Vec<_>>>()?,
+        None => Vec::new(),
+    };
+
+    Ok(LiquidatorConfig {
+        cross_exposure: f64_field(dict, "cross_exposure")?,
+        scoring_skew: f64_field(dict, "scoring_skew")?,
+        toxicity: f64_field(dict, "toxicity")?,
+        instruments,
+    })
+}
 
 fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
     let dict = obj.downcast::<PyDict>()?;
@@ -1428,6 +1489,29 @@ fn py_prepare_agent_wallet_auth(
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
+/// Prepare a liquidator config update for external signing
+#[pyfunction]
+#[pyo3(signature = (config, account, signer=None, nonce=None))]
+fn py_prepare_update_liquidator_config(
+    config: &Bound<'_, PyAny>,
+    account: &str,
+    signer: Option<&str>,
+    nonce: Option<u64>,
+) -> PyResult<PyObject> {
+    let config = parse_liquidator_config(config)?;
+    let account_pk =
+        Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let signer_pk = signer
+        .map(Pubkey::from_base58)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    let prepared = prepare_update_liquidator_config(config, &account_pk, signer_pk.as_ref(), nonce)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+    Python::with_gil(|py| prepared_to_py(py, &prepared))
+}
+
 /// Prepare builder-code recipient approval for external signing
 #[pyfunction]
 #[pyo3(signature = (to_pubkey, fee, account, signer=None, nonce=None))]
@@ -1698,6 +1782,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_prepare_order_group, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_agent_wallet_auth, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_approve_builder_code, m)?)?;
+    m.add_function(wrap_pyfunction!(py_prepare_update_liquidator_config, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_approve_commission_fee, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_revoke_builder_code, m)?)?;
     m.add_function(wrap_pyfunction!(py_prepare_revoke_commission_fee, m)?)?;

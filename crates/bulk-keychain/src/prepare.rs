@@ -155,6 +155,17 @@ pub fn prepare_revoke_builder_code(
     prepare_revoke_commission_fee(to, account, signer, nonce)
 }
 
+/// Prepare a liquidator config update.
+pub fn prepare_update_liquidator_config(
+    config: LiquidatorConfig,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    let action = Action::UpdateLiquidatorConfig(config);
+    prepare_action(&action, account, signer, nonce)
+}
+
 /// Prepare a user settings transaction.
 pub fn prepare_user_settings(
     settings: UserSettings,
@@ -631,6 +642,9 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "to": action.to.to_base58()
             }
         })]),
+        Action::UpdateLiquidatorConfig(config) => {
+            Ok(vec![json!({ "liq": liquidator_config_to_json(config) })])
+        }
     }
 }
 

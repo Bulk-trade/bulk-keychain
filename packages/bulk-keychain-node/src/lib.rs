@@ -8,11 +8,12 @@ use bulk_keychain::{
     prepare_approve_commission_fee as core_prepare_approve_commission_fee,
     prepare_create_sub_account, prepare_faucet, prepare_group, prepare_message,
     prepare_remove_sub_account, prepare_rename_sub_account,
-    prepare_revoke_commission_fee as core_prepare_revoke_commission_fee, prepare_transfer, Cancel,
-    CancelAll, Commission, CreateSubAccount, Hash, Keypair, Modify, NonceManager, NonceStrategy,
-    OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
-    RangeOco, RenameSubAccount, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
-    TransferKind, TriggerBasket, UserSettings,
+    prepare_revoke_commission_fee as core_prepare_revoke_commission_fee, prepare_transfer,
+    prepare_update_liquidator_config as core_prepare_update_liquidator_config, Cancel, CancelAll,
+    Commission, CreateSubAccount, Hash, Keypair, LiquidatorConfig, LiquidatorInstrumentConfig,
+    Modify, NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType,
+    PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount, Signer, Stop, TakeProfit,
+    TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket, UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -395,6 +396,21 @@ impl NativeSigner {
         Ok(signed.into())
     }
 
+    /// Sign a liquidator config update (`liq`)
+    #[napi]
+    pub fn sign_update_liquidator_config(
+        &mut self,
+        config: LiquidatorConfigInput,
+        nonce: Option<f64>,
+    ) -> Result<SignedTransactionOutput> {
+        let signed = self
+            .inner
+            .sign_update_liquidator_config(config.into(), nonce.map(|n| n as u64))
+            .map_err(|e| Error::from_reason(e.to_string()))?;
+
+        Ok(signed.into())
+    }
+
     /// Sign one or more oracle price updates (`px`)
     #[napi]
     pub fn sign_oracle_prices(
@@ -663,6 +679,58 @@ pub struct OrderTypeInput {
 pub struct LeverageSetting {
     pub symbol: String,
     pub leverage: f64,
+}
+
+#[napi(object)]
+#[derive(Debug)]
+pub struct LiquidatorInstrumentInput {
+    pub symbol: String,
+    pub max_exposure: f64,
+    pub premium_min: f64,
+    pub fee: f64,
+    pub volume_percent: f64,
+    pub volume_min: f64,
+    pub volume_rampup: f64,
+    pub max_adl_notional: f64,
+    pub max_adl_percent: f64,
+}
+
+#[napi(object)]
+#[derive(Debug)]
+pub struct LiquidatorConfigInput {
+    pub cross_exposure: f64,
+    pub scoring_skew: f64,
+    pub toxicity: f64,
+    pub instruments: Vec<LiquidatorInstrumentInput>,
+}
+
+impl From<LiquidatorConfigInput> for LiquidatorConfig {
+    fn from(input: LiquidatorConfigInput) -> Self {
+        Self {
+            cross_exposure: input.cross_exposure,
+            scoring_skew: input.scoring_skew,
+            toxicity: input.toxicity,
+            instruments: input
+                .instruments
+                .into_iter()
+                .map(|i| LiquidatorInstrumentConfig {
+                    symbol: i.symbol,
+                    max_exposure: i.max_exposure,
+                    premium_min: i.premium_min,
+                    fee: i.fee,
+                    volume_percent: i.volume_percent,
+                    volume_min: i.volume_min,
+                    volume_rampup: if i.volume_rampup > 0.0 {
+                        i.volume_rampup as u64
+                    } else {
+                        0
+                    },
+                    max_adl_notional: i.max_adl_notional,
+                    max_adl_percent: i.max_adl_percent,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[napi(object)]
@@ -1228,6 +1296,28 @@ pub fn prepare_agent_wallet_auth(
 
     let prepared = prepare_agent_wallet(&agent, delete, &account, signer.as_ref(), nonce)
         .map_err(|e| Error::from_reason(e.to_string()))?;
+
+    Ok(prepared.into())
+}
+
+/// Prepare a liquidator config update for external signing
+#[napi]
+pub fn prepare_update_liquidator_config(
+    config: LiquidatorConfigInput,
+    options: PrepareOptions,
+) -> Result<PreparedMessageOutput> {
+    let account =
+        Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
+    let signer = options
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let nonce = options.nonce.map(|n| n as u64);
+
+    let prepared =
+        core_prepare_update_liquidator_config(config.into(), &account, signer.as_ref(), nonce)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }

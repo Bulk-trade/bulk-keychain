@@ -70,8 +70,8 @@ pub use prepare::{
     prepare_multisig_cancel, prepare_multisig_execute, prepare_multisig_propose,
     prepare_multisig_reject, prepare_remove_sub_account, prepare_rename_sub_account,
     prepare_revoke_builder_code, prepare_revoke_commission_fee, prepare_transfer,
-    prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
-    prepare_withdraw_lock_recover, PreparedMessage,
+    prepare_update_liquidator_config, prepare_update_multisig_policy, prepare_user_settings,
+    prepare_withdraw, prepare_withdraw_lock_recover, PreparedMessage,
 };
 pub use sign::Signer;
 pub use types::*;
