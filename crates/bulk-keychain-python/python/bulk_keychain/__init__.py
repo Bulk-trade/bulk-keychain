@@ -77,4 +77,4 @@ __all__ = [
     "finalize_transaction",
 ]
 
-__version__ = "0.1.19"
+__version__ = "0.1.20"
