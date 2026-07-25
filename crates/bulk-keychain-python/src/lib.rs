@@ -921,10 +921,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
             }))
         }
         "on_fill" | "of" => {
-            let p: u32 = dict
-                .get_item("p")?
-                .map(|v| v.extract().unwrap_or(0))
-                .unwrap_or(0);
+            let trigger = dict
+                .get_item("trigger")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'trigger'"))
+                .and_then(|v| parse_order_item(&v))?;
             let raw_actions = dict
                 .get_item("actions")?
                 .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
@@ -932,7 +932,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
             let actions: PyResult<Vec<OrderItem>> =
                 actions_list.iter().map(|a| parse_order_item(&a)).collect();
             Ok(OrderItem::OnFill(OnFill {
-                p,
+                trigger: Box::new(trigger),
                 actions: actions?,
             }))
         }
@@ -1353,7 +1353,7 @@ fn py_prepare_order(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    // If on_fill key is present, emit parent + OnFill as an atomic group
+    // If on_fill is present, wrap the parent inline as the OnFill trigger.
     let dict = order.downcast::<PyDict>().ok();
     let on_fill_obj = dict
         .as_ref()
@@ -1362,10 +1362,6 @@ fn py_prepare_order(
     let prepared = if let Some(of_obj) = on_fill_obj {
         let parent = parse_order_item(order)?;
         let of_dict = of_obj.downcast::<PyDict>()?;
-        let p: u32 = of_dict
-            .get_item("p")?
-            .map(|v| v.extract().unwrap_or(0u32))
-            .unwrap_or(0);
         let raw_actions = of_dict
             .get_item("actions")?
             .ok_or_else(|| PyValueError::new_err("Missing on_fill.actions"))?;
@@ -1373,16 +1369,11 @@ fn py_prepare_order(
         let consequents: PyResult<Vec<OrderItem>> =
             actions_list.iter().map(|a| parse_order_item(&a)).collect();
         let of_item = OrderItem::OnFill(OnFill {
-            p,
+            trigger: Box::new(parent),
             actions: consequents?,
         });
-        prepare_group(
-            vec![parent, of_item],
-            &account_pk,
-            signer_pk.as_ref(),
-            nonce,
-        )
-        .map_err(|e| PyValueError::new_err(e.to_string()))?
+        prepare_message(of_item, &account_pk, signer_pk.as_ref(), nonce)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?
     } else {
         let order_item = parse_order_item(order)?;
         prepare_message(order_item, &account_pk, signer_pk.as_ref(), nonce)

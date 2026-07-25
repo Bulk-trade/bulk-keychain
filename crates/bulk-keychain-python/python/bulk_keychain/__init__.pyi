@@ -45,6 +45,10 @@ class OrderItem(TypedDict):
     builder_code: NotRequired[BuilderCodeInput]
     order_type: NotRequired[OrderType]
     client_id: NotRequired[str]
+    on_fill: NotRequired["OnFillInput"]
+
+class OnFillInput(TypedDict):
+    actions: list["OrderItemType"]
 
 class CancelItem(TypedDict):
     type: Literal["cancel"]

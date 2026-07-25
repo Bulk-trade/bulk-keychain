@@ -622,7 +622,6 @@ impl NativeSigner {
 #[napi(object)]
 #[derive(Debug, Deserialize)]
 pub struct OnFillInput {
-    pub p: u32,
     pub actions: Vec<OrderInput>,
 }
 
@@ -1000,17 +999,9 @@ impl TryFrom<OrderInput> for OrderItem {
                     iso,
                 }))
             }
-            "onFill" | "of" => {
-                let raw_actions = input
-                    .actions
-                    .ok_or_else(|| Error::from_reason("onFill.actions is required"))?;
-                let actions: Result<Vec<OrderItem>> =
-                    raw_actions.into_iter().map(|a| a.try_into()).collect();
-                Ok(OrderItem::OnFill(OnFill {
-                    p: 0,
-                    actions: actions?,
-                }))
-            }
+            "onFill" | "of" => Err(Error::from_reason(
+                "standalone onFill is not supported; attach onFill to its trigger order",
+            )),
             "trailingStop" | "trl" => {
                 let symbol = input
                     .symbol
@@ -1176,7 +1167,7 @@ pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<Prepa
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    // If onFill is present, emit parent + OnFill as an atomic group
+    // If onFill is present, wrap the parent inline as the OnFill trigger.
     let on_fill_input = order.on_fill;
     let order_no_fill = OrderInput {
         on_fill: None,
@@ -1188,10 +1179,10 @@ pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<Prepa
         let consequents: Result<Vec<OrderItem>> =
             of.actions.into_iter().map(|a| a.try_into()).collect();
         let of_item = OrderItem::OnFill(OnFill {
-            p: of.p,
+            trigger: Box::new(parent),
             actions: consequents?,
         });
-        prepare_group(vec![parent, of_item], &account, signer.as_ref(), nonce)
+        prepare_message(of_item, &account, signer.as_ref(), nonce)
             .map_err(|e| Error::from_reason(e.to_string()))?
     } else {
         let order_item: OrderItem = order_no_fill.try_into()?;

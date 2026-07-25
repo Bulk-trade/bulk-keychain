@@ -796,7 +796,6 @@ impl WasmSigner {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OnFillInput {
-    p: u32,
     actions: Vec<OrderInput>,
 }
 
@@ -824,6 +823,7 @@ struct OrderInput {
     lmin: Option<f64>,
     lmax: Option<f64>,
     actions: Option<Vec<OrderInput>>,
+    trigger: Option<Box<OrderInput>>,
     on_fill: Option<OnFillInput>,
     trail_bps: Option<u32>,
     step_bps: Option<u32>,
@@ -1083,11 +1083,16 @@ impl TryFrom<OrderInput> for OrderItem {
                 }))
             }
             "onFill" | "of" => {
+                let trigger = input
+                    .trigger
+                    .ok_or("onFill.trigger is required")
+                    .map(|trigger| *trigger)?
+                    .try_into()?;
                 let raw_actions = input.actions.ok_or("onFill.actions is required")?;
                 let actions: Result<Vec<OrderItem>, String> =
                     raw_actions.into_iter().map(|a| a.try_into()).collect();
                 Ok(OrderItem::OnFill(OnFill {
-                    p: 0,
+                    trigger: Box::new(trigger),
                     actions: actions?,
                 }))
             }
@@ -1332,6 +1337,11 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
         }
         "of" => {
             let p = json_obj(payload, "of")?;
+            let trigger = p
+                .get("trigger")
+                .cloned()
+                .ok_or_else(|| js_err("trigger is required"))
+                .and_then(parse_order_item_value)?;
             let nested = p
                 .get("actions")
                 .and_then(JsonValue::as_array)
@@ -1341,7 +1351,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 .map(parse_order_item_value)
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(OrderItem::OnFill(OnFill {
-                p: json_u32(p, "p", Some(0))?,
+                trigger: Box::new(trigger),
                 actions: nested,
             }))
         }
@@ -1781,7 +1791,7 @@ pub fn wasm_prepare_order(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    // If onFill is present, emit parent + OnFill as an atomic group
+    // If onFill is present, wrap the parent inline as the OnFill trigger.
     let on_fill_input = order_input.on_fill;
     let order_input_no_fill = OrderInput {
         on_fill: None,
@@ -1795,10 +1805,10 @@ pub fn wasm_prepare_order(
         let consequents: Result<Vec<OrderItem>, String> =
             of.actions.into_iter().map(|a| a.try_into()).collect();
         let of_item = OrderItem::OnFill(OnFill {
-            p: of.p,
+            trigger: Box::new(parent),
             actions: consequents.map_err(|e| JsError::new(&e))?,
         });
-        prepare_group(vec![parent, of_item], &account, signer.as_ref(), nonce)
+        prepare_message(of_item, &account, signer.as_ref(), nonce)
             .map_err(|e| JsError::new(&e.to_string()))?
     } else {
         let order_item: OrderItem = order_input_no_fill
@@ -2612,6 +2622,108 @@ mod tests {
             "size": 0.1,
             "orderType": { "type": "limit", "tif": "GTC" },
         }))
+    }
+
+    fn limit_order_with_on_fill_json() -> JsValue {
+        to_js_object(serde_json::json!({
+            "type": "order",
+            "symbol": "BTC-USD",
+            "isBuy": true,
+            "price": 100000,
+            "size": 0.1,
+            "orderType": { "type": "limit", "tif": "GTC" },
+            "onFill": {
+                "actions": [{
+                    "type": "order",
+                    "symbol": "ETH-USD",
+                    "isBuy": false,
+                    "price": 0,
+                    "size": 1.25,
+                    "orderType": { "type": "market" }
+                }]
+            }
+        }))
+    }
+
+    #[test]
+    fn test_manual_compact_on_fill_parser_uses_inline_trigger() {
+        let item = parse_order_item_value(serde_json::json!({
+            "of": {
+                "trigger": {
+                    "l": {
+                        "c": "BTC-USD",
+                        "b": true,
+                        "px": 100000.0,
+                        "sz": 0.1,
+                        "tif": "GTC"
+                    }
+                },
+                "actions": [{
+                    "m": {
+                        "c": "ETH-USD",
+                        "b": false,
+                        "sz": 1.25
+                    }
+                }]
+            }
+        }))
+        .unwrap();
+
+        let OrderItem::OnFill(on_fill) = item else {
+            panic!("expected OnFill");
+        };
+        assert!(matches!(*on_fill.trigger, OrderItem::Order(_)));
+        assert_eq!(on_fill.actions.len(), 1);
+    }
+
+    #[test]
+    fn test_serde_on_fill_parser_requires_and_uses_inline_trigger() {
+        let input: OrderInput = serde_json::from_value(serde_json::json!({
+            "type": "onFill",
+            "trigger": {
+                "type": "order",
+                "symbol": "BTC-USD",
+                "isBuy": true,
+                "price": 100000.0,
+                "size": 0.1,
+                "orderType": { "type": "limit", "tif": "GTC" }
+            },
+            "actions": [{
+                "type": "order",
+                "symbol": "ETH-USD",
+                "isBuy": false,
+                "price": 0.0,
+                "size": 1.25,
+                "orderType": { "type": "market" }
+            }]
+        }))
+        .unwrap();
+
+        let item: OrderItem = input.try_into().unwrap();
+        let OrderItem::OnFill(on_fill) = item else {
+            panic!("expected OnFill");
+        };
+        assert!(matches!(*on_fill.trigger, OrderItem::Order(_)));
+        assert_eq!(on_fill.actions.len(), 1);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_prepare_order_with_on_fill_emits_single_inline_action() {
+        let options = to_js_object(serde_json::json!({
+            "account": Pubkey::from_bytes([7u8; 32]).to_base58(),
+            "nonce": 1_234_567_890u64,
+        }));
+
+        let prepared = wasm_prepare_order(limit_order_with_on_fill_json(), options).unwrap();
+
+        assert_eq!(prepared.inner.actions.len(), 1);
+        assert!(prepared.inner.actions[0]["of"].get("p").is_none());
+        assert!(prepared.inner.actions[0]["of"]["trigger"]
+            .get("l")
+            .is_some());
+        assert!(prepared.inner.actions[0]["of"]["actions"][0]
+            .get("m")
+            .is_some());
     }
 
     #[wasm_bindgen_test]

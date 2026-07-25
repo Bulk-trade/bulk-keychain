@@ -326,8 +326,7 @@ struct TxTriggerBasket {
 
 #[derive(Clone, Debug, Serialize)]
 struct TxOnFill {
-    #[serde(rename = "p")]
-    parent_seqno: u32,
+    trigger: Box<TxAction>,
     #[serde(rename = "actions")]
     actions: Vec<TxAction>,
 }
@@ -723,10 +722,11 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             }))
         }
         OrderItem::OnFill(of) => {
+            let trigger = Box::new(order_item_to_tx_action(&of.trigger)?);
             let actions: Result<Vec<TxAction>> =
                 of.actions.iter().map(order_item_to_tx_action).collect();
             Ok(TxAction::OnFill(TxOnFill {
-                parent_seqno: of.p,
+                trigger,
                 actions: actions?,
             }))
         }
@@ -1028,6 +1028,72 @@ mod tests {
         LiquidatorConfig::new(15e6, 0.5, 0.0)
             .with_instrument(inst("BTC-USD", 10e6))
             .with_instrument(inst("ETH-USD", 5e6))
+    }
+
+    #[test]
+    fn on_fill_limit_trigger_with_nested_market_order_golden_vector() {
+        let trigger: OrderItem =
+            Order::limit("BTC-USD", true, 100_000.0, 0.1, TimeInForce::Gtc).into();
+        let consequent: OrderItem = Order::market("ETH-USD", false, 1.25).into();
+        let action = Action::Order {
+            orders: vec![OrderItem::OnFill(OnFill {
+                trigger: Box::new(trigger.clone()),
+                actions: vec![consequent.clone()],
+            })],
+        };
+        let account = Pubkey::from_bytes([7u8; 32]);
+        let nonce = 1_234_567_890;
+        let mut actual = Vec::new();
+        serialize_for_sdk_signing(&action, nonce, &account, &mut actual).unwrap();
+
+        let expected = hex::decode(
+            "01000000000000000a0000000100000007000000000000004254432d5553440100a0724e18090000809698000000000000000000000001000000000000000000000007000000000000004554482d5553440040597307000000000000d2029649000000000707070707070707070707070707070707070707070707070707070707070707",
+        )
+        .unwrap();
+
+        assert_eq!(actual, expected);
+        assert_eq!(u64::from_le_bytes(actual[0..8].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(actual[8..12].try_into().unwrap()), 10);
+        assert_eq!(u32::from_le_bytes(actual[12..16].try_into().unwrap()), 1);
+        assert_eq!(u64::from_le_bytes(actual[54..62].try_into().unwrap()), 1);
+        assert_eq!(u32::from_le_bytes(actual[62..66].try_into().unwrap()), 0);
+        assert_eq!(
+            u64::from_le_bytes(actual[92..100].try_into().unwrap()),
+            1_234_567_890
+        );
+        assert_eq!(&actual[100..], &[7u8; 32]);
+
+        let mut prepared_trigger = Vec::new();
+        let mut prepared_consequent = Vec::new();
+        serialize_for_sdk_signing(
+            &Action::Order {
+                orders: vec![trigger],
+            },
+            nonce,
+            &account,
+            &mut prepared_trigger,
+        )
+        .unwrap();
+        serialize_for_sdk_signing(
+            &Action::Order {
+                orders: vec![consequent],
+            },
+            nonce,
+            &account,
+            &mut prepared_consequent,
+        )
+        .unwrap();
+        let trigger_action_end = prepared_trigger.len() - 40;
+        let consequent_action_end = prepared_consequent.len() - 40;
+        let mut bulkx_reference = Vec::new();
+        bulkx_reference.extend_from_slice(&1u64.to_le_bytes());
+        bulkx_reference.extend_from_slice(&10u32.to_le_bytes());
+        bulkx_reference.extend_from_slice(&prepared_trigger[8..trigger_action_end]);
+        bulkx_reference.extend_from_slice(&1u64.to_le_bytes());
+        bulkx_reference.extend_from_slice(&prepared_consequent[8..consequent_action_end]);
+        bulkx_reference.extend_from_slice(&prepared_trigger[trigger_action_end..]);
+
+        assert_eq!(actual, bulkx_reference);
     }
 
     #[test]

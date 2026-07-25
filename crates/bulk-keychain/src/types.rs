@@ -503,14 +503,13 @@ pub struct TrailingStop {
     pub iso: bool,
 }
 
-/// On-fill consequent: one-shot follow-up actions executed on first fill of a parent action.
-/// `p` is the parent action's seqno (index) in the same transaction.
+/// On-fill consequent: one-shot follow-up actions executed on first fill of a trigger action.
 /// Allowed consequent types: m, l, mod, cx, cxa, st, tp, rng, trig, trl.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OnFill {
-    /// Parent action seqno (0-based index in the transaction).
-    pub p: u32,
-    /// One-shot consequent actions executed on first fill of the parent.
+    /// Trigger action serialized inline with the on-fill registration.
+    pub trigger: Box<OrderItem>,
+    /// One-shot consequent actions executed on first fill of the trigger.
     pub actions: Vec<OrderItem>,
 }
 
@@ -538,7 +537,7 @@ pub enum OrderItem {
     RangeOco(RangeOco),
     /// Trigger basket: fires nested actions when price crosses threshold
     TriggerBasket(TriggerBasket),
-    /// On-fill consequent: one-shot follow-up actions on first fill of a parent action
+    /// On-fill consequent: inline trigger plus one-shot follow-up actions
     OnFill(OnFill),
     /// Trailing stop: protective stop that follows price by a fixed bps distance
     TrailingStop(TrailingStop),
