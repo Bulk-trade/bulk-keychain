@@ -938,6 +938,7 @@ impl Signer {
                 }))
             }
             OrderItem::OnFill(of) => {
+                let trigger = self.order_item_to_json(&of.trigger)?;
                 let actions: Result<Vec<_>> = of
                     .actions
                     .iter()
@@ -945,7 +946,7 @@ impl Signer {
                     .collect();
                 Ok(json!({
                     "of": {
-                        "p": of.p,
+                        "trigger": trigger,
                         "actions": actions?
                     }
                 }))

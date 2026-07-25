@@ -504,10 +504,10 @@ Protective stop that follows price by a fixed distance (`trailBps`), resetting f
 ```
 
 ### On-Fill Consequent
-One-shot follow-up actions executed on the first fill of a parent order in the same transaction. `p` is the 0-based index of the parent action in the transaction.
+One-shot follow-up actions executed on the first fill of an inline trigger order.
 
 ```typescript
-// Attach directly to a limit order (auto-promoted to an atomic group):
+// Attach directly to an order; the order becomes the inline trigger.
 const limitWithSL = {
   type: 'order',
   symbol: 'BTC-USD',
@@ -516,14 +516,10 @@ const limitWithSL = {
   size: 0.1,
   orderType: { type: 'limit', tif: 'GTC' },
   onFill: {
-    p: 0,   // index of the parent order above
     actions: [
       { type: 'stop', symbol: 'BTC-USD', isBuy: false, size: 0.1, triggerPrice: 90000 },
     ],
   },
 };
 const signed = prepareOrder(limitWithSL, { account, signer });
-
-// Or construct the group explicitly (required for market orders):
-const signed = prepareGroup([marketOrder, onFillAction], { account, signer });
 ```

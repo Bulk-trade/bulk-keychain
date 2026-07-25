@@ -762,10 +762,11 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
             }))
         }
         OrderItem::OnFill(of) => {
+            let trigger = order_item_to_json(&of.trigger)?;
             let actions: Result<Vec<_>> = of.actions.iter().map(order_item_to_json).collect();
             Ok(json!({
                 "of": {
-                    "p": of.p,
+                    "trigger": trigger,
                     "actions": actions?
                 }
             }))
@@ -829,6 +830,24 @@ mod tests {
         assert_eq!(prepared.actions.len(), 2);
         assert!(prepared.order_id.is_none());
         assert_eq!(prepared.order_ids.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn test_prepare_on_fill_emits_one_inline_trigger_action() {
+        let account = Pubkey::from_bytes([7u8; 32]);
+        let item = OrderItem::OnFill(OnFill {
+            trigger: Box::new(
+                Order::limit("BTC-USD", true, 100_000.0, 0.1, TimeInForce::Gtc).into(),
+            ),
+            actions: vec![Order::market("ETH-USD", false, 1.25).into()],
+        });
+
+        let prepared = prepare_message(item, &account, None, Some(1_234_567_890)).unwrap();
+
+        assert_eq!(prepared.actions.len(), 1);
+        assert!(prepared.actions[0]["of"].get("p").is_none());
+        assert!(prepared.actions[0]["of"]["trigger"].get("l").is_some());
+        assert!(prepared.actions[0]["of"]["actions"][0].get("m").is_some());
     }
 
     #[test]
