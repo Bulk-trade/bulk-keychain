@@ -17,7 +17,7 @@ async function main() {
   console.log();
 
   // 2. Create a signer
-  const signer = new NativeSigner(keypair);
+  const signer = new NativeSigner(keypair, "devnet");
   signer.setComputeBatchOrderIds(true);
   console.log(`Signer pubkey: ${signer.pubkey}`);
   console.log();

@@ -12,12 +12,20 @@ use bulk_keychain::{
     prepare_update_liquidator_config as core_prepare_update_liquidator_config, Cancel, CancelAll,
     Commission, CreateSubAccount, Hash, Keypair, LiquidatorConfig, LiquidatorInstrumentConfig,
     Modify, NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType,
-    PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount, Signer, Stop, TakeProfit,
-    TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket, UserSettings,
+    PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount, SignatureDomain, Signer,
+    Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket,
+    UserSettings,
 };
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde::Deserialize;
+
+#[inline]
+fn parse_signature_domain(value: &str) -> Result<SignatureDomain> {
+    value
+        .parse()
+        .map_err(|error: bulk_keychain::Error| Error::from_reason(error.to_string()))
+}
 
 // ============================================================================
 // Keypair
@@ -106,24 +114,31 @@ pub struct NativeSigner {
 impl NativeSigner {
     /// Create a new signer from a keypair
     #[napi(constructor)]
-    pub fn new(keypair: &NativeKeypair) -> Self {
-        Self {
-            inner: Signer::new(keypair.inner.clone()),
-        }
+    pub fn new(keypair: &NativeKeypair, signature_domain: String) -> Result<Self> {
+        Ok(Self {
+            inner: Signer::new(
+                keypair.inner.clone(),
+                parse_signature_domain(&signature_domain)?,
+            ),
+        })
     }
 
     /// Create a signer from base58-encoded secret key
     #[napi(factory)]
-    pub fn from_base58(s: String) -> Result<Self> {
+    pub fn from_base58(s: String, signature_domain: String) -> Result<Self> {
         let keypair = Keypair::from_base58(&s).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(Self {
-            inner: Signer::new(keypair),
+            inner: Signer::new(keypair, parse_signature_domain(&signature_domain)?),
         })
     }
 
     /// Create a signer with nonce management
     #[napi(factory)]
-    pub fn with_nonce_manager(keypair: &NativeKeypair, strategy: String) -> Result<Self> {
+    pub fn with_nonce_manager(
+        keypair: &NativeKeypair,
+        strategy: String,
+        signature_domain: String,
+    ) -> Result<Self> {
         let nonce_strategy = match strategy.as_str() {
             "timestamp" => NonceStrategy::Timestamp,
             "counter" => NonceStrategy::Counter,
@@ -136,7 +151,11 @@ impl NativeSigner {
         };
         let nonce_manager = NonceManager::new(nonce_strategy);
         Ok(Self {
-            inner: Signer::with_nonce_manager(keypair.inner.clone(), nonce_manager),
+            inner: Signer::with_nonce_manager(
+                keypair.inner.clone(),
+                parse_signature_domain(&signature_domain)?,
+                nonce_manager,
+            ),
         })
     }
 
@@ -976,6 +995,11 @@ impl TryFrom<OrderInput> for OrderItem {
                 }))
             }
             "trig" => {
+                if input.iso.is_some() {
+                    return Err(Error::from_reason(
+                        "trig.iso is not supported; remove the top-level iso field",
+                    ));
+                }
                 let symbol = input
                     .symbol
                     .ok_or_else(|| Error::from_reason("trig.symbol is required"))?;
@@ -988,7 +1012,6 @@ impl TryFrom<OrderInput> for OrderItem {
                 let raw_actions = input
                     .actions
                     .ok_or_else(|| Error::from_reason("trig.actions is required"))?;
-                let iso = input.iso.unwrap_or(false);
                 let actions: Result<Vec<OrderItem>> =
                     raw_actions.into_iter().map(|a| a.try_into()).collect();
                 Ok(OrderItem::TriggerBasket(TriggerBasket {
@@ -996,7 +1019,6 @@ impl TryFrom<OrderInput> for OrderItem {
                     is_buy,
                     trigger_price,
                     actions: actions?,
-                    iso,
                 }))
             }
             "onFill" | "of" => Err(Error::from_reason(
@@ -1081,6 +1103,8 @@ pub fn compute_order_id(wincode_bytes: Buffer) -> String {
 #[napi(object)]
 #[derive(Debug)]
 pub struct PrepareOptions {
+    /// Network signature domain: "mainnet", "testnet", or "devnet"
+    pub signature_domain: String,
     /// Account public key (base58) - the trading account
     pub account: String,
     /// Signer public key (base58) - defaults to account if not provided
@@ -1093,6 +1117,8 @@ pub struct PrepareOptions {
 #[napi(object)]
 #[derive(Debug)]
 pub struct CreateSubAccountOptions {
+    /// Network signature domain: "mainnet", "testnet", or "devnet"
+    pub signature_domain: String,
     /// Account public key (base58) - the master trading account
     pub account: String,
     /// Signer public key (base58) - defaults to account if not provided
@@ -1158,6 +1184,7 @@ impl From<PreparedMessage> for PreparedMessageOutput {
 /// ```
 #[napi]
 pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
@@ -1182,12 +1209,18 @@ pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<Prepa
             trigger: Box::new(parent),
             actions: consequents?,
         });
-        prepare_message(of_item, &account, signer.as_ref(), nonce)
+        prepare_message(of_item, signature_domain, &account, signer.as_ref(), nonce)
             .map_err(|e| Error::from_reason(e.to_string()))?
     } else {
         let order_item: OrderItem = order_no_fill.try_into()?;
-        prepare_message(order_item, &account, signer.as_ref(), nonce)
-            .map_err(|e| Error::from_reason(e.to_string()))?
+        prepare_message(
+            order_item,
+            signature_domain,
+            &account,
+            signer.as_ref(),
+            nonce,
+        )
+        .map_err(|e| Error::from_reason(e.to_string()))?
     };
 
     Ok(prepared.into())
@@ -1208,6 +1241,7 @@ pub fn prepare_all_orders(
     orders: Vec<OrderInput>,
     options: PrepareOptions,
 ) -> Result<Vec<PreparedMessageOutput>> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
     let order_items = order_items?;
 
@@ -1220,8 +1254,14 @@ pub fn prepare_all_orders(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let base_nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = prepare_all(order_items, &account, signer.as_ref(), base_nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared = prepare_all(
+        order_items,
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        base_nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into_iter().map(Into::into).collect())
 }
@@ -1242,6 +1282,7 @@ pub fn prepare_order_group(
     orders: Vec<OrderInput>,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let order_items: Result<Vec<OrderItem>> = orders.into_iter().map(|o| o.try_into()).collect();
     let order_items = order_items?;
 
@@ -1254,8 +1295,14 @@ pub fn prepare_order_group(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = prepare_group(order_items, &account, signer.as_ref(), nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared = prepare_group(
+        order_items,
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1274,6 +1321,7 @@ pub fn prepare_agent_wallet_auth(
     delete: bool,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let agent =
         Pubkey::from_base58(&agent_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
     let account =
@@ -1285,8 +1333,15 @@ pub fn prepare_agent_wallet_auth(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = prepare_agent_wallet(&agent, delete, &account, signer.as_ref(), nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared = prepare_agent_wallet(
+        &agent,
+        delete,
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1297,6 +1352,7 @@ pub fn prepare_update_liquidator_config(
     config: LiquidatorConfigInput,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
@@ -1306,9 +1362,14 @@ pub fn prepare_update_liquidator_config(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared =
-        core_prepare_update_liquidator_config(config.into(), &account, signer.as_ref(), nonce)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared = core_prepare_update_liquidator_config(
+        config.into(),
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1320,6 +1381,7 @@ pub fn prepare_approve_commission_fee(
     fee: u32,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
@@ -1330,9 +1392,15 @@ pub fn prepare_approve_commission_fee(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared =
-        core_prepare_approve_commission_fee(&to, fee as u8, &account, signer.as_ref(), nonce)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared = core_prepare_approve_commission_fee(
+        &to,
+        fee as u8,
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1353,6 +1421,7 @@ pub fn prepare_revoke_commission_fee(
     to_pubkey: String,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
@@ -1363,8 +1432,9 @@ pub fn prepare_revoke_commission_fee(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = core_prepare_revoke_commission_fee(&to, &account, signer.as_ref(), nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared =
+        core_prepare_revoke_commission_fee(&to, signature_domain, &account, signer.as_ref(), nonce)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1381,6 +1451,7 @@ pub fn prepare_revoke_builder_code(
 /// Prepare faucet request for external signing
 #[napi]
 pub fn prepare_faucet_request(options: PrepareOptions) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
@@ -1390,7 +1461,7 @@ pub fn prepare_faucet_request(options: PrepareOptions) -> Result<PreparedMessage
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = prepare_faucet(&account, signer.as_ref(), nonce)
+    let prepared = prepare_faucet(signature_domain, &account, signer.as_ref(), nonce)
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
@@ -1411,6 +1482,8 @@ fn parse_transfer_kind(kind: Option<&str>) -> Result<TransferKind> {
 #[napi(object)]
 #[derive(Debug)]
 pub struct TransferOptions {
+    /// Network signature domain: "mainnet", "testnet", or "devnet"
+    pub signature_domain: String,
     /// Account public key (base58) - the trading account
     pub account: String,
     /// Signer public key (base58) - defaults to account if not provided
@@ -1429,6 +1502,7 @@ pub fn prepare_transfer_tx(
     margin_amount: f64,
     options: TransferOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let from = Pubkey::from_base58(&from_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
     let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
     let account =
@@ -1448,7 +1522,7 @@ pub fn prepare_transfer_tx(
         margin_amount,
     };
 
-    let prepared = prepare_transfer(transfer, &account, signer.as_ref(), nonce)
+    let prepared = prepare_transfer(transfer, signature_domain, &account, signer.as_ref(), nonce)
         .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
@@ -1460,6 +1534,7 @@ pub fn prepare_remove_sub_account_tx(
     to_remove: String,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let target = Pubkey::from_base58(&to_remove).map_err(|e| Error::from_reason(e.to_string()))?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
@@ -1470,8 +1545,9 @@ pub fn prepare_remove_sub_account_tx(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = options.nonce.map(|n| n as u64);
 
-    let prepared = prepare_remove_sub_account(target, &account, signer.as_ref(), nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared =
+        prepare_remove_sub_account(target, signature_domain, &account, signer.as_ref(), nonce)
+            .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1483,6 +1559,7 @@ pub fn prepare_rename_sub_account_tx(
     name: String,
     options: PrepareOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let subaccount =
         Pubkey::from_base58(&subaccount).map_err(|e| Error::from_reason(e.to_string()))?;
     let account =
@@ -1499,6 +1576,7 @@ pub fn prepare_rename_sub_account_tx(
             account: subaccount,
             name,
         },
+        signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -1514,6 +1592,7 @@ pub fn prepare_create_sub_account_tx(
     name: String,
     options: CreateSubAccountOptions,
 ) -> Result<PreparedMessageOutput> {
+    let signature_domain = parse_signature_domain(&options.signature_domain)?;
     let account =
         Pubkey::from_base58(&options.account).map_err(|e| Error::from_reason(e.to_string()))?;
     let signer = options
@@ -1528,8 +1607,14 @@ pub fn prepare_create_sub_account_tx(
         margin_amount: options.margin_amount,
     };
 
-    let prepared = prepare_create_sub_account(sub_account, &account, signer.as_ref(), nonce)
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+    let prepared = prepare_create_sub_account(
+        sub_account,
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1564,4 +1649,25 @@ pub fn finalize_prepared_transaction(
         order_ids: prepared.order_ids,
     };
     signed.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trigger_basket_rejects_stale_top_level_iso() {
+        let input: OrderInput = serde_json::from_value(serde_json::json!({
+            "item_type": "trig",
+            "symbol": "BTC-USD",
+            "is_buy": true,
+            "trigger_price": 100_000.0,
+            "actions": [],
+            "iso": true,
+        }))
+        .unwrap();
+
+        let error = OrderItem::try_from(input).unwrap_err();
+        assert!(error.to_string().contains("trig.iso"));
+    }
 }

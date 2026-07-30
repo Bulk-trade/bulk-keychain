@@ -3,8 +3,8 @@
 //! Run: cargo run --example basic
 
 use bulk_keychain::{
-    Cancel, CancelAll, Hash, Keypair, OraclePrice, Order, OrderItem, PythOraclePrice, Signer,
-    TimeInForce, UserSettings,
+    Cancel, CancelAll, Hash, Keypair, OraclePrice, Order, OrderItem, PythOraclePrice,
+    SignatureDomain, Signer, TimeInForce, UserSettings,
 };
 use std::time::Instant;
 
@@ -20,7 +20,7 @@ fn main() -> bulk_keychain::Result<()> {
     println!();
 
     // 2. Create a signer
-    let mut signer = Signer::new(keypair).with_batch_order_ids();
+    let mut signer = Signer::new(keypair, SignatureDomain::Devnet).with_batch_order_ids();
     println!("Signer pubkey: {}", signer.pubkey());
     println!();
 

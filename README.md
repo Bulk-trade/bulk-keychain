@@ -25,7 +25,7 @@ const keypair = new NativeKeypair();
 // Or: NativeKeypair.fromBase58('your-secret-key...')
 
 // Create signer
-const signer = new NativeSigner(keypair);
+const signer = new NativeSigner(keypair, 'devnet');
 
 // Sign a single order
 const signed = signer.sign({
@@ -61,7 +61,7 @@ keypair = Keypair()
 # Or: Keypair.from_base58('your-secret-key...')
 
 # Create signer
-signer = Signer(keypair)
+signer = Signer(keypair, "devnet")
 
 # Sign a single order
 signed = signer.sign({
@@ -90,14 +90,14 @@ requests.post(
 ## Rust
 
 ```rust
-use bulk_keychain::{Keypair, Signer, Order, TimeInForce};
+use bulk_keychain::{Keypair, Order, SignatureDomain, Signer, TimeInForce};
 
 // Generate or import keypair
 let keypair = Keypair::generate();
 // Or: Keypair::from_base58("your-secret-key...")?
 
 // Create signer
-let mut signer = Signer::new(keypair);
+let mut signer = Signer::new(keypair, SignatureDomain::Devnet);
 
 // Sign a single order
 let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
@@ -124,7 +124,9 @@ Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelis
 
 ## Builder Codes
 
-Builder codes are optional commission fees for routed limit and market orders. API JSON uses `builderCode` on orders and `abc`/`rbc` approval actions.
+Builder codes are optional builder-code fees for routed limit and market orders.
+API JSON uses `builderCode` on orders and `abc`/`rbc` approval actions. When
+`builderCode` is absent, it contributes no signing bytes.
 
 ## Pre-computed Order ID
 
@@ -132,7 +134,9 @@ Single-order transactions include an optional pre-computed order ID that matches
 
 Transaction signatures use canonical BULK-SDK bytes:
 
-`signature = ed25519_sign( bincode(actions) + nonce_le + account_bytes )`
+`signature = ed25519_sign(bincode(CommissionSignableActions) || nonce_le || account_bytes || domain_byte)`
+
+The required domain byte is `1` for mainnet, `2` for testnet, or `3` for devnet.
 
 ### TypeScript
 ```typescript
@@ -189,7 +193,7 @@ For multi-order transactions (`signGroup` / grouped batches), optional `order_id
 
 ### TypeScript (Node.js)
 ```typescript
-const signer = new NativeSigner(keypair);
+const signer = new NativeSigner(keypair, 'devnet');
 signer.setComputeBatchOrderIds(true); // default false for max performance
 const grouped = signer.signGroup([entryOrder, stopLoss, takeProfit]);
 console.log(grouped.orderIds); // ["...", "...", "..."]
@@ -197,7 +201,7 @@ console.log(grouped.orderIds); // ["...", "...", "..."]
 
 ### Python
 ```python
-signer = Signer(keypair)
+signer = Signer(keypair, "devnet")
 signer.set_compute_batch_order_ids(True)  # default False
 grouped = signer.sign_group([entry_order, stop_loss, take_profit])
 print(grouped.get("order_ids"))
@@ -205,7 +209,7 @@ print(grouped.get("order_ids"))
 
 ### Rust
 ```rust
-let mut signer = Signer::new(keypair).with_batch_order_ids();
+let mut signer = Signer::new(keypair, SignatureDomain::Devnet).with_batch_order_ids();
 let grouped = signer.sign_group(bracket, None)?;
 println!("Order IDs: {:?}", grouped.order_ids);
 ```
@@ -281,6 +285,7 @@ import { prepareOrder, WasmPreparedMessage } from 'bulk-keychain-wasm';
 
 // Step 1: Prepare the message (no private key needed)
 const prepared = prepareOrder(order, {
+  signatureDomain: 'devnet',
   account: walletPubkey,        // The trading account
   signer: walletPubkey,         // Who signs (defaults to account)
   nonce: Date.now()             // Optional, auto-generated if omitted
@@ -305,7 +310,7 @@ prepared.orderId;        // Optional pre-computed order ID
 from bulk_keychain import prepare_order, finalize_transaction
 
 # Step 1: Prepare
-prepared = prepare_order(order, account=wallet_pubkey)
+prepared = prepare_order(order, "devnet", account=wallet_pubkey)
 
 # Step 2: Sign with external wallet
 signature = wallet.sign_message(prepared["message_bytes"])
@@ -354,10 +359,11 @@ returns the base58 signature so you can call `finalize*` yourself.
 ```typescript
 import { NativeSigner, prepareOrder } from 'bulk-keychain';
 
-const agent = new NativeSigner(agentKeypair);   // holds the agent private key
+const agent = new NativeSigner(agentKeypair, 'devnet'); // holds the agent private key
 
 // Prepare for the main trading account, signed by the agent
 const prepared = prepareOrder(order, {
+  signatureDomain: 'devnet',
   account: mainAccountPubkey,   // the trading account
   signer: agent.pubkey,         // the agent wallet signs
 });
@@ -370,9 +376,10 @@ const signed = agent.signPrepared(prepared);
 ```typescript
 import { WasmSigner, prepareOrder } from 'bulk-keychain-wasm';
 
-const agent = new WasmSigner(agentKeypair);
+const agent = new WasmSigner(agentKeypair, 'devnet');
 
 const prepared = prepareOrder(order, {
+  signatureDomain: 'devnet',
   account: mainAccountPubkey,
   signer: agent.pubkey,
 });
@@ -384,9 +391,14 @@ const signed = agent.signPrepared(prepared);
 ```python
 from bulk_keychain import Signer, prepare_order
 
-agent = Signer(agent_keypair)
+agent = Signer(agent_keypair, "devnet")
 
-prepared = prepare_order(order, account=main_account_pubkey, signer=agent.pubkey)
+prepared = prepare_order(
+    order,
+    "devnet",
+    account=main_account_pubkey,
+    signer=agent.pubkey,
+)
 
 signed = agent.sign_prepared(prepared)
 ```

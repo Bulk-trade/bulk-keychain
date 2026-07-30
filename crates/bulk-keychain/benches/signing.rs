@@ -1,6 +1,6 @@
 //! Benchmarks for signing performance.
 
-use bulk_keychain::{Keypair, Order, OrderItem, Signer, TimeInForce};
+use bulk_keychain::{Keypair, Order, OrderItem, SignatureDomain, Signer, TimeInForce};
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use sha2::{Digest, Sha256};
 
@@ -23,8 +23,9 @@ fn make_order(i: usize) -> OrderItem {
 fn bench_sign_single(c: &mut Criterion) {
     let order = make_order(0);
 
-    let mut signer_with_order_id = Signer::new(Keypair::generate());
-    let mut signer_without_order_id = Signer::new(Keypair::generate()).without_order_id();
+    let mut signer_with_order_id = Signer::new(Keypair::generate(), SignatureDomain::Devnet);
+    let mut signer_without_order_id =
+        Signer::new(Keypair::generate(), SignatureDomain::Devnet).without_order_id();
 
     let mut group = c.benchmark_group("sign_single");
     group.throughput(Throughput::Elements(1));
@@ -53,8 +54,9 @@ fn bench_sign_single(c: &mut Criterion) {
 fn bench_sign_all(c: &mut Criterion) {
     let orders: Vec<OrderItem> = (0..BATCH_SIZE).map(make_order).collect();
 
-    let signer_with_order_id = Signer::new(Keypair::generate());
-    let signer_without_order_id = Signer::new(Keypair::generate()).without_order_id();
+    let signer_with_order_id = Signer::new(Keypair::generate(), SignatureDomain::Devnet);
+    let signer_without_order_id =
+        Signer::new(Keypair::generate(), SignatureDomain::Devnet).without_order_id();
 
     let mut group = c.benchmark_group("sign_all_parallel");
     group.throughput(Throughput::Elements(BATCH_SIZE as u64));
@@ -87,8 +89,9 @@ fn bench_sign_group(c: &mut Criterion) {
         Order::limit("BTC-USD", false, 110000.0, 0.1, TimeInForce::Gtc).into(),
     ];
 
-    let mut signer_default = Signer::new(Keypair::generate());
-    let mut signer_with_batch_ids = Signer::new(Keypair::generate()).with_batch_order_ids();
+    let mut signer_default = Signer::new(Keypair::generate(), SignatureDomain::Devnet);
+    let mut signer_with_batch_ids =
+        Signer::new(Keypair::generate(), SignatureDomain::Devnet).with_batch_order_ids();
 
     let mut group = c.benchmark_group("sign_group_atomic");
     group.throughput(Throughput::Elements(GROUP_SIZE as u64));

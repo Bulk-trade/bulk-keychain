@@ -15,12 +15,20 @@ use bulk_keychain::{
     LiquidatorInstrumentConfig, Modify, MultisigApprove, MultisigCancel, MultisigExecute,
     MultisigPropose, MultisigReject, NonceManager, NonceStrategy, OnFill, OraclePrice, Order,
     OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount,
-    Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket,
-    UpdateMultisigPolicy, UserSettings, WhitelistFaucet, Withdraw, WithdrawLockRecover,
+    SignatureDomain, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
+    TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet, Withdraw,
+    WithdrawLockRecover,
 };
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
+
+#[inline]
+fn parse_signature_domain(value: &str) -> Result<SignatureDomain, JsError> {
+    value
+        .parse()
+        .map_err(|error: bulk_keychain::Error| JsError::new(&error.to_string()))
+}
 
 // Initialize panic hook for better error messages in development
 #[cfg(feature = "console_error_panic_hook")]
@@ -116,18 +124,21 @@ pub struct WasmSigner {
 impl WasmSigner {
     /// Create a new signer from a keypair
     #[wasm_bindgen(constructor)]
-    pub fn new(keypair: &WasmKeypair) -> Self {
-        Self {
-            inner: Signer::new(keypair.inner.clone()),
-        }
+    pub fn new(keypair: &WasmKeypair, signature_domain: &str) -> Result<WasmSigner, JsError> {
+        Ok(Self {
+            inner: Signer::new(
+                keypair.inner.clone(),
+                parse_signature_domain(signature_domain)?,
+            ),
+        })
     }
 
     /// Create a signer from base58-encoded secret key
     #[wasm_bindgen(js_name = fromBase58)]
-    pub fn from_base58(s: &str) -> Result<WasmSigner, JsError> {
+    pub fn from_base58(s: &str, signature_domain: &str) -> Result<WasmSigner, JsError> {
         let keypair = Keypair::from_base58(s).map_err(|e| JsError::new(&e.to_string()))?;
         Ok(Self {
-            inner: Signer::new(keypair),
+            inner: Signer::new(keypair, parse_signature_domain(signature_domain)?),
         })
     }
 
@@ -136,6 +147,7 @@ impl WasmSigner {
     pub fn with_nonce_manager(
         keypair: &WasmKeypair,
         strategy: &str,
+        signature_domain: &str,
     ) -> Result<WasmSigner, JsError> {
         let nonce_strategy = match strategy {
             "timestamp" => NonceStrategy::Timestamp,
@@ -149,7 +161,11 @@ impl WasmSigner {
         };
         let nonce_manager = NonceManager::new(nonce_strategy);
         Ok(Self {
-            inner: Signer::with_nonce_manager(keypair.inner.clone(), nonce_manager),
+            inner: Signer::with_nonce_manager(
+                keypair.inner.clone(),
+                parse_signature_domain(signature_domain)?,
+                nonce_manager,
+            ),
         })
     }
 
@@ -1067,11 +1083,15 @@ impl TryFrom<OrderInput> for OrderItem {
                 }))
             }
             "trig" => {
+                if input.iso.is_some() {
+                    return Err(
+                        "trig.iso is not supported; remove the top-level iso field".to_string()
+                    );
+                }
                 let symbol = input.symbol.ok_or("trig.symbol is required")?;
                 let is_buy = input.is_buy.ok_or("trig.isBuy is required")?;
                 let trigger_price = input.trigger_price.ok_or("trig.triggerPrice is required")?;
                 let raw_actions = input.actions.ok_or("trig.actions is required")?;
-                let iso = input.iso.unwrap_or(false);
                 let actions: Result<Vec<OrderItem>, String> =
                     raw_actions.into_iter().map(|a| a.try_into()).collect();
                 Ok(OrderItem::TriggerBasket(TriggerBasket {
@@ -1079,7 +1099,6 @@ impl TryFrom<OrderInput> for OrderItem {
                     is_buy,
                     trigger_price,
                     actions: actions?,
-                    iso,
                 }))
             }
             "onFill" | "of" => {
@@ -1146,6 +1165,17 @@ fn json_bool(
     default: bool,
 ) -> Result<bool, JsError> {
     Ok(obj.get(key).and_then(JsonValue::as_bool).unwrap_or(default))
+}
+
+#[inline]
+fn validate_compact_trigger_basket(
+    payload: &serde_json::Map<String, JsonValue>,
+) -> Result<(), &'static str> {
+    if payload.contains_key("i") {
+        Err("trig.i is not supported; remove the top-level iso field")
+    } else {
+        Ok(())
+    }
 }
 
 fn json_f64(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<f64, JsError> {
@@ -1319,6 +1349,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
         }
         "trig" => {
             let p = json_obj(payload, "trig")?;
+            validate_compact_trigger_basket(p).map_err(js_err)?;
             let nested = p
                 .get("actions")
                 .and_then(JsonValue::as_array)
@@ -1332,7 +1363,6 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 is_buy: json_bool(p, "d", false)?,
                 trigger_price: json_f64(p, "tr")?,
                 actions: nested,
-                iso: json_bool(p, "i", false)?,
             }))
         }
         "of" => {
@@ -1750,6 +1780,8 @@ impl WasmPreparedMessage {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PrepareOptions {
+    /// Network signature domain
+    signature_domain: SignatureDomain,
     /// Account public key (base58) - the trading account
     account: String,
     /// Signer public key (base58) - defaults to account if not provided
@@ -1808,14 +1840,26 @@ pub fn wasm_prepare_order(
             trigger: Box::new(parent),
             actions: consequents.map_err(|e| JsError::new(&e))?,
         });
-        prepare_message(of_item, &account, signer.as_ref(), nonce)
-            .map_err(|e| JsError::new(&e.to_string()))?
+        prepare_message(
+            of_item,
+            opts.signature_domain,
+            &account,
+            signer.as_ref(),
+            nonce,
+        )
+        .map_err(|e| JsError::new(&e.to_string()))?
     } else {
         let order_item: OrderItem = order_input_no_fill
             .try_into()
             .map_err(|e: String| JsError::new(&e))?;
-        prepare_message(order_item, &account, signer.as_ref(), nonce)
-            .map_err(|e| JsError::new(&e.to_string()))?
+        prepare_message(
+            order_item,
+            opts.signature_domain,
+            &account,
+            signer.as_ref(),
+            nonce,
+        )
+        .map_err(|e| JsError::new(&e.to_string()))?
     };
 
     Ok(WasmPreparedMessage { inner: prepared })
@@ -1848,8 +1892,14 @@ pub fn wasm_prepare_all(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let base_nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_all(order_items, &account, signer.as_ref(), base_nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_all(
+        order_items,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        base_nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(prepared
         .into_iter()
@@ -1886,8 +1936,14 @@ pub fn wasm_prepare_group(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_group(order_items, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_group(
+        order_items,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -1915,8 +1971,15 @@ pub fn wasm_prepare_agent_wallet(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_agent_wallet(&agent, delete, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_agent_wallet(
+        &agent,
+        delete,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -1944,8 +2007,15 @@ pub fn wasm_prepare_approve_commission_fee(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_approve_commission_fee(&to, fee, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_approve_commission_fee(
+        &to,
+        fee,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -1981,8 +2051,9 @@ pub fn wasm_prepare_revoke_commission_fee(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_revoke_commission_fee(&to, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared =
+        prepare_revoke_commission_fee(&to, opts.signature_domain, &account, signer.as_ref(), nonce)
+            .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2012,7 +2083,7 @@ pub fn wasm_prepare_faucet(options: JsValue) -> Result<WasmPreparedMessage, JsEr
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_faucet(&account, signer.as_ref(), nonce)
+    let prepared = prepare_faucet(opts.signature_domain, &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
@@ -2041,8 +2112,14 @@ pub fn wasm_prepare_update_user_settings(
     let nonce = opts.nonce.map(|n| n as u64);
 
     let user_settings = UserSettings::new(settings_input.max_leverage);
-    let prepared = prepare_user_settings(user_settings, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_user_settings(
+        user_settings,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2069,8 +2146,14 @@ pub fn wasm_prepare_update_liquidator_config(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_update_liquidator_config(input.into(), &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_update_liquidator_config(
+        input.into(),
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2091,6 +2174,7 @@ pub fn wasm_prepare_transfer(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct TransferOptions {
+        signature_domain: SignatureDomain,
         account: String,
         #[serde(default)]
         signer: Option<String>,
@@ -2125,8 +2209,14 @@ pub fn wasm_prepare_transfer(
         margin_amount,
     };
 
-    let prepared = prepare_transfer(transfer, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_transfer(
+        transfer,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2168,8 +2258,14 @@ pub fn wasm_prepare_withdraw(
         blockhash: Hash::from_base58(blockhash).map_err(|e| JsError::new(&e.to_string()))?,
     };
 
-    let prepared = prepare_withdraw(withdraw, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_withdraw(
+        withdraw,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2201,8 +2297,14 @@ pub fn wasm_prepare_withdraw_lock_recover(
         hash: Hash::from_base58(hash).map_err(|e| JsError::new(&e.to_string()))?,
     };
 
-    let prepared = prepare_withdraw_lock_recover(recover, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_withdraw_lock_recover(
+        recover,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2228,8 +2330,14 @@ pub fn wasm_prepare_remove_sub_account(
         .map_err(|e| JsError::new(&e.to_string()))?;
     let nonce = opts.nonce.map(|n| n as u64);
 
-    let prepared = prepare_remove_sub_account(target, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_remove_sub_account(
+        target,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2262,6 +2370,7 @@ pub fn wasm_prepare_rename_sub_account(
             account: subaccount,
             name,
         },
+        opts.signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -2283,6 +2392,7 @@ pub fn wasm_prepare_create_sub_account(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct CreateSubAccountOptions {
+        signature_domain: SignatureDomain,
         account: String,
         #[serde(default)]
         signer: Option<String>,
@@ -2308,8 +2418,14 @@ pub fn wasm_prepare_create_sub_account(
         margin_amount: opts.margin_amount,
     };
 
-    let prepared = prepare_create_sub_account(sub_account, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_create_sub_account(
+        sub_account,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2328,6 +2444,7 @@ pub fn wasm_prepare_create_multisig(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct CreateMultisigOptions {
+        signature_domain: SignatureDomain,
         account: String,
         #[serde(default)]
         signer: Option<String>,
@@ -2363,8 +2480,14 @@ pub fn wasm_prepare_create_multisig(
         proposal_lifetime_secs: opts.proposal_lifetime_secs.unwrap_or(7 * 24 * 3600),
     };
 
-    let prepared = prepare_create_multisig(create_multisig, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_create_multisig(
+        create_multisig,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2391,6 +2514,7 @@ pub fn wasm_prepare_multisig_propose(
 
     let prepared = prepare_multisig_propose(
         MultisigPropose::new(multisig, actions),
+        opts.signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -2421,6 +2545,7 @@ pub fn wasm_prepare_multisig_approve(
 
     let prepared = prepare_multisig_approve(
         MultisigApprove::new(multisig, proposal_id as u64),
+        opts.signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -2451,6 +2576,7 @@ pub fn wasm_prepare_multisig_reject(
 
     let prepared = prepare_multisig_reject(
         MultisigReject::new(multisig, proposal_id as u64),
+        opts.signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -2481,6 +2607,7 @@ pub fn wasm_prepare_multisig_cancel(
 
     let prepared = prepare_multisig_cancel(
         MultisigCancel::new(multisig, proposal_id as u64),
+        opts.signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -2511,6 +2638,7 @@ pub fn wasm_prepare_multisig_execute(
 
     let prepared = prepare_multisig_execute(
         MultisigExecute::new(multisig, proposal_id as u64),
+        opts.signature_domain,
         &account,
         signer.as_ref(),
         nonce,
@@ -2531,6 +2659,7 @@ pub fn wasm_prepare_update_multisig_policy(
     #[derive(Deserialize)]
     #[serde(rename_all = "camelCase")]
     struct UpdateMultisigPolicyOptions {
+        signature_domain: SignatureDomain,
         account: String,
         #[serde(default)]
         signer: Option<String>,
@@ -2568,8 +2697,14 @@ pub fn wasm_prepare_update_multisig_policy(
         proposal_lifetime_secs: opts.proposal_lifetime_secs.unwrap_or(7 * 24 * 3600),
     };
 
-    let prepared = prepare_update_multisig_policy(update, &account, signer.as_ref(), nonce)
-        .map_err(|e| JsError::new(&e.to_string()))?;
+    let prepared = prepare_update_multisig_policy(
+        update,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
 
     Ok(WasmPreparedMessage { inner: prepared })
 }
@@ -2707,9 +2842,45 @@ mod tests {
         assert_eq!(on_fill.actions.len(), 1);
     }
 
+    #[test]
+    fn trigger_basket_rejects_stale_high_level_iso() {
+        let input: OrderInput = serde_json::from_value(serde_json::json!({
+            "type": "trig",
+            "symbol": "BTC-USD",
+            "isBuy": true,
+            "triggerPrice": 100_000.0,
+            "actions": [],
+            "iso": true,
+        }))
+        .unwrap();
+
+        let error = OrderItem::try_from(input).unwrap_err();
+        assert!(error.contains("trig.iso"));
+    }
+
+    #[test]
+    fn trigger_basket_rejects_stale_compact_iso() {
+        let value = serde_json::json!({
+            "trig": {
+                "c": "BTC-USD",
+                "d": true,
+                "tr": 100_000.0,
+                "actions": [],
+                "i": true,
+            }
+        });
+        let payload = value["trig"].as_object().unwrap();
+
+        assert_eq!(
+            validate_compact_trigger_basket(payload),
+            Err("trig.i is not supported; remove the top-level iso field")
+        );
+    }
+
     #[wasm_bindgen_test]
     fn test_prepare_order_with_on_fill_emits_single_inline_action() {
         let options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
             "account": Pubkey::from_bytes([7u8; 32]).to_base58(),
             "nonce": 1_234_567_890u64,
         }));
@@ -2728,9 +2899,10 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_sign_prepared_account_ne_signer() {
-        let agent = WasmSigner::new(&WasmKeypair::new());
+        let agent = WasmSigner::new(&WasmKeypair::new(), "devnet").unwrap();
         let target_account = WasmKeypair::new().pubkey();
         let options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
             "account": target_account,
             "signer": agent.pubkey(),
             "nonce": 1234567890u64,
@@ -2750,9 +2922,10 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_sign_prepared_rejects_signer_mismatch() {
-        let agent = WasmSigner::new(&WasmKeypair::new());
-        let other = WasmSigner::new(&WasmKeypair::new());
+        let agent = WasmSigner::new(&WasmKeypair::new(), "devnet").unwrap();
+        let other = WasmSigner::new(&WasmKeypair::new(), "devnet").unwrap();
         let options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
             "account": WasmKeypair::new().pubkey(),
             "signer": agent.pubkey(),
             "nonce": 1234567890u64,

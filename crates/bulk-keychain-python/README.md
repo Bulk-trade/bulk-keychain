@@ -21,7 +21,7 @@ print(f"Public key: {keypair.pubkey}")
 # keypair = Keypair.from_base58("your-secret-key...")
 
 # Create a signer
-signer = Signer(keypair)
+signer = Signer(keypair, "devnet")
 
 # Sign a limit order
 signed = signer.sign({
@@ -96,9 +96,10 @@ response = requests.post(
 
 ## Builder Codes
 
-Builder codes are optional commission fees for routed limit and market orders.
-Python order input uses `builder_code`; API JSON emits `builderCode` on orders
-and `abc`/`rbc` approval actions.
+Builder codes are optional builder-code fees for routed limit and market
+orders. Python order input uses `builder_code`; API JSON emits `builderCode` on
+orders and `abc`/`rbc` approval actions. When `builder_code` is absent, it
+contributes no signing bytes.
 
 ## Batch Signing
 
@@ -142,13 +143,13 @@ keypair.secret_key()    # Secret key as bytes (32 bytes)
 
 ```python
 # Create signer
-signer = Signer(keypair)
-signer = Signer.from_base58("secret-key-base58")
+signer = Signer(keypair, "devnet")
+signer = Signer.from_base58("secret-key-base58", "devnet")
 
 # With nonce management 
-signer = Signer.with_nonce_manager(keypair, "timestamp")     # Use timestamp
-signer = Signer.with_nonce_manager(keypair, "counter")       # Use counter
-signer = Signer.with_nonce_manager(keypair, "high_frequency") # Timestamp + counter
+signer = Signer.with_nonce_manager(keypair, "timestamp", "devnet")
+signer = Signer.with_nonce_manager(keypair, "counter", "devnet")
+signer = Signer.with_nonce_manager(keypair, "high_frequency", "devnet")
 
 # Optional ID computation controls
 signer.set_compute_order_id(True)            # default True

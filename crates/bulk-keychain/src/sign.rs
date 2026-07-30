@@ -14,6 +14,7 @@ const PARALLEL_THRESHOLD: usize = 10;
 /// High-performance signer.
 pub struct Signer {
     keypair: Keypair,
+    signature_domain: SignatureDomain,
     nonce_manager: Option<NonceManager>,
     serializer: Vec<u8>,
     compute_order_id: bool,
@@ -22,9 +23,10 @@ pub struct Signer {
 
 impl Signer {
     /// Create a signer.
-    pub fn new(keypair: Keypair) -> Self {
+    pub fn new(keypair: Keypair, signature_domain: SignatureDomain) -> Self {
         Self {
             keypair,
+            signature_domain,
             nonce_manager: None,
             serializer: Vec::with_capacity(512),
             compute_order_id: true,
@@ -33,9 +35,14 @@ impl Signer {
     }
 
     /// Create a signer with nonce management.
-    pub fn with_nonce_manager(keypair: Keypair, nonce_manager: NonceManager) -> Self {
+    pub fn with_nonce_manager(
+        keypair: Keypair,
+        signature_domain: SignatureDomain,
+        nonce_manager: NonceManager,
+    ) -> Self {
         Self {
             keypair,
+            signature_domain,
             nonce_manager: Some(nonce_manager),
             serializer: Vec::with_capacity(512),
             compute_order_id: true,
@@ -95,6 +102,11 @@ impl Signer {
         self.keypair.pubkey()
     }
 
+    /// Network identity committed into every transaction signature.
+    pub const fn signature_domain(&self) -> SignatureDomain {
+        self.signature_domain
+    }
+
     /// Sign raw bytes and return base58 signature.
     pub fn sign_bytes(&self, message: &[u8]) -> String {
         let signature = self.keypair.signing_key().sign(message);
@@ -117,7 +129,13 @@ impl Signer {
     ) -> Result<SignedTransaction> {
         let signer_pubkey = self.keypair.pubkey();
 
-        serialize_for_sdk_signing(action, nonce, account, &mut self.serializer)?;
+        serialize_for_sdk_signing(
+            action,
+            self.signature_domain,
+            nonce,
+            account,
+            &mut self.serializer,
+        )?;
 
         let order_id = if self.compute_order_id {
             self.compute_action_order_id(action, nonce, account)
@@ -210,7 +228,13 @@ impl Signer {
 
         let action = Action::Order { orders: vec![item] };
         let mut serializer = Vec::with_capacity(512);
-        serialize_for_sdk_signing(&action, nonce, &account, &mut serializer)?;
+        serialize_for_sdk_signing(
+            &action,
+            self.signature_domain,
+            nonce,
+            &account,
+            &mut serializer,
+        )?;
 
         let signature = self.sign_bytes(&serializer);
         let actions = self.action_to_json(&action)?;
@@ -584,7 +608,13 @@ impl Signer {
 
         let action = Action::Order { orders };
         let mut serializer = Vec::with_capacity(512);
-        serialize_for_sdk_signing(&action, nonce, &account, &mut serializer)?;
+        serialize_for_sdk_signing(
+            &action,
+            self.signature_domain,
+            nonce,
+            &account,
+            &mut serializer,
+        )?;
         let signature = self.sign_bytes(&serializer);
         let actions = self.action_to_json(&action)?;
 
@@ -932,8 +962,7 @@ impl Signer {
                         "c": trig.symbol,
                         "d": trig.is_buy,
                         "tr": trig.trigger_price,
-                        "actions": nested?,
-                        "i": trig.iso
+                        "actions": nested?
                     }
                 }))
             }
@@ -970,10 +999,14 @@ impl Signer {
 mod tests {
     use super::*;
 
+    fn devnet_signer(keypair: Keypair) -> Signer {
+        Signer::new(keypair, SignatureDomain::Devnet)
+    }
+
     #[test]
     fn test_sign_single() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
         let signed = signer.sign(order.into(), Some(1234567890)).unwrap();
 
@@ -986,7 +1019,7 @@ mod tests {
     #[test]
     fn test_sign_modify_uses_compact_sdk_keys() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let modify = Modify::new(Hash::random(), "BTC-USD", 0.25);
         let signed = signer
             .sign(OrderItem::Modify(modify), Some(1234567890))
@@ -1002,7 +1035,7 @@ mod tests {
     #[test]
     fn test_sign_all_parallel_nonce_increment() {
         let keypair = Keypair::generate();
-        let signer = Signer::new(keypair);
+        let signer = devnet_signer(keypair);
         let orders: Vec<OrderItem> = (0..20)
             .map(|i| {
                 Order::limit(
@@ -1028,7 +1061,7 @@ mod tests {
     #[test]
     fn test_sign_group_atomic() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let bracket: Vec<OrderItem> = vec![
             Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
             Order::limit("BTC-USD", false, 99000.0, 0.1, TimeInForce::Gtc).into(),
@@ -1044,7 +1077,7 @@ mod tests {
     #[test]
     fn test_sign_faucet() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer.sign_faucet(Some(1234567890)).unwrap();
         assert_eq!(signed.actions.len(), 1);
         assert!(signed.actions[0].get("faucet").is_some());
@@ -1054,7 +1087,7 @@ mod tests {
     fn test_sign_agent_wallet() {
         let keypair = Keypair::generate();
         let agent_keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_agent_wallet(agent_keypair.pubkey(), false, Some(1234567890))
             .unwrap();
@@ -1064,7 +1097,7 @@ mod tests {
     #[test]
     fn test_sign_group_empty_error() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let result = signer.sign_group(vec![], Some(1234567890));
         assert!(matches!(result, Err(Error::EmptyOrders)));
     }
@@ -1072,7 +1105,7 @@ mod tests {
     #[test]
     fn test_sign_oracle_prices() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_oracle_prices(
                 vec![OraclePrice {
@@ -1090,7 +1123,7 @@ mod tests {
     #[test]
     fn test_sign_pyth_oracle() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_pyth_oracle(
                 vec![PythOraclePrice {
@@ -1109,7 +1142,7 @@ mod tests {
     #[test]
     fn test_sign_user_settings_uses_sdk_map_shape() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_user_settings(
                 UserSettings::new(vec![("BTC".to_string(), 5.0), ("ETH".to_string(), 3.0)]),
@@ -1130,8 +1163,8 @@ mod tests {
         let settings_b =
             UserSettings::new(vec![("ETH".to_string(), 3.0), ("BTC".to_string(), 5.0)]);
 
-        let mut signer_a = Signer::new(keypair.clone());
-        let mut signer_b = Signer::new(keypair);
+        let mut signer_a = devnet_signer(keypair.clone());
+        let mut signer_b = devnet_signer(keypair);
 
         let signed_a = signer_a
             .sign_user_settings(settings_a, Some(1234567890))
@@ -1147,7 +1180,7 @@ mod tests {
     #[test]
     fn test_sign_create_sub_account() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_create_sub_account(CreateSubAccount::new("desk-1"), Some(1234567890))
             .unwrap();
@@ -1161,7 +1194,7 @@ mod tests {
     #[test]
     fn test_sign_create_sub_account_with_margin() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_create_sub_account(
                 CreateSubAccount::with_margin("desk-1", 1000.0),
@@ -1180,7 +1213,7 @@ mod tests {
     fn test_sign_remove_sub_account() {
         let keypair = Keypair::generate();
         let target = Keypair::generate().pubkey();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_remove_sub_account(target, Some(1234567890))
             .unwrap();
@@ -1195,7 +1228,7 @@ mod tests {
     fn test_sign_rename_sub_account() {
         let keypair = Keypair::generate();
         let target = Keypair::generate().pubkey();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_rename_sub_account(RenameSubAccount::new(target, "desk-2"), Some(1234567890))
             .unwrap();
@@ -1212,7 +1245,7 @@ mod tests {
         let keypair = Keypair::generate();
         let from = keypair.pubkey();
         let to = Keypair::generate().pubkey();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_transfer(Transfer::internal(from, to, 10.0), Some(1234567890))
             .unwrap();
@@ -1226,7 +1259,7 @@ mod tests {
     fn test_sign_whitelist_faucet() {
         let keypair = Keypair::generate();
         let target = Keypair::generate().pubkey();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let signed = signer
             .sign_whitelist_faucet(target, true, Some(1234567890))
             .unwrap();
@@ -1238,7 +1271,7 @@ mod tests {
     fn test_commission_order_json_and_order_id() {
         let keypair = Keypair::generate();
         let recipient = Pubkey::from_bytes([9u8; 32]);
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
         let plain = signer.sign(order.clone().into(), Some(1234567890)).unwrap();
         let commissioned = signer
@@ -1263,7 +1296,7 @@ mod tests {
     fn test_sign_commission_approval_actions() {
         let keypair = Keypair::generate();
         let recipient = Pubkey::from_bytes([7u8; 32]);
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let approve = signer
             .sign_approve_builder_code(recipient, 5, Some(1234567890))
             .unwrap();
@@ -1287,7 +1320,7 @@ mod tests {
     #[test]
     fn test_order_id_computed_by_default() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair);
+        let mut signer = devnet_signer(keypair);
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
         let signed = signer.sign(order.into(), Some(1234567890)).unwrap();
         assert!(signed.order_id.is_some());
@@ -1296,7 +1329,7 @@ mod tests {
     #[test]
     fn test_order_id_disabled() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair).without_order_id();
+        let mut signer = devnet_signer(keypair).without_order_id();
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
         let signed = signer.sign(order.into(), Some(1234567890)).unwrap();
         assert!(signed.order_id.is_none());
@@ -1305,7 +1338,7 @@ mod tests {
     #[test]
     fn test_batch_order_ids_optional_enabled() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair).with_batch_order_ids();
+        let mut signer = devnet_signer(keypair).with_batch_order_ids();
         assert!(signer.computes_batch_order_ids());
 
         let bracket: Vec<OrderItem> = vec![
@@ -1324,14 +1357,14 @@ mod tests {
     #[allow(deprecated)]
     fn test_legacy_methods_still_work() {
         let keypair = Keypair::generate();
-        let mut signer = Signer::new(keypair.clone());
+        let mut signer = devnet_signer(keypair.clone());
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
         let one = signer
             .sign_order(vec![order.clone().into()], Some(100))
             .unwrap();
         assert_eq!(one.actions.len(), 1);
 
-        let signer = Signer::new(keypair);
+        let signer = devnet_signer(keypair);
         let batches = vec![vec![order.into()]];
         let many = signer.sign_orders_batch(batches, Some(200)).unwrap();
         assert_eq!(many.len(), 1);
@@ -1341,7 +1374,7 @@ mod tests {
     #[allow(deprecated)]
     fn test_legacy_batch_order_ids_enabled() {
         let keypair = Keypair::generate();
-        let signer = Signer::new(keypair).with_batch_order_ids();
+        let signer = devnet_signer(keypair).with_batch_order_ids();
         let batches = vec![vec![
             Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
             Order::limit("BTC-USD", false, 110000.0, 0.1, TimeInForce::Gtc).into(),

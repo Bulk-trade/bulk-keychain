@@ -7,6 +7,45 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 pub const MAX_COMMISSION_FEE_BPS: u8 = 15;
 pub const MAX_BUILDER_CODE_FEE_BPS: u8 = MAX_COMMISSION_FEE_BPS;
 
+/// BULK network identity committed into every transaction signature.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SignatureDomain {
+    Mainnet = 1,
+    Testnet = 2,
+    Devnet = 3,
+}
+
+impl SignatureDomain {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mainnet => "mainnet",
+            Self::Testnet => "testnet",
+            Self::Devnet => "devnet",
+        }
+    }
+}
+
+impl std::fmt::Display for SignatureDomain {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for SignatureDomain {
+    type Err = crate::Error;
+
+    fn from_str(value: &str) -> crate::Result<Self> {
+        match value {
+            "mainnet" => Ok(Self::Mainnet),
+            "testnet" => Ok(Self::Testnet),
+            "devnet" => Ok(Self::Devnet),
+            _ => Err(crate::Error::InvalidSignatureDomain(value.to_string())),
+        }
+    }
+}
+
 /// 32-byte public key (Ed25519)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pubkey(pub [u8; 32]);
@@ -479,9 +518,6 @@ pub struct TriggerBasket {
     pub is_buy: bool,
     pub trigger_price: f64,
     pub actions: Vec<OrderItem>,
-    /// Isolated-margin flag
-    #[serde(default)]
-    pub iso: bool,
 }
 
 /// Trailing stop: protective stop that follows price by a fixed distance in bps,

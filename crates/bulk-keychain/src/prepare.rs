@@ -52,17 +52,19 @@ impl PreparedMessage {
 /// Prepare a single order item transaction.
 pub fn prepare_message(
     item: OrderItem,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::Order { orders: vec![item] };
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare an atomic multi-item order transaction.
 pub fn prepare_group(
     items: Vec<OrderItem>,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
@@ -71,23 +73,25 @@ pub fn prepare_group(
         return Err(Error::EmptyOrders);
     }
     let action = Action::Order { orders: items };
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a faucet transaction.
 pub fn prepare_faucet(
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::Faucet(Faucet::new(*account));
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare an agent wallet creation/deletion transaction.
 pub fn prepare_agent_wallet(
     agent: &Pubkey,
     delete: bool,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
@@ -96,7 +100,7 @@ pub fn prepare_agent_wallet(
         agent: *agent,
         delete,
     });
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare builder-code recipient approval.
@@ -105,6 +109,7 @@ pub fn prepare_agent_wallet(
 pub fn prepare_approve_commission_fee(
     to: &Pubkey,
     fee: u8,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
@@ -118,7 +123,7 @@ pub fn prepare_approve_commission_fee(
         to: *to,
         max_fee: fee,
     });
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare builder-code recipient approval.
@@ -126,203 +131,222 @@ pub fn prepare_approve_commission_fee(
 pub fn prepare_approve_builder_code(
     to: &Pubkey,
     fee: u8,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
-    prepare_approve_commission_fee(to, fee, account, signer, nonce)
+    prepare_approve_commission_fee(to, fee, signature_domain, account, signer, nonce)
 }
 
 /// Prepare builder-code recipient revocation.
 pub fn prepare_revoke_commission_fee(
     to: &Pubkey,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::RevokeCommissionFee(RevokeCommissionFee { to: *to });
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare builder-code recipient revocation.
 #[inline]
 pub fn prepare_revoke_builder_code(
     to: &Pubkey,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
-    prepare_revoke_commission_fee(to, account, signer, nonce)
+    prepare_revoke_commission_fee(to, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a liquidator config update.
 pub fn prepare_update_liquidator_config(
     config: LiquidatorConfig,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::UpdateLiquidatorConfig(config);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a user settings transaction.
 pub fn prepare_user_settings(
     settings: UserSettings,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::UpdateUserSettings(settings);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a sub-account creation transaction.
 pub fn prepare_create_sub_account(
     sub_account: CreateSubAccount,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::CreateSubAccount(sub_account);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a sub-account removal transaction.
 pub fn prepare_remove_sub_account(
     to_remove: Pubkey,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::RemoveSubAccount(RemoveSubAccount { to_remove });
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a sub-account rename transaction.
 pub fn prepare_rename_sub_account(
     rename: RenameSubAccount,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::RenameSubAccount(rename);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a margin transfer transaction.
 pub fn prepare_transfer(
     transfer: Transfer,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::Transfer(transfer);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a portfolio withdraw transaction.
 pub fn prepare_withdraw(
     withdraw: Withdraw,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::Withdraw(withdraw);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a withdraw-lock recovery transaction.
 pub fn prepare_withdraw_lock_recover(
     recover: WithdrawLockRecover,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::WithdrawLockRecover(recover);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig creation transaction.
 pub fn prepare_create_multisig(
     create_multisig: CreateMultisig,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::CreateMultisig(create_multisig);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig proposal transaction.
 pub fn prepare_multisig_propose(
     propose: MultisigPropose,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::MultisigPropose(propose);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig approve transaction.
 pub fn prepare_multisig_approve(
     approve: MultisigApprove,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::MultisigApprove(approve);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig reject transaction.
 pub fn prepare_multisig_reject(
     reject: MultisigReject,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::MultisigReject(reject);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig cancel transaction.
 pub fn prepare_multisig_cancel(
     cancel: MultisigCancel,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::MultisigCancel(cancel);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig execute transaction.
 pub fn prepare_multisig_execute(
     execute: MultisigExecute,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::MultisigExecute(execute);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Prepare a multisig policy update transaction.
 pub fn prepare_update_multisig_policy(
     update: UpdateMultisigPolicy,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let action = Action::UpdateMultisigPolicy(update);
-    prepare_action(&action, account, signer, nonce)
+    prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
 /// Low-level action preparation.
 pub fn prepare_action(
     action: &Action,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     nonce: Option<u64>,
@@ -331,7 +355,7 @@ pub fn prepare_action(
     let nonce = nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
 
     let mut message_bytes = Vec::with_capacity(512);
-    serialize_for_sdk_signing(action, nonce, account, &mut message_bytes)?;
+    serialize_for_sdk_signing(action, signature_domain, nonce, account, &mut message_bytes)?;
 
     let actions = action_to_json(action)?;
     let order_id = compute_action_order_id(action, nonce, account);
@@ -384,6 +408,7 @@ fn compute_action_order_ids(action: &Action, nonce: u64, account: &Pubkey) -> Op
 /// Prepare multiple independent order item transactions.
 pub fn prepare_all(
     items: Vec<OrderItem>,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: Option<&Pubkey>,
     base_nonce: Option<u64>,
@@ -399,19 +424,36 @@ pub fn prepare_all(
         items
             .into_iter()
             .enumerate()
-            .map(|(i, item)| prepare_single_item(item, account, signer_pubkey, base + i as u64))
+            .map(|(i, item)| {
+                prepare_single_item(
+                    item,
+                    signature_domain,
+                    account,
+                    signer_pubkey,
+                    base + i as u64,
+                )
+            })
             .collect()
     } else {
         items
             .into_par_iter()
             .enumerate()
-            .map(|(i, item)| prepare_single_item(item, account, signer_pubkey, base + i as u64))
+            .map(|(i, item)| {
+                prepare_single_item(
+                    item,
+                    signature_domain,
+                    account,
+                    signer_pubkey,
+                    base + i as u64,
+                )
+            })
             .collect()
     }
 }
 
 fn prepare_single_item(
     item: OrderItem,
+    signature_domain: SignatureDomain,
     account: &Pubkey,
     signer: &Pubkey,
     nonce: u64,
@@ -422,7 +464,13 @@ fn prepare_single_item(
     let action = Action::Order { orders: vec![item] };
 
     let mut message_bytes = Vec::with_capacity(512);
-    serialize_for_sdk_signing(&action, nonce, account, &mut message_bytes)?;
+    serialize_for_sdk_signing(
+        &action,
+        signature_domain,
+        nonce,
+        account,
+        &mut message_bytes,
+    )?;
     let actions = action_to_json(&action)?;
 
     Ok(PreparedMessage {
@@ -756,8 +804,7 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                     "c": trig.symbol,
                     "d": trig.is_buy,
                     "tr": trig.trigger_price,
-                    "actions": nested?,
-                    "i": trig.iso
+                    "actions": nested?
                 }
             }))
         }
@@ -795,7 +842,14 @@ mod tests {
         let keypair = Keypair::generate();
         let account = keypair.pubkey();
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
-        let prepared = prepare_message(order.into(), &account, None, Some(1234567890)).unwrap();
+        let prepared = prepare_message(
+            order.into(),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
 
         assert!(!prepared.message_bytes.is_empty());
         assert_eq!(prepared.nonce, 1234567890);
@@ -808,8 +862,14 @@ mod tests {
         let keypair = Keypair::generate();
         let account = keypair.pubkey();
         let modify = Modify::new(Hash::random(), "BTC-USD", 0.25);
-        let prepared =
-            prepare_message(OrderItem::Modify(modify), &account, None, Some(1234567890)).unwrap();
+        let prepared = prepare_message(
+            OrderItem::Modify(modify),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
 
         let mod_obj = prepared.actions[0].get("mod").unwrap();
         assert!(mod_obj.get("c").is_some());
@@ -826,7 +886,14 @@ mod tests {
             Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
             Order::limit("BTC-USD", false, 99000.0, 0.1, TimeInForce::Gtc).into(),
         ];
-        let prepared = prepare_group(items, &account, None, Some(1234567890)).unwrap();
+        let prepared = prepare_group(
+            items,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
         assert_eq!(prepared.actions.len(), 2);
         assert!(prepared.order_id.is_none());
         assert_eq!(prepared.order_ids.as_ref().map(Vec::len), Some(2));
@@ -842,12 +909,39 @@ mod tests {
             actions: vec![Order::market("ETH-USD", false, 1.25).into()],
         });
 
-        let prepared = prepare_message(item, &account, None, Some(1_234_567_890)).unwrap();
+        let prepared = prepare_message(
+            item,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1_234_567_890),
+        )
+        .unwrap();
 
         assert_eq!(prepared.actions.len(), 1);
         assert!(prepared.actions[0]["of"].get("p").is_none());
         assert!(prepared.actions[0]["of"]["trigger"].get("l").is_some());
         assert!(prepared.actions[0]["of"]["actions"][0].get("m").is_some());
+    }
+
+    #[test]
+    fn trigger_basket_json_has_no_top_level_iso() {
+        let account = Pubkey::from_bytes([7u8; 32]);
+        let prepared = prepare_message(
+            OrderItem::TriggerBasket(TriggerBasket {
+                symbol: "BTC-USD".to_string(),
+                is_buy: true,
+                trigger_price: 100_000.0,
+                actions: vec![Order::market("BTC-USD", false, 0.1).into()],
+            }),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1_234_567_890),
+        )
+        .unwrap();
+
+        assert!(prepared.actions[0]["trig"].get("i").is_none());
     }
 
     #[test]
@@ -857,6 +951,7 @@ mod tests {
         let recipient = Pubkey::from_bytes([9u8; 32]);
         let plain = prepare_message(
             Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
+            SignatureDomain::Devnet,
             &account,
             None,
             Some(1234567890),
@@ -867,6 +962,7 @@ mod tests {
                 .with_builder_code(recipient, 5)
                 .unwrap()
                 .into(),
+            SignatureDomain::Devnet,
             &account,
             None,
             Some(1234567890),
@@ -888,18 +984,47 @@ mod tests {
         let keypair = Keypair::generate();
         let account = keypair.pubkey();
         let recipient = Pubkey::from_bytes([7u8; 32]);
-        let approve =
-            prepare_approve_builder_code(&recipient, 5, &account, None, Some(1234567890)).unwrap();
-        let revoke =
-            prepare_revoke_builder_code(&recipient, &account, None, Some(1234567891)).unwrap();
+        let approve = prepare_approve_builder_code(
+            &recipient,
+            5,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+        let revoke = prepare_revoke_builder_code(
+            &recipient,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567891),
+        )
+        .unwrap();
 
         assert_eq!(approve.actions[0]["abc"]["fee"], 5);
         assert_eq!(approve.actions[0]["abc"]["to"], recipient.to_base58());
         assert_eq!(revoke.actions[0]["rbc"]["to"], recipient.to_base58());
         assert!(approve.order_id.is_none());
         assert!(revoke.order_id.is_none());
-        assert!(prepare_approve_builder_code(&recipient, 0, &account, None, None).is_err());
-        assert!(prepare_approve_builder_code(&recipient, 16, &account, None, None).is_err());
+        assert!(prepare_approve_builder_code(
+            &recipient,
+            0,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            None
+        )
+        .is_err());
+        assert!(prepare_approve_builder_code(
+            &recipient,
+            16,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            None
+        )
+        .is_err());
     }
 
     #[test]
@@ -919,7 +1044,14 @@ mod tests {
             })
             .collect();
 
-        let prepared = prepare_all(orders, &account, None, Some(1000000)).unwrap();
+        let prepared = prepare_all(
+            orders,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1000000),
+        )
+        .unwrap();
         assert_eq!(prepared.len(), 20);
         for (i, p) in prepared.iter().enumerate() {
             assert_eq!(p.nonce, 1000000 + i as u64);
@@ -931,7 +1063,14 @@ mod tests {
         let keypair = Keypair::generate();
         let account = keypair.pubkey();
         let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
-        let prepared = prepare_message(order.into(), &account, None, Some(1234567890)).unwrap();
+        let prepared = prepare_message(
+            order.into(),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
         let signed = finalize_transaction(prepared.clone(), "sig");
 
         assert_eq!(signed.nonce, prepared.nonce);
@@ -947,6 +1086,7 @@ mod tests {
         let subaccount = Keypair::generate().pubkey();
         let prepared = prepare_rename_sub_account(
             RenameSubAccount::new(subaccount, "desk-2"),
+            SignatureDomain::Devnet,
             &account,
             None,
             Some(1234567890),
@@ -968,6 +1108,7 @@ mod tests {
         let account = keypair.pubkey();
         let prepared = prepare_create_sub_account(
             CreateSubAccount::with_margin("desk-1", 1000.0),
+            SignatureDomain::Devnet,
             &account,
             None,
             Some(1234567890),
@@ -990,6 +1131,7 @@ mod tests {
         let to = Keypair::generate().pubkey();
         let prepared = prepare_transfer(
             Transfer::internal(account, to, 10.0),
+            SignatureDomain::Devnet,
             &account,
             None,
             Some(1234567890),
@@ -1017,7 +1159,14 @@ mod tests {
             amount,
             blockhash,
         };
-        let prepared = prepare_withdraw(withdraw, &account, None, Some(nonce)).unwrap();
+        let prepared = prepare_withdraw(
+            withdraw,
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(nonce),
+        )
+        .unwrap();
 
         let mut expected = Vec::new();
         expected.extend_from_slice(&1u64.to_le_bytes());
@@ -1029,6 +1178,7 @@ mod tests {
         expected.extend_from_slice(blockhash.as_bytes());
         expected.extend_from_slice(&nonce.to_le_bytes());
         expected.extend_from_slice(account.as_bytes());
+        expected.push(SignatureDomain::Devnet as u8);
         assert_eq!(prepared.message_bytes, expected);
 
         let obj = prepared.actions[0].get("withdraw").unwrap();
@@ -1052,6 +1202,7 @@ mod tests {
         let nonce = 1234567890u64;
         let prepared = prepare_withdraw_lock_recover(
             WithdrawLockRecover { user, hash },
+            SignatureDomain::Devnet,
             &account,
             None,
             Some(nonce),
@@ -1065,6 +1216,7 @@ mod tests {
         expected.extend_from_slice(hash.as_bytes());
         expected.extend_from_slice(&nonce.to_le_bytes());
         expected.extend_from_slice(account.as_bytes());
+        expected.push(SignatureDomain::Devnet as u8);
         assert_eq!(prepared.message_bytes, expected);
 
         let obj = prepared.actions[0].get("withdrawLockRecover").unwrap();

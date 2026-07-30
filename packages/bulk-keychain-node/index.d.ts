@@ -1,4 +1,5 @@
 export type NonceStrategy = "timestamp" | "counter" | "highFrequency";
+export type SignatureDomain = "mainnet" | "testnet" | "devnet";
 export type TimeInForce = "GTC" | "IOC" | "ALO";
 
 /** Builder-code fee payload. */
@@ -15,7 +16,6 @@ export interface OrderTypeInput {
 }
 
 export interface OnFillInput {
-  p: number;
   actions: OrderInput[];
 }
 
@@ -94,6 +94,7 @@ export interface SignedTransactionOutput {
 }
 
 export interface PrepareOptions {
+  signatureDomain: SignatureDomain;
   account: string;
   signer?: string;
   nonce?: number;
@@ -124,9 +125,13 @@ export class NativeKeypair {
 }
 
 export class NativeSigner {
-  constructor(keypair: NativeKeypair);
-  static fromBase58(s: string): NativeSigner;
-  static withNonceManager(keypair: NativeKeypair, strategy: NonceStrategy): NativeSigner;
+  constructor(keypair: NativeKeypair, signatureDomain: SignatureDomain);
+  static fromBase58(s: string, signatureDomain: SignatureDomain): NativeSigner;
+  static withNonceManager(
+    keypair: NativeKeypair,
+    strategy: NonceStrategy,
+    signatureDomain: SignatureDomain,
+  ): NativeSigner;
   readonly pubkey: string;
   setComputeOrderId(enabled: boolean): void;
   setComputeBatchOrderIds(enabled: boolean): void;

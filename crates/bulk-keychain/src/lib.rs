@@ -15,7 +15,7 @@
 //! ## Quick Start
 //!
 //! ```rust
-//! use bulk_keychain::{Keypair, Signer, Order, TimeInForce};
+//! use bulk_keychain::{Keypair, Order, SignatureDomain, Signer, TimeInForce};
 //!
 //! // Generate a new keypair
 //! let keypair = Keypair::generate();
@@ -24,7 +24,7 @@
 //! let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
 //!
 //! // Sign the transaction
-//! let mut signer = Signer::new(keypair);
+//! let mut signer = Signer::new(keypair, SignatureDomain::Devnet);
 //! let signed_tx = signer.sign(order.into(), None).unwrap();
 //! ```
 //!
@@ -33,10 +33,10 @@
 //! For high-frequency trading, use batch signing to maximize throughput:
 //!
 //! ```rust
-//! use bulk_keychain::{Keypair, Signer, Order, TimeInForce};
+//! use bulk_keychain::{Keypair, Order, SignatureDomain, Signer, TimeInForce};
 //!
 //! let keypair = Keypair::generate();
-//! let mut signer = Signer::new(keypair);
+//! let mut signer = Signer::new(keypair, SignatureDomain::Devnet);
 //!
 //! // Create many independent orders
 //! let orders: Vec<_> = (0..1000)

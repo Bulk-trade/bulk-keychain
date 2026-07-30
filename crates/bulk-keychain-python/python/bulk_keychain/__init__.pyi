@@ -2,6 +2,8 @@
 
 from typing import Any, Literal, TypedDict, NotRequired
 
+SignatureDomain = Literal["mainnet", "testnet", "devnet"]
+
 class OrderTypeLimit(TypedDict):
     type: Literal["limit"]
     tif: NotRequired[Literal["GTC", "IOC", "ALO"]]
@@ -115,19 +117,20 @@ class Keypair:
 class Signer:
     """High-performance transaction signer"""
 
-    def __init__(self, keypair: Keypair) -> None:
+    def __init__(self, keypair: Keypair, signature_domain: SignatureDomain) -> None:
         """Create a new signer from a keypair"""
         ...
 
     @staticmethod
-    def from_base58(s: str) -> "Signer":
+    def from_base58(s: str, signature_domain: SignatureDomain) -> "Signer":
         """Create a signer from base58-encoded secret key"""
         ...
 
     @staticmethod
     def with_nonce_manager(
         keypair: Keypair,
-        strategy: Literal["timestamp", "counter", "high_frequency"]
+        strategy: Literal["timestamp", "counter", "high_frequency"],
+        signature_domain: SignatureDomain,
     ) -> "Signer":
         """Create a signer with nonce management"""
         ...
@@ -396,6 +399,7 @@ class PreparedMessage(TypedDict):
 
 def prepare_order(
     order: OrderItemType,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -414,6 +418,7 @@ def prepare_order(
 
 def prepare_all_orders(
     orders: list[OrderItemType],
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     base_nonce: int | None = None
@@ -423,6 +428,7 @@ def prepare_all_orders(
 
 def prepare_order_group(
     orders: list[OrderItemType],
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -436,6 +442,7 @@ def prepare_order_group(
 def prepare_agent_wallet(
     agent_pubkey: str,
     delete: bool,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -445,6 +452,7 @@ def prepare_agent_wallet(
 
 def prepare_update_liquidator_config(
     config: LiquidatorConfig,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -455,6 +463,7 @@ def prepare_update_liquidator_config(
 def prepare_approve_commission_fee(
     to_pubkey: str,
     fee: int,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -465,6 +474,7 @@ def prepare_approve_commission_fee(
 def prepare_approve_builder_code(
     to_pubkey: str,
     fee: int,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -474,6 +484,7 @@ def prepare_approve_builder_code(
 
 def prepare_revoke_commission_fee(
     to_pubkey: str,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -483,6 +494,7 @@ def prepare_revoke_commission_fee(
 
 def prepare_revoke_builder_code(
     to_pubkey: str,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -491,6 +503,7 @@ def prepare_revoke_builder_code(
     ...
 
 def prepare_faucet(
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None
@@ -500,6 +513,7 @@ def prepare_faucet(
 
 def prepare_create_sub_account(
     name: str,
+    signature_domain: SignatureDomain,
     account: str,
     margin_amount: float | None = None,
     signer: str | None = None,
@@ -512,6 +526,7 @@ def prepare_transfer(
     from_pubkey: str,
     to_pubkey: str,
     margin_amount: float,
+    signature_domain: SignatureDomain,
     account: str,
     kind: str | None = None,
     signer: str | None = None,
@@ -522,6 +537,7 @@ def prepare_transfer(
 
 def prepare_remove_sub_account(
     to_remove: str,
+    signature_domain: SignatureDomain,
     account: str,
     signer: str | None = None,
     nonce: int | None = None

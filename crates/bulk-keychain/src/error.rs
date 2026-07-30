@@ -21,6 +21,10 @@ pub enum Error {
     #[error("invalid signature length: expected 64 bytes, got {0}")]
     InvalidSignatureLength(usize),
 
+    /// Invalid BULK network signature domain
+    #[error("invalid signature domain '{0}'; expected mainnet, testnet, or devnet")]
+    InvalidSignatureDomain(String),
+
     /// Signing failed
     #[error("signing failed: {0}")]
     SigningFailed(String),

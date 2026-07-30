@@ -9,12 +9,19 @@ use bulk_keychain::{
     prepare_update_liquidator_config, Cancel, CancelAll, Commission, CreateSubAccount, Hash,
     Keypair, LiquidatorConfig, LiquidatorInstrumentConfig, Modify, NonceManager, NonceStrategy,
     OnFill, OraclePrice, Order, OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice,
-    RangeOco, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind,
-    TriggerBasket, UserSettings,
+    RangeOco, SignatureDomain, Signer, Stop, TakeProfit, TimeInForce, TrailingStop, Transfer,
+    TransferKind, TriggerBasket, UserSettings,
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+
+#[inline]
+fn parse_signature_domain(value: &str) -> PyResult<SignatureDomain> {
+    value
+        .parse()
+        .map_err(|error: bulk_keychain::Error| PyValueError::new_err(error.to_string()))
+}
 
 // ============================================================================
 // Keypair
@@ -94,24 +101,31 @@ pub struct PySigner {
 impl PySigner {
     /// Create a new signer from a keypair
     #[new]
-    fn new(keypair: &PyKeypair) -> Self {
-        Self {
-            inner: Signer::new(keypair.inner.clone()),
-        }
+    fn new(keypair: &PyKeypair, signature_domain: &str) -> PyResult<Self> {
+        Ok(Self {
+            inner: Signer::new(
+                keypair.inner.clone(),
+                parse_signature_domain(signature_domain)?,
+            ),
+        })
     }
 
     /// Create a signer from base58-encoded secret key
     #[staticmethod]
-    fn from_base58(s: &str) -> PyResult<Self> {
+    fn from_base58(s: &str, signature_domain: &str) -> PyResult<Self> {
         let keypair = Keypair::from_base58(s).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Self {
-            inner: Signer::new(keypair),
+            inner: Signer::new(keypair, parse_signature_domain(signature_domain)?),
         })
     }
 
     /// Create a signer with nonce management
     #[staticmethod]
-    fn with_nonce_manager(keypair: &PyKeypair, strategy: &str) -> PyResult<Self> {
+    fn with_nonce_manager(
+        keypair: &PyKeypair,
+        strategy: &str,
+        signature_domain: &str,
+    ) -> PyResult<Self> {
         let nonce_strategy = match strategy {
             "timestamp" => NonceStrategy::Timestamp,
             "counter" => NonceStrategy::Counter,
@@ -124,7 +138,11 @@ impl PySigner {
         };
         let nonce_manager = NonceManager::new(nonce_strategy);
         Ok(Self {
-            inner: Signer::with_nonce_manager(keypair.inner.clone(), nonce_manager),
+            inner: Signer::with_nonce_manager(
+                keypair.inner.clone(),
+                parse_signature_domain(signature_domain)?,
+                nonce_manager,
+            ),
         })
     }
 
@@ -890,6 +908,11 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
             }))
         }
         "trig" => {
+            if dict.get_item("iso")?.is_some() {
+                return Err(PyValueError::new_err(
+                    "trig.iso is not supported; remove the top-level iso field",
+                ));
+            }
             let symbol: String = dict
                 .get_item("symbol")?
                 .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
@@ -905,10 +928,6 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
             let raw_actions = dict
                 .get_item("actions")?
                 .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
-            let iso: bool = dict
-                .get_item("iso")?
-                .map(|v| v.extract().unwrap_or(false))
-                .unwrap_or(false);
             let actions_list = raw_actions.downcast::<PyList>()?;
             let actions: PyResult<Vec<OrderItem>> =
                 actions_list.iter().map(|a| parse_order_item(&a)).collect();
@@ -917,7 +936,6 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 is_buy,
                 trigger_price,
                 actions: actions?,
-                iso,
             }))
         }
         "on_fill" | "of" => {
@@ -1339,13 +1357,15 @@ fn prepared_to_py(py: Python<'_>, prepared: &PreparedMessage) -> PyResult<PyObje
 ///     signature = wallet.sign_message(prepared["message_bytes"])
 ///     signed = finalize_transaction(prepared, signature)
 #[pyfunction]
-#[pyo3(signature = (order, account, signer=None, nonce=None))]
+#[pyo3(signature = (order, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_order(
     order: &Bound<'_, PyAny>,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
@@ -1372,12 +1392,24 @@ fn py_prepare_order(
             trigger: Box::new(parent),
             actions: consequents?,
         });
-        prepare_message(of_item, &account_pk, signer_pk.as_ref(), nonce)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?
+        prepare_message(
+            of_item,
+            signature_domain,
+            &account_pk,
+            signer_pk.as_ref(),
+            nonce,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?
     } else {
         let order_item = parse_order_item(order)?;
-        prepare_message(order_item, &account_pk, signer_pk.as_ref(), nonce)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?
+        prepare_message(
+            order_item,
+            signature_domain,
+            &account_pk,
+            signer_pk.as_ref(),
+            nonce,
+        )
+        .map_err(|e| PyValueError::new_err(e.to_string()))?
     };
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
@@ -1390,13 +1422,15 @@ fn py_prepare_order(
 /// Example:
 ///     prepared_list = prepare_all_orders([order1, order2], "account_pubkey")
 #[pyfunction]
-#[pyo3(signature = (orders, account, signer=None, base_nonce=None))]
+#[pyo3(signature = (orders, signature_domain, account, signer=None, base_nonce=None))]
 fn py_prepare_all_orders(
     orders: &Bound<'_, PyList>,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     base_nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let order_items: PyResult<Vec<OrderItem>> =
         orders.iter().map(|item| parse_order_item(&item)).collect();
     let order_items = order_items?;
@@ -1408,8 +1442,14 @@ fn py_prepare_all_orders(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_all(order_items, &account_pk, signer_pk.as_ref(), base_nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_all(
+        order_items,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        base_nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| {
         let list = PyList::empty(py);
@@ -1428,13 +1468,15 @@ fn py_prepare_all_orders(
 ///     bracket = [entry, stop_loss, take_profit]
 ///     prepared = prepare_order_group(bracket, "account_pubkey")
 #[pyfunction]
-#[pyo3(signature = (orders, account, signer=None, nonce=None))]
+#[pyo3(signature = (orders, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_order_group(
     orders: &Bound<'_, PyList>,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let order_items: PyResult<Vec<OrderItem>> =
         orders.iter().map(|item| parse_order_item(&item)).collect();
     let order_items = order_items?;
@@ -1446,8 +1488,14 @@ fn py_prepare_order_group(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_group(order_items, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_group(
+        order_items,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
@@ -1457,14 +1505,16 @@ fn py_prepare_order_group(
 /// Example:
 ///     prepared = prepare_agent_wallet_auth(agent_pubkey, False, "account_pubkey")
 #[pyfunction]
-#[pyo3(signature = (agent_pubkey, delete, account, signer=None, nonce=None))]
+#[pyo3(signature = (agent_pubkey, delete, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_agent_wallet_auth(
     agent_pubkey: &str,
     delete: bool,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let agent =
         Pubkey::from_base58(agent_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let account_pk =
@@ -1474,21 +1524,30 @@ fn py_prepare_agent_wallet_auth(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_agent_wallet(&agent, delete, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_agent_wallet(
+        &agent,
+        delete,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
 /// Prepare a liquidator config update for external signing
 #[pyfunction]
-#[pyo3(signature = (config, account, signer=None, nonce=None))]
+#[pyo3(signature = (config, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_update_liquidator_config(
     config: &Bound<'_, PyAny>,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let config = parse_liquidator_config(config)?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1497,22 +1556,30 @@ fn py_prepare_update_liquidator_config(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_update_liquidator_config(config, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_update_liquidator_config(
+        config,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
 /// Prepare builder-code recipient approval for external signing
 #[pyfunction]
-#[pyo3(signature = (to_pubkey, fee, account, signer=None, nonce=None))]
+#[pyo3(signature = (to_pubkey, fee, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_approve_commission_fee(
     to_pubkey: &str,
     fee: u8,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let to = Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1521,34 +1588,44 @@ fn py_prepare_approve_commission_fee(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_approve_commission_fee(&to, fee, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_approve_commission_fee(
+        &to,
+        fee,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
 /// Prepare builder-code recipient approval for external signing
 #[pyfunction]
-#[pyo3(signature = (to_pubkey, fee, account, signer=None, nonce=None))]
+#[pyo3(signature = (to_pubkey, fee, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_approve_builder_code(
     to_pubkey: &str,
     fee: u8,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    py_prepare_approve_commission_fee(to_pubkey, fee, account, signer, nonce)
+    py_prepare_approve_commission_fee(to_pubkey, fee, signature_domain, account, signer, nonce)
 }
 
 /// Prepare builder-code recipient revocation for external signing
 #[pyfunction]
-#[pyo3(signature = (to_pubkey, account, signer=None, nonce=None))]
+#[pyo3(signature = (to_pubkey, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_revoke_commission_fee(
     to_pubkey: &str,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let to = Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1557,32 +1634,41 @@ fn py_prepare_revoke_commission_fee(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_revoke_commission_fee(&to, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_revoke_commission_fee(
+        &to,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
 /// Prepare builder-code recipient revocation for external signing
 #[pyfunction]
-#[pyo3(signature = (to_pubkey, account, signer=None, nonce=None))]
+#[pyo3(signature = (to_pubkey, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_revoke_builder_code(
     to_pubkey: &str,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
-    py_prepare_revoke_commission_fee(to_pubkey, account, signer, nonce)
+    py_prepare_revoke_commission_fee(to_pubkey, signature_domain, account, signer, nonce)
 }
 
 /// Prepare faucet request for external signing
 #[pyfunction]
-#[pyo3(signature = (account, signer=None, nonce=None))]
+#[pyo3(signature = (signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_faucet_request(
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
@@ -1590,7 +1676,7 @@ fn py_prepare_faucet_request(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_faucet(&account_pk, signer_pk.as_ref(), nonce)
+    let prepared = prepare_faucet(signature_domain, &account_pk, signer_pk.as_ref(), nonce)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
@@ -1609,13 +1695,15 @@ fn parse_transfer_kind(kind: Option<&str>) -> PyResult<TransferKind> {
 
 /// Prepare a sub-account removal for external signing
 #[pyfunction]
-#[pyo3(signature = (to_remove, account, signer=None, nonce=None))]
+#[pyo3(signature = (to_remove, signature_domain, account, signer=None, nonce=None))]
 fn py_prepare_remove_sub_account(
     to_remove: &str,
+    signature_domain: &str,
     account: &str,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let target =
         Pubkey::from_base58(to_remove).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let account_pk =
@@ -1625,25 +1713,33 @@ fn py_prepare_remove_sub_account(
         .transpose()
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-    let prepared = prepare_remove_sub_account(target, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_remove_sub_account(
+        target,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
 /// Prepare a margin transfer for external signing
 #[pyfunction]
-#[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, account, kind=None, signer=None, nonce=None))]
+#[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, signature_domain, account, kind=None, signer=None, nonce=None))]
 #[allow(clippy::too_many_arguments)]
 fn py_prepare_transfer(
     from_pubkey: &str,
     to_pubkey: &str,
     margin_amount: f64,
+    signature_domain: &str,
     account: &str,
     kind: Option<&str>,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let from =
         Pubkey::from_base58(from_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let to = Pubkey::from_base58(to_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1662,22 +1758,30 @@ fn py_prepare_transfer(
         margin_amount,
     };
 
-    let prepared = prepare_transfer(transfer, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_transfer(
+        transfer,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
 
 /// Prepare a sub-account creation for external signing
 #[pyfunction]
-#[pyo3(signature = (name, account, margin_amount=None, signer=None, nonce=None))]
+#[pyo3(signature = (name, signature_domain, account, margin_amount=None, signer=None, nonce=None))]
 fn py_prepare_create_sub_account(
     name: String,
+    signature_domain: &str,
     account: &str,
     margin_amount: Option<f64>,
     signer: Option<&str>,
     nonce: Option<u64>,
 ) -> PyResult<PyObject> {
+    let signature_domain = parse_signature_domain(signature_domain)?;
     let account_pk =
         Pubkey::from_base58(account).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let signer_pk = signer
@@ -1690,8 +1794,14 @@ fn py_prepare_create_sub_account(
         margin_amount,
     };
 
-    let prepared = prepare_create_sub_account(sub_account, &account_pk, signer_pk.as_ref(), nonce)
-        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let prepared = prepare_create_sub_account(
+        sub_account,
+        signature_domain,
+        &account_pk,
+        signer_pk.as_ref(),
+        nonce,
+    )
+    .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     Python::with_gil(|py| prepared_to_py(py, &prepared))
 }
@@ -1783,4 +1893,26 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_prepare_transfer, m)?)?;
     m.add_function(wrap_pyfunction!(py_finalize_transaction, m)?)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trigger_basket_rejects_stale_top_level_iso() {
+        pyo3::prepare_freethreaded_python();
+        Python::with_gil(|py| {
+            let input = PyDict::new(py);
+            input.set_item("type", "trig").unwrap();
+            input.set_item("symbol", "BTC-USD").unwrap();
+            input.set_item("is_buy", true).unwrap();
+            input.set_item("trigger_price", 100_000.0).unwrap();
+            input.set_item("actions", PyList::empty(py)).unwrap();
+            input.set_item("iso", true).unwrap();
+
+            let error = parse_order_item(input.as_any()).unwrap_err();
+            assert!(error.to_string().contains("trig.iso"));
+        });
+    }
 }

@@ -320,8 +320,6 @@ struct TxTriggerBasket {
     trigger_price: f64,
     #[serde(rename = "actions")]
     actions: Vec<TxAction>,
-    #[serde(rename = "i", default)]
-    iso: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -718,10 +716,14 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                 is_buy: trig.is_buy,
                 trigger_price: trig.trigger_price,
                 actions: actions?,
-                iso: trig.iso,
             }))
         }
         OrderItem::OnFill(of) => {
+            if !matches!(of.trigger.as_ref(), OrderItem::Order(_)) {
+                return Err(Error::InvalidOrder(
+                    "on-fill trigger must be a market or limit order".to_string(),
+                ));
+            }
             let trigger = Box::new(order_item_to_tx_action(&of.trigger)?);
             let actions: Result<Vec<TxAction>> =
                 of.actions.iter().map(order_item_to_tx_action).collect();
@@ -928,6 +930,7 @@ fn serialize_into_buffer<T: Serialize>(value: &T, buffer: &mut Vec<u8>) -> Resul
 #[inline]
 pub(crate) fn serialize_for_sdk_signing(
     action: &Action,
+    signature_domain: SignatureDomain,
     nonce: u64,
     account: &Pubkey,
     out: &mut Vec<u8>,
@@ -940,6 +943,7 @@ pub(crate) fn serialize_for_sdk_signing(
     serialize_into_buffer(&tx_actions, out)?;
     out.extend_from_slice(&nonce.to_le_bytes());
     out.extend_from_slice(account.as_bytes());
+    out.push(signature_domain as u8);
     Ok(())
 }
 
@@ -1007,9 +1011,41 @@ pub(crate) fn compute_order_item_id_with_seqno(
 mod tests {
     use super::*;
 
+    #[test]
+    fn sdk_signable_bytes_end_with_the_selected_network_domain() {
+        let account = Pubkey::from_bytes([0xa5; 32]);
+        let action = Action::Faucet(Faucet::new(account));
+        let mut canonical_without_domain =
+            bincode::serialize(&action_to_tx_actions(&action).unwrap()).unwrap();
+        canonical_without_domain.extend_from_slice(&7u64.to_le_bytes());
+        canonical_without_domain.extend_from_slice(account.as_bytes());
+        let mut actual = Vec::with_capacity(128);
+
+        for (domain, byte) in [
+            (SignatureDomain::Mainnet, 1),
+            (SignatureDomain::Testnet, 2),
+            (SignatureDomain::Devnet, 3),
+        ] {
+            serialize_for_sdk_signing(&action, domain, 7, &account, &mut actual).unwrap();
+            assert_eq!(
+                &actual[..canonical_without_domain.len()],
+                canonical_without_domain
+            );
+            assert_eq!(actual.len(), canonical_without_domain.len() + 1);
+            assert_eq!(actual.last(), Some(&byte));
+        }
+    }
+
     fn first_action_discriminant(action: &Action) -> u32 {
         let mut out = Vec::with_capacity(128);
-        serialize_for_sdk_signing(action, 7, &Pubkey::from_bytes([1u8; 32]), &mut out).unwrap();
+        serialize_for_sdk_signing(
+            action,
+            SignatureDomain::Devnet,
+            7,
+            &Pubkey::from_bytes([1u8; 32]),
+            &mut out,
+        )
+        .unwrap();
         u32::from_le_bytes(out[8..12].try_into().unwrap())
     }
 
@@ -1044,10 +1080,17 @@ mod tests {
         let account = Pubkey::from_bytes([7u8; 32]);
         let nonce = 1_234_567_890;
         let mut actual = Vec::new();
-        serialize_for_sdk_signing(&action, nonce, &account, &mut actual).unwrap();
+        serialize_for_sdk_signing(
+            &action,
+            SignatureDomain::Devnet,
+            nonce,
+            &account,
+            &mut actual,
+        )
+        .unwrap();
 
         let expected = hex::decode(
-            "01000000000000000a0000000100000007000000000000004254432d5553440100a0724e18090000809698000000000000000000000001000000000000000000000007000000000000004554482d5553440040597307000000000000d2029649000000000707070707070707070707070707070707070707070707070707070707070707",
+            "01000000000000000a0000000100000007000000000000004254432d5553440100a0724e18090000809698000000000000000000000001000000000000000000000007000000000000004554482d5553440040597307000000000000d202964900000000070707070707070707070707070707070707070707070707070707070707070703",
         )
         .unwrap();
 
@@ -1061,7 +1104,8 @@ mod tests {
             u64::from_le_bytes(actual[92..100].try_into().unwrap()),
             1_234_567_890
         );
-        assert_eq!(&actual[100..], &[7u8; 32]);
+        assert_eq!(&actual[100..132], &[7u8; 32]);
+        assert_eq!(actual[132], SignatureDomain::Devnet as u8);
 
         let mut prepared_trigger = Vec::new();
         let mut prepared_consequent = Vec::new();
@@ -1069,6 +1113,7 @@ mod tests {
             &Action::Order {
                 orders: vec![trigger],
             },
+            SignatureDomain::Devnet,
             nonce,
             &account,
             &mut prepared_trigger,
@@ -1078,13 +1123,14 @@ mod tests {
             &Action::Order {
                 orders: vec![consequent],
             },
+            SignatureDomain::Devnet,
             nonce,
             &account,
             &mut prepared_consequent,
         )
         .unwrap();
-        let trigger_action_end = prepared_trigger.len() - 40;
-        let consequent_action_end = prepared_consequent.len() - 40;
+        let trigger_action_end = prepared_trigger.len() - 41;
+        let consequent_action_end = prepared_consequent.len() - 41;
         let mut bulkx_reference = Vec::new();
         bulkx_reference.extend_from_slice(&1u64.to_le_bytes());
         bulkx_reference.extend_from_slice(&10u32.to_le_bytes());
@@ -1097,15 +1143,46 @@ mod tests {
     }
 
     #[test]
+    fn on_fill_rejects_non_order_trigger_before_signing() {
+        let action = Action::Order {
+            orders: vec![OrderItem::OnFill(OnFill {
+                trigger: Box::new(OrderItem::Stop(Stop {
+                    symbol: "BTC-USD".to_string(),
+                    is_buy: false,
+                    size: 0.1,
+                    trigger_price: 90_000.0,
+                    limit_price: f64::NAN,
+                    iso: false,
+                })),
+                actions: vec![Order::market("BTC-USD", false, 0.1).into()],
+            })],
+        };
+        let mut actual = Vec::new();
+
+        assert!(matches!(
+            serialize_for_sdk_signing(
+                &action,
+                SignatureDomain::Devnet,
+                1_234_567_890,
+                &Pubkey::from_bytes([7u8; 32]),
+                &mut actual,
+            ),
+            Err(Error::InvalidOrder(message))
+                if message == "on-fill trigger must be a market or limit order"
+        ));
+    }
+
+    #[test]
     fn liquidator_config_discriminant_and_layout_match_sdk() {
         let action = Action::UpdateLiquidatorConfig(make_liq_config());
         assert_eq!(first_action_discriminant(&action), 43);
 
         let account = Pubkey::from_base58("4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS").unwrap();
         let mut out = Vec::new();
-        serialize_for_sdk_signing(&action, 42, &account, &mut out).unwrap();
+        serialize_for_sdk_signing(&action, SignatureDomain::Devnet, 42, &account, &mut out)
+            .unwrap();
 
-        assert_eq!(out.len(), 242);
+        assert_eq!(out.len(), 243);
 
         let f64_at = |o: usize| f64::from_le_bytes(out[o..o + 8].try_into().unwrap());
         let u64_at = |o: usize| u64::from_le_bytes(out[o..o + 8].try_into().unwrap());
@@ -1132,6 +1209,7 @@ mod tests {
 
         assert_eq!(u64_at(202), 42);
         assert_eq!(&out[210..242], account.as_bytes());
+        assert_eq!(out[242], SignatureDomain::Devnet as u8);
     }
 
     #[test]
@@ -1142,14 +1220,14 @@ mod tests {
             "4zvwRjXUKGfvwnParsHAS3HuSVzV5cA4McphgmoCtajS"
         );
 
-        let mut signer = crate::Signer::new(keypair);
+        let mut signer = crate::Signer::new(keypair, SignatureDomain::Devnet);
         let signed = signer
             .sign_update_liquidator_config(make_liq_config(), Some(42))
             .unwrap();
 
         assert_eq!(
             signed.signature,
-            "3CkQEydixRavk7bjNDWuaXQmctXhsWifoXv65TWLr8WjoBKXd3zEgpdcy4ZnYVdPQcQq5PUzjqHfTkQeEdQ6FuZV"
+            "3J5PoVcsCDYwC5Q77F76zFkoBy59nCL2hSnYB1FXKuwfWZXhD8v7Ab7ZPJFTYv97KM2J18yeNjUAnpfhXvsknxhA"
         );
     }
 
@@ -1159,7 +1237,8 @@ mod tests {
         let serialize = |config: LiquidatorConfig| {
             let mut out = Vec::new();
             let action = Action::UpdateLiquidatorConfig(config);
-            serialize_for_sdk_signing(&action, 42, &account, &mut out).unwrap();
+            serialize_for_sdk_signing(&action, SignatureDomain::Devnet, 42, &account, &mut out)
+                .unwrap();
             out
         };
 
@@ -1211,6 +1290,7 @@ mod tests {
             &Action::Order {
                 orders: vec![plain.clone()],
             },
+            SignatureDomain::Devnet,
             9,
             &account,
             &mut plain_bytes,
@@ -1220,6 +1300,7 @@ mod tests {
             &Action::Order {
                 orders: vec![commissioned.clone()],
             },
+            SignatureDomain::Devnet,
             9,
             &account,
             &mut commissioned_bytes,
@@ -1227,6 +1308,7 @@ mod tests {
         .unwrap();
 
         assert_ne!(plain_bytes, commissioned_bytes);
+        assert_eq!(commissioned_bytes.len(), plain_bytes.len() + 34);
         assert_eq!(
             compute_order_item_id_with_seqno(&plain, 0, 9, &account, &mut scratch),
             compute_order_item_id_with_seqno(&commissioned, 0, 9, &account, &mut scratch)

@@ -12,7 +12,7 @@ Quick Start
 >>> print(keypair.pubkey)
 >>>
 >>> # Create a signer
->>> signer = Signer(keypair)
+>>> signer = Signer(keypair, "devnet")
 >>>
 >>> # Sign a single order
 >>> signed = signer.sign({

@@ -18,7 +18,7 @@ def main():
     print()
 
     # 2. Create a signer
-    signer = Signer(keypair)
+    signer = Signer(keypair, "devnet")
     signer.set_compute_batch_order_ids(True)
     print(f"Signer pubkey: {signer.pubkey}")
     print()
