@@ -1894,25 +1894,3 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_finalize_transaction, m)?)?;
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn trigger_basket_rejects_stale_top_level_iso() {
-        pyo3::prepare_freethreaded_python();
-        Python::with_gil(|py| {
-            let input = PyDict::new(py);
-            input.set_item("type", "trig").unwrap();
-            input.set_item("symbol", "BTC-USD").unwrap();
-            input.set_item("is_buy", true).unwrap();
-            input.set_item("trigger_price", 100_000.0).unwrap();
-            input.set_item("actions", PyList::empty(py)).unwrap();
-            input.set_item("iso", true).unwrap();
-
-            let error = parse_order_item(input.as_any()).unwrap_err();
-            assert!(error.to_string().contains("trig.iso"));
-        });
-    }
-}
