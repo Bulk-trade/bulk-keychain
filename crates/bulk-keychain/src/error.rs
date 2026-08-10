@@ -33,6 +33,10 @@ pub enum Error {
     #[error("orders array cannot be empty")]
     EmptyOrders,
 
+    /// Batch nonce range exceeds u64
+    #[error("batch nonce range exceeds u64")]
+    NonceOverflow,
+
     /// Signature count mismatch (for batch finalization)
     #[error("signature count mismatch: expected {expected}, got {got}")]
     SignatureMismatch { expected: usize, got: usize },

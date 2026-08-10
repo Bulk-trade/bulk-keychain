@@ -185,18 +185,30 @@ impl Signer {
             return Ok(vec![]);
         }
 
-        let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
+        let nonces: Vec<u64> = match (base_nonce, self.nonce_manager.as_ref()) {
+            (Some(base), _) => (0..items.len())
+                .map(|i| base.checked_add(i as u64).ok_or(Error::NonceOverflow))
+                .collect::<Result<_>>()?,
+            (None, Some(manager)) => (0..items.len()).map(|_| manager.next()).collect(),
+            (None, None) => {
+                let base = crate::nonce::current_timestamp_millis();
+                (0..items.len())
+                    .map(|i| base.checked_add(i as u64).ok_or(Error::NonceOverflow))
+                    .collect::<Result<_>>()?
+            }
+        };
+
         if items.len() < PARALLEL_THRESHOLD {
             items
                 .into_iter()
-                .enumerate()
-                .map(|(i, item)| self.sign_single_item(item, base + i as u64))
+                .zip(nonces)
+                .map(|(item, nonce)| self.sign_single_item(item, nonce))
                 .collect()
         } else {
             items
                 .into_par_iter()
-                .enumerate()
-                .map(|(i, item)| self.sign_single_item(item, base + i as u64))
+                .zip(nonces)
+                .map(|(item, nonce)| self.sign_single_item(item, nonce))
                 .collect()
         }
     }
@@ -1056,6 +1068,34 @@ mod tests {
             assert!(tx.order_id.is_some());
             assert!(tx.order_ids.is_none());
         }
+    }
+
+    #[test]
+    fn test_sign_all_uses_configured_nonce_manager() {
+        let signer = Signer::with_nonce_manager(Keypair::generate(), NonceManager::counter());
+        let orders = vec![
+            Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
+            Order::limit("BTC-USD", false, 100001.0, 0.1, TimeInForce::Gtc).into(),
+            Order::limit("BTC-USD", true, 100002.0, 0.1, TimeInForce::Gtc).into(),
+        ];
+
+        let signed = signer.sign_all(orders, None).unwrap();
+        let nonces: Vec<u64> = signed.iter().map(|tx| tx.nonce).collect();
+
+        assert_eq!(nonces, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_sign_all_rejects_nonce_overflow() {
+        let signer = Signer::new(Keypair::generate());
+        let orders = vec![
+            Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc).into(),
+            Order::limit("BTC-USD", false, 100001.0, 0.1, TimeInForce::Gtc).into(),
+        ];
+
+        let error = signer.sign_all(orders, Some(u64::MAX)).unwrap_err();
+
+        assert!(matches!(error, Error::NonceOverflow));
     }
 
     #[test]
