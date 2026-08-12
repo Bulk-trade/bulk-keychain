@@ -1221,6 +1221,20 @@ fn json_hash(obj: &serde_json::Map<String, JsonValue>, key: &str) -> Result<Hash
     Hash::from_base58(json_str(obj, key)?).map_err(|e| js_err(e.to_string()))
 }
 
+fn json_commission(
+    obj: &serde_json::Map<String, JsonValue>,
+) -> Result<Option<Commission>, JsError> {
+    let Some(value) = obj.get("builderCode") else {
+        return Ok(None);
+    };
+    let p = json_obj(value, "builderCode")?;
+    let to = json_pubkey(p, "to")?;
+    let fee = u8::try_from(json_u32(p, "fee", None)?)
+        .map_err(|_| js_err("builderCode.fee out of range"))?;
+    let commission = Commission::new(to, fee).map_err(|e| js_err(e.to_string()))?;
+    Ok(Some(commission))
+}
+
 fn parse_order_input_value(value: JsonValue) -> Result<OrderInput, JsError> {
     serde_json::from_value(value).map_err(|e| js_err(e.to_string()))
 }
@@ -1259,7 +1273,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                     .map(Hash::from_base58)
                     .transpose()
                     .map_err(|e| js_err(e.to_string()))?,
-                commission: None,
+                commission: json_commission(p)?,
             }))
         }
         "m" => {
@@ -1273,7 +1287,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 iso: json_bool(p, "i", false)?,
                 order_type: OrderType::market(),
                 client_id: None,
-                commission: None,
+                commission: json_commission(p)?,
             }))
         }
         "cx" => {
@@ -2934,5 +2948,52 @@ mod tests {
         let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
 
         assert!(other.sign_prepared(&prepared).is_err());
+    }
+
+    #[test]
+    fn compact_parser_round_trips_an_emitted_builder_code() {
+        let to = Pubkey::from_bytes([9u8; 32]);
+        let order = Order::limit("BTC-USD", true, 100_000.0, 0.1, TimeInForce::Gtc)
+            .with_commission(to, 5)
+            .unwrap();
+
+        let prepared = prepare_message(
+            OrderItem::Order(order),
+            SignatureDomain::Devnet,
+            &Pubkey::from_bytes([1u8; 32]),
+            None,
+            Some(7),
+        )
+        .unwrap();
+
+        match parse_order_item_value(prepared.actions[0].clone()).unwrap() {
+            OrderItem::Order(parsed) => {
+                assert_eq!(parsed.commission, Some(Commission::new(to, 5).unwrap()));
+            }
+            other => panic!("expected an order, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn compact_market_order_keeps_builder_code() {
+        let to = Pubkey::from_bytes([4u8; 32]);
+        let item = parse_order_item_value(serde_json::json!({
+            "m": {
+                "c": "ETH-USD",
+                "b": false,
+                "sz": 1.25,
+                "r": false,
+                "i": false,
+                "builderCode": { "to": to.to_base58(), "fee": 7 },
+            }
+        }))
+        .unwrap();
+
+        match item {
+            OrderItem::Order(parsed) => {
+                assert_eq!(parsed.commission, Some(Commission::new(to, 7).unwrap()));
+            }
+            other => panic!("expected an order, got {other:?}"),
+        }
     }
 }
