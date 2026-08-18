@@ -1,8 +1,13 @@
 {
   "name": "bulk-keychain",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "A simple high perf signing lib for BULK txns",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bulk-trade/bulk-keychain.git",
+    "directory": "packages/bulk-keychain-node"
+  },
   "main": "index.js",
   "types": "index.d.ts",
   "napi": {
