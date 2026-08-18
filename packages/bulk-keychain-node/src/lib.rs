@@ -27,6 +27,20 @@ fn parse_signature_domain(value: &str) -> Result<SignatureDomain> {
         .map_err(|error: bulk_keychain::Error| Error::from_reason(error.to_string()))
 }
 
+#[inline]
+fn parse_optional_nonce(value: Option<String>) -> Result<Option<u64>> {
+    value
+        .as_deref()
+        .map(bulk_keychain::parse_nonce_decimal)
+        .transpose()
+        .map_err(|error| Error::from_reason(error.to_string()))
+}
+
+#[inline]
+fn parse_nonce(value: &str) -> Result<u64> {
+    bulk_keychain::parse_nonce_decimal(value).map_err(|error| Error::from_reason(error.to_string()))
+}
+
 // ============================================================================
 // Keypair
 // ============================================================================
@@ -213,7 +227,7 @@ impl NativeSigner {
         }
 
         let signature = self.inner.sign_bytes(&prepared.message_bytes);
-        Ok(finalize_prepared_transaction(prepared, signature))
+        finalize_prepared_transaction(prepared, signature)
     }
 
     // ========================================================================
@@ -232,10 +246,10 @@ impl NativeSigner {
     pub fn sign(
         &mut self,
         order: OrderInput,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let order_item: OrderItem = order.try_into()?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -259,13 +273,13 @@ impl NativeSigner {
     pub fn sign_all(
         &self,
         orders: Vec<OrderInput>,
-        base_nonce: Option<f64>,
+        base_nonce: Option<String>,
     ) -> Result<Vec<SignedTransactionOutput>> {
         let order_items: Result<Vec<OrderItem>> =
             orders.into_iter().map(|o| o.try_into()).collect();
         let order_items = order_items?;
 
-        let base = base_nonce.map(|n| n as u64);
+        let base = parse_optional_nonce(base_nonce)?;
         let signed = self
             .inner
             .sign_all(order_items, base)
@@ -288,13 +302,13 @@ impl NativeSigner {
     pub fn sign_group(
         &mut self,
         orders: Vec<OrderInput>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let order_items: Result<Vec<OrderItem>> =
             orders.into_iter().map(|o| o.try_into()).collect();
         let order_items = order_items?;
 
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
         let signed = self
             .inner
             .sign_group(order_items, nonce_val)
@@ -309,8 +323,8 @@ impl NativeSigner {
 
     /// Sign a faucet request (testnet only)
     #[napi]
-    pub fn sign_faucet(&mut self, nonce: Option<f64>) -> Result<SignedTransactionOutput> {
-        let nonce_val = nonce.map(|n| n as u64);
+    pub fn sign_faucet(&mut self, nonce: Option<String>) -> Result<SignedTransactionOutput> {
+        let nonce_val = parse_optional_nonce(nonce)?;
         let signed = self
             .inner
             .sign_faucet(nonce_val)
@@ -325,11 +339,11 @@ impl NativeSigner {
         &mut self,
         agent_pubkey: String,
         delete: bool,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let agent =
             Pubkey::from_base58(&agent_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -345,12 +359,12 @@ impl NativeSigner {
         &mut self,
         to_pubkey: String,
         fee: u32,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
         let signed = self
             .inner
-            .sign_approve_commission_fee(to, fee as u8, nonce.map(|n| n as u64))
+            .sign_approve_commission_fee(to, fee as u8, parse_optional_nonce(nonce)?)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(signed.into())
@@ -362,7 +376,7 @@ impl NativeSigner {
         &mut self,
         to_pubkey: String,
         fee: u32,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         self.sign_approve_commission_fee(to_pubkey, fee, nonce)
     }
@@ -372,12 +386,12 @@ impl NativeSigner {
     pub fn sign_revoke_commission_fee(
         &mut self,
         to_pubkey: String,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
         let signed = self
             .inner
-            .sign_revoke_commission_fee(to, nonce.map(|n| n as u64))
+            .sign_revoke_commission_fee(to, parse_optional_nonce(nonce)?)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(signed.into())
@@ -388,7 +402,7 @@ impl NativeSigner {
     pub fn sign_revoke_builder_code(
         &mut self,
         to_pubkey: String,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         self.sign_revoke_commission_fee(to_pubkey, nonce)
     }
@@ -398,14 +412,14 @@ impl NativeSigner {
     pub fn sign_user_settings(
         &mut self,
         max_leverage: Vec<LeverageSetting>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let leverage_vec: Vec<(String, f64)> = max_leverage
             .into_iter()
             .map(|l| (l.symbol, l.leverage))
             .collect();
         let user_settings = UserSettings::new(leverage_vec);
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -420,11 +434,11 @@ impl NativeSigner {
     pub fn sign_update_liquidator_config(
         &mut self,
         config: LiquidatorConfigInput,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let signed = self
             .inner
-            .sign_update_liquidator_config(config.into(), nonce.map(|n| n as u64))
+            .sign_update_liquidator_config(config.into(), parse_optional_nonce(nonce)?)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(signed.into())
@@ -435,7 +449,7 @@ impl NativeSigner {
     pub fn sign_oracle_prices(
         &mut self,
         oracles: Vec<OraclePriceInput>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let oracle_prices: Vec<OraclePrice> = oracles
             .into_iter()
@@ -445,7 +459,7 @@ impl NativeSigner {
                 price: o.price,
             })
             .collect();
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -460,7 +474,7 @@ impl NativeSigner {
     pub fn sign_pyth_oracle(
         &mut self,
         oracles: Vec<PythOraclePriceInput>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let pyth_oracles: Vec<PythOraclePrice> = oracles
             .into_iter()
@@ -471,7 +485,7 @@ impl NativeSigner {
                 exponent: o.exponent as i16,
             })
             .collect();
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -489,13 +503,13 @@ impl NativeSigner {
         to_pubkey: String,
         margin_amount: f64,
         kind: Option<String>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let from =
             Pubkey::from_base58(&from_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
         let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
         let kind = parse_transfer_kind(kind.as_deref())?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let transfer = Transfer {
             kind,
@@ -518,9 +532,9 @@ impl NativeSigner {
         &mut self,
         name: String,
         margin_amount: Option<f64>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
         let sub_account = CreateSubAccount {
             name,
             margin_amount,
@@ -539,11 +553,11 @@ impl NativeSigner {
     pub fn sign_remove_sub_account(
         &mut self,
         to_remove: String,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let target =
             Pubkey::from_base58(&to_remove).map_err(|e| Error::from_reason(e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -559,11 +573,11 @@ impl NativeSigner {
         &mut self,
         subaccount: String,
         name: String,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let account =
             Pubkey::from_base58(&subaccount).map_err(|e| Error::from_reason(e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -579,11 +593,11 @@ impl NativeSigner {
         &mut self,
         target_pubkey: String,
         whitelist: bool,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let target =
             Pubkey::from_base58(&target_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -602,7 +616,7 @@ impl NativeSigner {
     pub fn sign_order(
         &mut self,
         orders: Vec<OrderInput>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         // Delegates to sign_group for backward compatibility
         self.sign_group(orders, nonce)
@@ -613,7 +627,7 @@ impl NativeSigner {
     pub fn sign_orders_batch(
         &self,
         batches: Vec<Vec<OrderInput>>,
-        base_nonce: Option<f64>,
+        base_nonce: Option<String>,
     ) -> Result<Vec<SignedTransactionOutput>> {
         #[allow(deprecated)]
         {
@@ -623,7 +637,7 @@ impl NativeSigner {
                 .collect();
             let order_batches = order_batches?;
 
-            let base = base_nonce.map(|n| n as u64);
+            let base = parse_optional_nonce(base_nonce)?;
             let signed = self
                 .inner
                 .sign_orders_batch(order_batches, base)
@@ -775,7 +789,7 @@ pub struct SignedTransactionOutput {
     /// Actions JSON as string
     pub actions: String,
     /// Nonce
-    pub nonce: f64,
+    pub nonce: String,
     /// Account public key (base58)
     pub account: String,
     /// Signer public key (base58)
@@ -793,7 +807,7 @@ impl From<bulk_keychain::SignedTransaction> for SignedTransactionOutput {
     fn from(tx: bulk_keychain::SignedTransaction) -> Self {
         Self {
             actions: serde_json::to_string(&tx.actions).unwrap_or_default(),
-            nonce: tx.nonce as f64,
+            nonce: tx.nonce.to_string(),
             account: tx.account,
             signer: tx.signer,
             signature: tx.signature,
@@ -1069,10 +1083,10 @@ pub fn random_hash() -> String {
     Hash::random().to_base58()
 }
 
-/// Get current timestamp in milliseconds
+/// Get the current Unix timestamp in nanoseconds as a decimal string.
 #[napi]
-pub fn current_timestamp() -> f64 {
-    bulk_keychain::nonce::current_timestamp_millis() as f64
+pub fn current_timestamp() -> String {
+    bulk_keychain::nonce::current_timestamp_nanos().to_string()
 }
 
 /// Validate a base58-encoded public key
@@ -1109,8 +1123,8 @@ pub struct PrepareOptions {
     pub account: String,
     /// Signer public key (base58) - defaults to account if not provided
     pub signer: Option<String>,
-    /// Nonce - defaults to current timestamp if not provided
-    pub nonce: Option<f64>,
+    /// Decimal-string u64 nonce; defaults to Unix nanoseconds if not provided
+    pub nonce: Option<String>,
 }
 
 /// Options for preparing a sub-account creation
@@ -1123,8 +1137,8 @@ pub struct CreateSubAccountOptions {
     pub account: String,
     /// Signer public key (base58) - defaults to account if not provided
     pub signer: Option<String>,
-    /// Nonce - defaults to current timestamp if not provided
-    pub nonce: Option<f64>,
+    /// Decimal-string u64 nonce; defaults to Unix nanoseconds if not provided
+    pub nonce: Option<String>,
     /// Optional initial margin amount. Default 0.0
     pub margin_amount: Option<f64>,
 }
@@ -1151,7 +1165,7 @@ pub struct PreparedMessageOutput {
     /// Signer public key (base58)
     pub signer: String,
     /// Nonce used for this transaction
-    pub nonce: f64,
+    pub nonce: String,
 }
 
 impl From<PreparedMessage> for PreparedMessageOutput {
@@ -1166,7 +1180,7 @@ impl From<PreparedMessage> for PreparedMessageOutput {
             actions: serde_json::to_string(&p.actions).unwrap_or_default(),
             account: p.account,
             signer: p.signer,
-            nonce: p.nonce as f64,
+            nonce: p.nonce.to_string(),
         }
     }
 }
@@ -1192,7 +1206,7 @@ pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<Prepa
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     // If onFill is present, wrap the parent inline as the OnFill trigger.
     let on_fill_input = order.on_fill;
@@ -1252,7 +1266,7 @@ pub fn prepare_all_orders(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let base_nonce = options.nonce.map(|n| n as u64);
+    let base_nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = prepare_all(
         order_items,
@@ -1293,7 +1307,7 @@ pub fn prepare_order_group(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = prepare_group(
         order_items,
@@ -1331,7 +1345,7 @@ pub fn prepare_agent_wallet_auth(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = prepare_agent_wallet(
         &agent,
@@ -1360,7 +1374,7 @@ pub fn prepare_update_liquidator_config(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = core_prepare_update_liquidator_config(
         config.into(),
@@ -1390,7 +1404,7 @@ pub fn prepare_approve_commission_fee(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = core_prepare_approve_commission_fee(
         &to,
@@ -1430,7 +1444,7 @@ pub fn prepare_revoke_commission_fee(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared =
         core_prepare_revoke_commission_fee(&to, signature_domain, &account, signer.as_ref(), nonce)
@@ -1459,7 +1473,7 @@ pub fn prepare_faucet_request(options: PrepareOptions) -> Result<PreparedMessage
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = prepare_faucet(signature_domain, &account, signer.as_ref(), nonce)
         .map_err(|e| Error::from_reason(e.to_string()))?;
@@ -1488,8 +1502,8 @@ pub struct TransferOptions {
     pub account: String,
     /// Signer public key (base58) - defaults to account if not provided
     pub signer: Option<String>,
-    /// Nonce - defaults to current timestamp if not provided
-    pub nonce: Option<f64>,
+    /// Decimal-string u64 nonce; defaults to Unix nanoseconds if not provided
+    pub nonce: Option<String>,
     /// "internal" (default) or "external"
     pub kind: Option<String>,
 }
@@ -1512,7 +1526,7 @@ pub fn prepare_transfer_tx(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
     let kind = parse_transfer_kind(options.kind.as_deref())?;
 
     let transfer = Transfer {
@@ -1543,7 +1557,7 @@ pub fn prepare_remove_sub_account_tx(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared =
         prepare_remove_sub_account(target, signature_domain, &account, signer.as_ref(), nonce)
@@ -1569,7 +1583,7 @@ pub fn prepare_rename_sub_account_tx(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let prepared = prepare_rename_sub_account(
         RenameSubAccount {
@@ -1600,7 +1614,7 @@ pub fn prepare_create_sub_account_tx(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| Error::from_reason(e.to_string()))?;
-    let nonce = options.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(options.nonce)?;
 
     let sub_account = CreateSubAccount {
         name,
@@ -1635,20 +1649,20 @@ pub fn prepare_create_sub_account_tx(
 pub fn finalize_prepared_transaction(
     prepared: PreparedMessageOutput,
     signature: String,
-) -> SignedTransactionOutput {
+) -> Result<SignedTransactionOutput> {
     // Reconstruct the PreparedMessage (we only need the fields for finalization)
     let actions: Vec<serde_json::Value> =
         serde_json::from_str(&prepared.actions).unwrap_or_default();
     let signed = bulk_keychain::SignedTransaction {
         actions,
-        nonce: prepared.nonce as u64,
+        nonce: parse_nonce(&prepared.nonce)?,
         account: prepared.account,
         signer: prepared.signer,
         signature,
         order_id: prepared.order_id,
         order_ids: prepared.order_ids,
     };
-    signed.into()
+    Ok(signed.into())
 }
 
 #[cfg(test)]

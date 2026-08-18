@@ -25,6 +25,10 @@ pub enum Error {
     #[error("invalid signature domain '{0}'; expected mainnet, testnet, or devnet")]
     InvalidSignatureDomain(String),
 
+    /// Invalid decimal-string transaction nonce
+    #[error("invalid nonce '{0}'; expected an unsigned 64-bit decimal string")]
+    InvalidNonce(String),
+
     /// Signing failed
     #[error("signing failed: {0}")]
     SigningFailed(String),

@@ -348,7 +348,7 @@ def random_hash() -> str:
     ...
 
 def current_timestamp() -> int:
-    """Get current timestamp in milliseconds"""
+    """Get the current Unix timestamp in nanoseconds"""
     ...
 
 def validate_pubkey(s: str) -> bool:

@@ -122,6 +122,21 @@ let json = signed.to_json()?;
 
 Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelist_faucet`, `sign_approve_builder_code`, and `sign_revoke_builder_code`. Rust equivalents are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelist_faucet`, `sign_approve_builder_code`, and `sign_revoke_builder_code`.
 
+## Transaction Nonces
+
+The Node.js and browser/WASM APIs accept transaction nonces only as unsigned
+64-bit decimal strings and return prepared and signed transaction nonces in the
+same string form. This preserves nanosecond values above
+`Number.MAX_SAFE_INTEGER` without a JavaScript `number`/`f64` conversion:
+
+```typescript
+const nonce = '1704067200000000001';
+const signed = signer.sign(order, nonce);
+console.log(signed.nonce); // '1704067200000000001'
+```
+
+When omitted, the nonce defaults to the current Unix timestamp in nanoseconds.
+
 ## Builder Codes
 
 Builder codes are optional builder-code fees for routed limit and market orders.
@@ -281,14 +296,14 @@ For browser apps using external wallets where you don't have access to the priva
 
 ### TypeScript (WASM)
 ```typescript
-import { prepareOrder, WasmPreparedMessage } from 'bulk-keychain-wasm';
+import { currentTimestamp, prepareOrder, WasmPreparedMessage } from 'bulk-keychain-wasm';
 
 // Step 1: Prepare the message (no private key needed)
 const prepared = prepareOrder(order, {
   signatureDomain: 'devnet',
   account: walletPubkey,        // The trading account
   signer: walletPubkey,         // Who signs (defaults to account)
-  nonce: Date.now()             // Optional, auto-generated if omitted
+  nonce: currentTimestamp()     // Optional decimal string; Unix ns by default
 });
 
 // Step 2: Get signature from external wallet

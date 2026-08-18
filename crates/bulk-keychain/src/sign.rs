@@ -117,7 +117,7 @@ impl Signer {
         self.nonce_manager
             .as_ref()
             .map(|m| m.next())
-            .unwrap_or_else(crate::nonce::current_timestamp_millis)
+            .unwrap_or_else(crate::nonce::current_timestamp_nanos)
     }
 
     /// Low-level signing entrypoint.
@@ -185,7 +185,7 @@ impl Signer {
             return Ok(vec![]);
         }
 
-        let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
+        let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_nanos);
         if items.len() < PARALLEL_THRESHOLD {
             items
                 .into_iter()
@@ -553,7 +553,7 @@ impl Signer {
             return Ok(vec![]);
         }
 
-        let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
+        let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_nanos);
         if order_batches.len() < PARALLEL_THRESHOLD {
             order_batches
                 .into_iter()
