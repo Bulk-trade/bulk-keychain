@@ -30,6 +30,15 @@ fn parse_signature_domain(value: &str) -> Result<SignatureDomain, JsError> {
         .map_err(|error: bulk_keychain::Error| JsError::new(&error.to_string()))
 }
 
+#[inline]
+fn parse_optional_nonce(value: Option<String>) -> Result<Option<u64>, JsError> {
+    value
+        .as_deref()
+        .map(bulk_keychain::parse_nonce_decimal)
+        .transpose()
+        .map_err(|error| JsError::new(&error.to_string()))
+}
+
 // Initialize panic hook for better error messages in development
 #[cfg(feature = "console_error_panic_hook")]
 fn set_panic_hook() {
@@ -230,14 +239,14 @@ impl WasmSigner {
 
     /// Sign a single order/cancel/cancelAll
     #[wasm_bindgen]
-    pub fn sign(&mut self, order: JsValue, nonce: Option<f64>) -> Result<JsValue, JsError> {
+    pub fn sign(&mut self, order: JsValue, nonce: Option<String>) -> Result<JsValue, JsError> {
         let order_input: OrderInput =
             serde_wasm_bindgen::from_value(order).map_err(|e| JsError::new(&e.to_string()))?;
 
         let order_item: OrderItem = order_input
             .try_into()
             .map_err(|e: String| JsError::new(&e))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -249,7 +258,11 @@ impl WasmSigner {
 
     /// Sign multiple orders - each becomes its own transaction (parallel)
     #[wasm_bindgen(js_name = signAll)]
-    pub fn sign_all(&self, orders: JsValue, base_nonce: Option<f64>) -> Result<JsValue, JsError> {
+    pub fn sign_all(
+        &self,
+        orders: JsValue,
+        base_nonce: Option<String>,
+    ) -> Result<JsValue, JsError> {
         let order_inputs: Vec<OrderInput> =
             serde_wasm_bindgen::from_value(orders).map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -257,7 +270,7 @@ impl WasmSigner {
             order_inputs.into_iter().map(|o| o.try_into()).collect();
         let order_items = order_items.map_err(|e: String| JsError::new(&e))?;
 
-        let base = base_nonce.map(|n| n as u64);
+        let base = parse_optional_nonce(base_nonce)?;
         let signed = self
             .inner
             .sign_all(order_items, base)
@@ -268,7 +281,11 @@ impl WasmSigner {
 
     /// Sign multiple orders atomically in ONE transaction
     #[wasm_bindgen(js_name = signGroup)]
-    pub fn sign_group(&mut self, orders: JsValue, nonce: Option<f64>) -> Result<JsValue, JsError> {
+    pub fn sign_group(
+        &mut self,
+        orders: JsValue,
+        nonce: Option<String>,
+    ) -> Result<JsValue, JsError> {
         let order_inputs: Vec<OrderInput> =
             serde_wasm_bindgen::from_value(orders).map_err(|e| JsError::new(&e.to_string()))?;
 
@@ -276,7 +293,7 @@ impl WasmSigner {
             order_inputs.into_iter().map(|o| o.try_into()).collect();
         let order_items = order_items.map_err(|e: String| JsError::new(&e))?;
 
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
         let signed = self
             .inner
             .sign_group(order_items, nonce_val)
@@ -291,8 +308,8 @@ impl WasmSigner {
 
     /// Sign a faucet request (testnet only)
     #[wasm_bindgen(js_name = signFaucet)]
-    pub fn sign_faucet(&mut self, nonce: Option<f64>) -> Result<JsValue, JsError> {
-        let nonce_val = nonce.map(|n| n as u64);
+    pub fn sign_faucet(&mut self, nonce: Option<String>) -> Result<JsValue, JsError> {
+        let nonce_val = parse_optional_nonce(nonce)?;
         let signed = self
             .inner
             .sign_faucet(nonce_val)
@@ -307,10 +324,10 @@ impl WasmSigner {
         &mut self,
         agent_pubkey: &str,
         delete: bool,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let agent = Pubkey::from_base58(agent_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -326,12 +343,12 @@ impl WasmSigner {
         &mut self,
         to_pubkey: &str,
         fee: u8,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
         let signed = self
             .inner
-            .sign_approve_commission_fee(to, fee, nonce.map(|n| n as u64))
+            .sign_approve_commission_fee(to, fee, parse_optional_nonce(nonce)?)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -343,7 +360,7 @@ impl WasmSigner {
         &mut self,
         to_pubkey: &str,
         fee: u8,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         self.sign_approve_commission_fee(to_pubkey, fee, nonce)
     }
@@ -353,12 +370,12 @@ impl WasmSigner {
     pub fn sign_revoke_commission_fee(
         &mut self,
         to_pubkey: &str,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
         let signed = self
             .inner
-            .sign_revoke_commission_fee(to, nonce.map(|n| n as u64))
+            .sign_revoke_commission_fee(to, parse_optional_nonce(nonce)?)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -369,7 +386,7 @@ impl WasmSigner {
     pub fn sign_revoke_builder_code(
         &mut self,
         to_pubkey: &str,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         self.sign_revoke_commission_fee(to_pubkey, nonce)
     }
@@ -379,13 +396,13 @@ impl WasmSigner {
     pub fn sign_user_settings(
         &mut self,
         settings: JsValue,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let settings_input: UserSettingsInput =
             serde_wasm_bindgen::from_value(settings).map_err(|e| JsError::new(&e.to_string()))?;
 
         let user_settings = UserSettings::new(settings_input.max_leverage);
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -400,14 +417,14 @@ impl WasmSigner {
     pub fn sign_update_liquidator_config(
         &mut self,
         config: JsValue,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let input: LiquidatorConfigInput =
             serde_wasm_bindgen::from_value(config).map_err(|e| JsError::new(&e.to_string()))?;
 
         let signed = self
             .inner
-            .sign_update_liquidator_config(input.into(), nonce.map(|n| n as u64))
+            .sign_update_liquidator_config(input.into(), parse_optional_nonce(nonce)?)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -418,7 +435,7 @@ impl WasmSigner {
     pub fn sign_oracle_prices(
         &mut self,
         oracles: JsValue,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let oracle_inputs: Vec<OraclePriceInput> =
             serde_wasm_bindgen::from_value(oracles).map_err(|e| JsError::new(&e.to_string()))?;
@@ -430,7 +447,7 @@ impl WasmSigner {
                 price: o.price,
             })
             .collect();
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -445,7 +462,7 @@ impl WasmSigner {
     pub fn sign_pyth_oracle(
         &mut self,
         oracles: JsValue,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let oracle_inputs: Vec<PythOraclePriceInput> =
             serde_wasm_bindgen::from_value(oracles).map_err(|e| JsError::new(&e.to_string()))?;
@@ -458,7 +475,7 @@ impl WasmSigner {
                 exponent: o.exponent,
             })
             .collect();
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -482,7 +499,7 @@ impl WasmSigner {
         from_pubkey: &str,
         to_pubkey: &str,
         margin_amount: f64,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let from = Pubkey::from_base58(from_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
         let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
@@ -491,7 +508,7 @@ impl WasmSigner {
             Some("internal") | None => TransferKind::Internal,
             Some(other) => return Err(JsError::new(&format!("Invalid transfer kind: {}", other))),
         };
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
         let transfer = Transfer {
             kind,
             from,
@@ -513,9 +530,9 @@ impl WasmSigner {
         &mut self,
         name: String,
         margin_amount: Option<f64>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
         let sub_account = CreateSubAccount {
             name,
             margin_amount,
@@ -537,7 +554,7 @@ impl WasmSigner {
         threshold: u32,
         time_lock_secs: Option<u32>,
         proposal_lifetime_secs: Option<u32>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let signer_inputs: Vec<String> =
             serde_wasm_bindgen::from_value(signers).map_err(|e| JsError::new(&e.to_string()))?;
@@ -545,7 +562,7 @@ impl WasmSigner {
             .into_iter()
             .map(|s| Pubkey::from_base58(&s).map_err(|e| JsError::new(&e.to_string())))
             .collect::<Result<Vec<_>, _>>()?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -569,11 +586,11 @@ impl WasmSigner {
         &mut self,
         multisig: &str,
         actions: JsValue,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
         let actions = parse_action_values(actions)?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -589,10 +606,10 @@ impl WasmSigner {
         &mut self,
         multisig: &str,
         proposal_id: f64,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -611,10 +628,10 @@ impl WasmSigner {
         &mut self,
         multisig: &str,
         proposal_id: f64,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -630,10 +647,10 @@ impl WasmSigner {
         &mut self,
         multisig: &str,
         proposal_id: f64,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -649,10 +666,10 @@ impl WasmSigner {
         &mut self,
         multisig: &str,
         proposal_id: f64,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -674,7 +691,7 @@ impl WasmSigner {
         threshold: u32,
         time_lock_secs: Option<u32>,
         proposal_lifetime_secs: Option<u32>,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let multisig = Pubkey::from_base58(multisig).map_err(|e| JsError::new(&e.to_string()))?;
         let signer_inputs: Vec<String> =
@@ -683,7 +700,7 @@ impl WasmSigner {
             .into_iter()
             .map(|s| Pubkey::from_base58(&s).map_err(|e| JsError::new(&e.to_string())))
             .collect::<Result<Vec<_>, _>>()?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -710,10 +727,10 @@ impl WasmSigner {
     pub fn sign_remove_sub_account(
         &mut self,
         to_remove: &str,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let target = Pubkey::from_base58(to_remove).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -733,10 +750,10 @@ impl WasmSigner {
         &mut self,
         subaccount: &str,
         name: String,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let account = Pubkey::from_base58(subaccount).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -752,11 +769,11 @@ impl WasmSigner {
         &mut self,
         target_pubkey: &str,
         whitelist: bool,
-        nonce: Option<f64>,
+        nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         let target =
             Pubkey::from_base58(target_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
-        let nonce_val = nonce.map(|n| n as u64);
+        let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
             .inner
@@ -772,7 +789,11 @@ impl WasmSigner {
 
     /// @deprecated Use sign(), signAll(), or signGroup() instead
     #[wasm_bindgen(js_name = signOrder)]
-    pub fn sign_order(&mut self, orders: JsValue, nonce: Option<f64>) -> Result<JsValue, JsError> {
+    pub fn sign_order(
+        &mut self,
+        orders: JsValue,
+        nonce: Option<String>,
+    ) -> Result<JsValue, JsError> {
         self.sign_group(orders, nonce)
     }
 
@@ -781,7 +802,7 @@ impl WasmSigner {
     pub fn sign_orders_batch(
         &self,
         batches: JsValue,
-        base_nonce: Option<f64>,
+        base_nonce: Option<String>,
     ) -> Result<JsValue, JsError> {
         #[allow(deprecated)]
         {
@@ -794,7 +815,7 @@ impl WasmSigner {
                 .collect();
             let order_batches = order_batches.map_err(|e| JsError::new(&e))?;
 
-            let base = base_nonce.map(|n| n as u64);
+            let base = parse_optional_nonce(base_nonce)?;
             let signed = self
                 .inner
                 .sign_orders_batch(order_batches, base)
@@ -1658,10 +1679,10 @@ pub fn random_hash() -> String {
     Hash::random().to_base58()
 }
 
-/// Get current timestamp in milliseconds
+/// Get the current Unix timestamp in nanoseconds as a decimal string.
 #[wasm_bindgen(js_name = currentTimestamp)]
-pub fn current_timestamp() -> f64 {
-    bulk_keychain::nonce::current_timestamp_millis() as f64
+pub fn current_timestamp() -> String {
+    bulk_keychain::nonce::current_timestamp_nanos().to_string()
 }
 
 /// Validate a base58-encoded public key
@@ -1755,8 +1776,8 @@ impl WasmPreparedMessage {
 
     /// Get the nonce
     #[wasm_bindgen(getter)]
-    pub fn nonce(&self) -> f64 {
-        self.inner.nonce as f64
+    pub fn nonce(&self) -> String {
+        self.inner.nonce.to_string()
     }
 
     /// Finalize with a signature (base58 string)
@@ -1786,8 +1807,8 @@ struct PrepareOptions {
     account: String,
     /// Signer public key (base58) - defaults to account if not provided
     signer: Option<String>,
-    /// Nonce - defaults to current timestamp if not provided
-    nonce: Option<f64>,
+    /// Decimal-string u64 nonce; defaults to Unix nanoseconds if not provided
+    nonce: Option<String>,
 }
 
 /// Prepare a single order for external wallet signing
@@ -1796,7 +1817,7 @@ struct PrepareOptions {
 /// to sign with an external wallet (like Phantom, Privy, etc).
 ///
 /// @param order - The order to prepare
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 /// @returns PreparedMessage with messageBytes to sign
 ///
 /// @example
@@ -1821,7 +1842,7 @@ pub fn wasm_prepare_order(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     // If onFill is present, wrap the parent inline as the OnFill trigger.
     let on_fill_input = order_input.on_fill;
@@ -1868,7 +1889,7 @@ pub fn wasm_prepare_order(
 /// Prepare multiple orders - each becomes its own transaction (parallel)
 ///
 /// @param orders - Array of orders to prepare
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 /// @returns Array of PreparedMessage
 #[wasm_bindgen(js_name = prepareAll)]
 pub fn wasm_prepare_all(
@@ -1890,7 +1911,7 @@ pub fn wasm_prepare_all(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let base_nonce = opts.nonce.map(|n| n as u64);
+    let base_nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_all(
         order_items,
@@ -1912,7 +1933,7 @@ pub fn wasm_prepare_all(
 /// Use for bracket orders (entry + stop loss + take profit).
 ///
 /// @param orders - Array of orders for the atomic transaction
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 /// @returns Single PreparedMessage containing all orders
 #[wasm_bindgen(js_name = prepareGroup)]
 pub fn wasm_prepare_group(
@@ -1934,7 +1955,7 @@ pub fn wasm_prepare_group(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_group(
         order_items,
@@ -1952,7 +1973,7 @@ pub fn wasm_prepare_group(
 ///
 /// @param agentPubkey - The agent wallet public key to authorize
 /// @param delete - Whether to delete (true) or add (false) the agent
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareAgentWallet)]
 pub fn wasm_prepare_agent_wallet(
     agent_pubkey: &str,
@@ -1969,7 +1990,7 @@ pub fn wasm_prepare_agent_wallet(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_agent_wallet(
         &agent,
@@ -1988,7 +2009,7 @@ pub fn wasm_prepare_agent_wallet(
 ///
 /// @param toPubkey - Builder-code recipient public key
 /// @param fee - Maximum builder-code fee in bps
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareApproveCommissionFee)]
 pub fn wasm_prepare_approve_commission_fee(
     to_pubkey: &str,
@@ -2005,7 +2026,7 @@ pub fn wasm_prepare_approve_commission_fee(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_approve_commission_fee(
         &to,
@@ -2033,7 +2054,7 @@ pub fn wasm_prepare_approve_builder_code(
 /// Prepare builder-code recipient revocation for external signing
 ///
 /// @param toPubkey - Builder-code recipient public key
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareRevokeCommissionFee)]
 pub fn wasm_prepare_revoke_commission_fee(
     to_pubkey: &str,
@@ -2049,7 +2070,7 @@ pub fn wasm_prepare_revoke_commission_fee(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared =
         prepare_revoke_commission_fee(&to, opts.signature_domain, &account, signer.as_ref(), nonce)
@@ -2069,7 +2090,7 @@ pub fn wasm_prepare_revoke_builder_code(
 
 /// Prepare faucet request for external signing
 ///
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareFaucet)]
 pub fn wasm_prepare_faucet(options: JsValue) -> Result<WasmPreparedMessage, JsError> {
     let opts: PrepareOptions =
@@ -2081,7 +2102,7 @@ pub fn wasm_prepare_faucet(options: JsValue) -> Result<WasmPreparedMessage, JsEr
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_faucet(opts.signature_domain, &account, signer.as_ref(), nonce)
         .map_err(|e| JsError::new(&e.to_string()))?;
@@ -2092,7 +2113,7 @@ pub fn wasm_prepare_faucet(options: JsValue) -> Result<WasmPreparedMessage, JsEr
 /// Prepare user settings update for external signing
 ///
 /// @param settings - { max_leverage: [[symbol, leverage], ...] }
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareUpdateUserSettings)]
 pub fn wasm_prepare_update_user_settings(
     settings: JsValue,
@@ -2109,7 +2130,7 @@ pub fn wasm_prepare_update_user_settings(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let user_settings = UserSettings::new(settings_input.max_leverage);
     let prepared = prepare_user_settings(
@@ -2127,7 +2148,7 @@ pub fn wasm_prepare_update_user_settings(
 /// Prepare a liquidator config update for external signing
 ///
 /// @param config - { crossExposure, scoringSkew, toxicity, instruments: [...] }
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareUpdateLiquidatorConfig)]
 pub fn wasm_prepare_update_liquidator_config(
     config: JsValue,
@@ -2144,7 +2165,7 @@ pub fn wasm_prepare_update_liquidator_config(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_update_liquidator_config(
         input.into(),
@@ -2163,7 +2184,7 @@ pub fn wasm_prepare_update_liquidator_config(
 /// @param fromPubkey - source account pubkey (base58)
 /// @param toPubkey - destination account pubkey (base58)
 /// @param marginAmount - amount to transfer
-/// @param options - { account: string, signer?: string, nonce?: number, kind?: "internal" | "external" }
+/// @param options - { account: string, signer?: string, nonce?: string, kind?: "internal" | "external" }
 #[wasm_bindgen(js_name = prepareTransfer)]
 pub fn wasm_prepare_transfer(
     from_pubkey: &str,
@@ -2179,7 +2200,7 @@ pub fn wasm_prepare_transfer(
         #[serde(default)]
         signer: Option<String>,
         #[serde(default)]
-        nonce: Option<f64>,
+        nonce: Option<String>,
         #[serde(default)]
         kind: Option<String>,
     }
@@ -2195,7 +2216,7 @@ pub fn wasm_prepare_transfer(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
     let kind = match opts.kind.as_deref() {
         Some("external") => TransferKind::External,
         Some("internal") | None => TransferKind::Internal,
@@ -2228,7 +2249,7 @@ pub fn wasm_prepare_transfer(
 /// @param user - user wallet pubkey (base58)
 /// @param vault - vault pubkey (base58)
 /// @param recipientTokenAccount - recipient token account pubkey (base58)
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareWithdraw)]
 pub fn wasm_prepare_withdraw(
     amount: f64,
@@ -2247,7 +2268,7 @@ pub fn wasm_prepare_withdraw(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let withdraw = Withdraw {
         user: Pubkey::from_base58(user).map_err(|e| JsError::new(&e.to_string()))?,
@@ -2274,7 +2295,7 @@ pub fn wasm_prepare_withdraw(
 ///
 /// @param user - user wallet pubkey (base58)
 /// @param hash - withdrawal lock hash (base58)
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareWithdrawLockRecover)]
 pub fn wasm_prepare_withdraw_lock_recover(
     user: &str,
@@ -2290,7 +2311,7 @@ pub fn wasm_prepare_withdraw_lock_recover(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let recover = WithdrawLockRecover {
         user: Pubkey::from_base58(user).map_err(|e| JsError::new(&e.to_string()))?,
@@ -2312,7 +2333,7 @@ pub fn wasm_prepare_withdraw_lock_recover(
 /// Prepare a sub-account removal for external signing
 ///
 /// @param toRemove - sub-account pubkey to remove (base58)
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareRemoveSubAccount)]
 pub fn wasm_prepare_remove_sub_account(
     to_remove: &str,
@@ -2328,7 +2349,7 @@ pub fn wasm_prepare_remove_sub_account(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_remove_sub_account(
         target,
@@ -2346,7 +2367,7 @@ pub fn wasm_prepare_remove_sub_account(
 ///
 /// @param subaccount - sub-account pubkey to rename (base58)
 /// @param name - new display name
-/// @param options - { account: string, signer?: string, nonce?: number }
+/// @param options - { account: string, signer?: string, nonce?: string }
 #[wasm_bindgen(js_name = prepareRenameSubAccount)]
 pub fn wasm_prepare_rename_sub_account(
     subaccount: &str,
@@ -2363,7 +2384,7 @@ pub fn wasm_prepare_rename_sub_account(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_rename_sub_account(
         RenameSubAccount {
@@ -2383,7 +2404,7 @@ pub fn wasm_prepare_rename_sub_account(
 /// Prepare a sub-account creation for external signing
 ///
 /// @param name - Sub-account display name
-/// @param options - { account: string, signer?: string, nonce?: number, marginAmount?: number }
+/// @param options - { account: string, signer?: string, nonce?: string, marginAmount?: number }
 #[wasm_bindgen(js_name = prepareCreateSubAccount)]
 pub fn wasm_prepare_create_sub_account(
     name: String,
@@ -2397,7 +2418,7 @@ pub fn wasm_prepare_create_sub_account(
         #[serde(default)]
         signer: Option<String>,
         #[serde(default)]
-        nonce: Option<f64>,
+        nonce: Option<String>,
         #[serde(default)]
         margin_amount: Option<f64>,
     }
@@ -2411,7 +2432,7 @@ pub fn wasm_prepare_create_sub_account(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let sub_account = CreateSubAccount {
         name,
@@ -2434,7 +2455,7 @@ pub fn wasm_prepare_create_sub_account(
 ///
 /// @param signers - signer pubkeys (base58)
 /// @param threshold - approvals required
-/// @param options - { account: string, signer?: string, nonce?: number, timeLockSecs?: number, proposalLifetimeSecs?: number }
+/// @param options - { account: string, signer?: string, nonce?: string, timeLockSecs?: number, proposalLifetimeSecs?: number }
 #[wasm_bindgen(js_name = prepareCreateMultisig)]
 pub fn wasm_prepare_create_multisig(
     signers: JsValue,
@@ -2449,7 +2470,7 @@ pub fn wasm_prepare_create_multisig(
         #[serde(default)]
         signer: Option<String>,
         #[serde(default)]
-        nonce: Option<f64>,
+        nonce: Option<String>,
         #[serde(default)]
         time_lock_secs: Option<u32>,
         #[serde(default)]
@@ -2471,7 +2492,7 @@ pub fn wasm_prepare_create_multisig(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let create_multisig = CreateMultisig {
         signers,
@@ -2510,7 +2531,7 @@ pub fn wasm_prepare_multisig_propose(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_propose(
         MultisigPropose::new(multisig, actions),
@@ -2541,7 +2562,7 @@ pub fn wasm_prepare_multisig_approve(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_approve(
         MultisigApprove::new(multisig, proposal_id as u64),
@@ -2572,7 +2593,7 @@ pub fn wasm_prepare_multisig_reject(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_reject(
         MultisigReject::new(multisig, proposal_id as u64),
@@ -2603,7 +2624,7 @@ pub fn wasm_prepare_multisig_cancel(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_cancel(
         MultisigCancel::new(multisig, proposal_id as u64),
@@ -2634,7 +2655,7 @@ pub fn wasm_prepare_multisig_execute(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_execute(
         MultisigExecute::new(multisig, proposal_id as u64),
@@ -2664,7 +2685,7 @@ pub fn wasm_prepare_update_multisig_policy(
         #[serde(default)]
         signer: Option<String>,
         #[serde(default)]
-        nonce: Option<f64>,
+        nonce: Option<String>,
         #[serde(default)]
         time_lock_secs: Option<u32>,
         #[serde(default)]
@@ -2687,7 +2708,7 @@ pub fn wasm_prepare_update_multisig_policy(
         .map(|s| Pubkey::from_base58(&s))
         .transpose()
         .map_err(|e| JsError::new(&e.to_string()))?;
-    let nonce = opts.nonce.map(|n| n as u64);
+    let nonce = parse_optional_nonce(opts.nonce)?;
 
     let update = UpdateMultisigPolicy {
         multisig,
@@ -2882,7 +2903,7 @@ mod tests {
         let options = to_js_object(serde_json::json!({
             "signatureDomain": "devnet",
             "account": Pubkey::from_bytes([7u8; 32]).to_base58(),
-            "nonce": 1_234_567_890u64,
+            "nonce": "1234567890",
         }));
 
         let prepared = wasm_prepare_order(limit_order_with_on_fill_json(), options).unwrap();
@@ -2905,7 +2926,7 @@ mod tests {
             "signatureDomain": "devnet",
             "account": target_account,
             "signer": agent.pubkey(),
-            "nonce": 1234567890u64,
+            "nonce": "1234567890",
         }));
 
         let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
@@ -2928,11 +2949,110 @@ mod tests {
             "signatureDomain": "devnet",
             "account": WasmKeypair::new().pubkey(),
             "signer": agent.pubkey(),
-            "nonce": 1234567890u64,
+            "nonce": "1234567890",
         }));
 
         let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
 
         assert!(other.sign_prepared(&prepared).is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_large_nonce_prepare_sign_finalize_and_json_roundtrip() {
+        const NONCE: u64 = 9_007_199_254_740_993;
+        const NONCE_DECIMAL: &str = "9007199254740993";
+
+        let keypair = WasmKeypair::new();
+        let mut signer = WasmSigner::new(&keypair, "devnet").unwrap();
+        let options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
+            "account": signer.pubkey(),
+            "nonce": NONCE_DECIMAL,
+        }));
+        let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
+
+        assert_eq!(prepared.nonce(), NONCE_DECIMAL);
+        let nonce_offset = prepared.inner.message_bytes.len() - 41;
+        assert_eq!(
+            &prepared.inner.message_bytes[nonce_offset..nonce_offset + 8],
+            &NONCE.to_le_bytes()
+        );
+
+        let signed = signer.sign_prepared(&prepared).unwrap();
+        let signed_json = js_sys::JSON::stringify(&signed)
+            .unwrap()
+            .as_string()
+            .unwrap();
+        let signed_value: JsonValue = serde_json::from_str(&signed_json).unwrap();
+        assert_eq!(signed_value["nonce"], NONCE_DECIMAL);
+
+        let direct = signer
+            .sign(limit_order_json(), Some(NONCE_DECIMAL.to_owned()))
+            .unwrap();
+        let direct_json = js_sys::JSON::stringify(&direct)
+            .unwrap()
+            .as_string()
+            .unwrap();
+        let direct_value: JsonValue = serde_json::from_str(&direct_json).unwrap();
+        assert_eq!(direct_value["nonce"], NONCE_DECIMAL);
+
+        let signature = signer.sign_bytes(&prepared.inner.message_bytes);
+        let prepared_value = serde::Serialize::serialize(
+            &prepared.inner,
+            &serde_wasm_bindgen::Serializer::json_compatible(),
+        )
+        .unwrap();
+        let finalized = wasm_finalize_transaction(prepared_value, &signature).unwrap();
+        let finalized_json = js_sys::JSON::stringify(&finalized)
+            .unwrap()
+            .as_string()
+            .unwrap();
+        let finalized_value: JsonValue = serde_json::from_str(&finalized_json).unwrap();
+        assert_eq!(finalized_value["nonce"], NONCE_DECIMAL);
+    }
+
+    #[wasm_bindgen_test]
+    fn test_prepare_rejects_numeric_or_out_of_range_nonce() {
+        let account = WasmKeypair::new().pubkey();
+        let numeric_options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
+            "account": account.clone(),
+            "nonce": 123,
+        }));
+        assert!(wasm_prepare_order(limit_order_json(), numeric_options).is_err());
+
+        let overflow_options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
+            "account": account,
+            "nonce": "18446744073709551616",
+        }));
+        assert!(wasm_prepare_order(limit_order_json(), overflow_options).is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn test_wasm_clock_and_omitted_nonces_are_monotonic_decimal_strings() {
+        let first = current_timestamp().parse::<u64>().unwrap();
+        let second = current_timestamp().parse::<u64>().unwrap();
+        assert!(second > first);
+        assert!(first > 9_007_199_254_740_991);
+
+        let keypair = WasmKeypair::new();
+        let mut signer = WasmSigner::new(&keypair, "devnet").unwrap();
+        let options = to_js_object(serde_json::json!({
+            "signatureDomain": "devnet",
+            "account": signer.pubkey(),
+        }));
+        let prepared = wasm_prepare_order(limit_order_json(), options).unwrap();
+        let prepared_nonce = prepared.nonce().parse::<u64>().unwrap();
+        assert!(prepared_nonce > second);
+
+        let signed = signer.sign(limit_order_json(), None).unwrap();
+        let signed_json = js_sys::JSON::stringify(&signed)
+            .unwrap()
+            .as_string()
+            .unwrap();
+        let signed_value: JsonValue = serde_json::from_str(&signed_json).unwrap();
+        let signed_nonce = signed_value["nonce"].as_str().unwrap();
+        assert!(signed_nonce.parse::<u64>().unwrap() > prepared_nonce);
     }
 }

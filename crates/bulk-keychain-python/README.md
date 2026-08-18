@@ -183,7 +183,7 @@ from bulk_keychain import random_hash, current_timestamp, validate_pubkey, valid
 # Generate random hash for client order IDs
 client_id = random_hash()
 
-# Get current timestamp in milliseconds
+# Get the current Unix timestamp in nanoseconds
 ts = current_timestamp()
 
 # Validate base58 strings

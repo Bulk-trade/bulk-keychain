@@ -28,6 +28,7 @@ pub struct PreparedMessage {
     /// Signer pubkey (base58).
     pub signer: String,
     /// Nonce.
+    #[serde(with = "crate::nonce::serde_decimal")]
     pub nonce: u64,
 }
 
@@ -352,7 +353,7 @@ pub fn prepare_action(
     nonce: Option<u64>,
 ) -> Result<PreparedMessage> {
     let signer_pubkey = signer.unwrap_or(account);
-    let nonce = nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
+    let nonce = nonce.unwrap_or_else(crate::nonce::current_timestamp_nanos);
 
     let mut message_bytes = Vec::with_capacity(512);
     serialize_for_sdk_signing(action, signature_domain, nonce, account, &mut message_bytes)?;
@@ -417,7 +418,7 @@ pub fn prepare_all(
         return Ok(vec![]);
     }
 
-    let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_millis);
+    let base = base_nonce.unwrap_or_else(crate::nonce::current_timestamp_nanos);
     let signer_pubkey = signer.unwrap_or(account);
 
     if items.len() < PARALLEL_THRESHOLD {
@@ -1077,6 +1078,41 @@ mod tests {
         assert_eq!(signed.actions, prepared.actions);
         assert_eq!(signed.signature, "sig");
         assert_eq!(signed.order_ids, prepared.order_ids);
+    }
+
+    #[test]
+    fn test_large_nonce_prepare_finalize_and_json_roundtrip() {
+        const NONCE: u64 = 9_007_199_254_740_993;
+        const NONCE_DECIMAL: &str = "9007199254740993";
+
+        let keypair = Keypair::generate();
+        let account = keypair.pubkey();
+        let order = Order::limit("BTC-USD", true, 100000.0, 0.1, TimeInForce::Gtc);
+        let prepared = prepare_message(
+            order.into(),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(NONCE),
+        )
+        .unwrap();
+
+        let nonce_offset = prepared.message_bytes.len() - 41;
+        assert_eq!(
+            &prepared.message_bytes[nonce_offset..nonce_offset + 8],
+            &NONCE.to_le_bytes()
+        );
+
+        let prepared_json = serde_json::to_value(&prepared).unwrap();
+        assert_eq!(prepared_json["nonce"], NONCE_DECIMAL);
+        let restored: PreparedMessage = serde_json::from_value(prepared_json).unwrap();
+        assert_eq!(restored.nonce, NONCE);
+
+        let signed = finalize_transaction(restored, "sig");
+        let signed_json = signed.to_json().unwrap();
+        let signed_value: serde_json::Value = serde_json::from_str(&signed_json).unwrap();
+        assert_eq!(signed_value["nonce"], NONCE_DECIMAL);
+        assert_eq!(signed.nonce, NONCE);
     }
 
     #[test]

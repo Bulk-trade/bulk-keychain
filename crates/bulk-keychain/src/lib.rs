@@ -58,7 +58,7 @@ pub mod types;
 
 pub use error::{Error, Result};
 pub use keypair::Keypair;
-pub use nonce::{NonceManager, NonceStrategy};
+pub use nonce::{parse_decimal as parse_nonce_decimal, NonceManager, NonceStrategy};
 pub use order_id::{
     compute_limit_order_id, compute_market_order_id, compute_order_id, compute_order_item_id,
 };

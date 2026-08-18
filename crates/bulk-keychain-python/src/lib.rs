@@ -1260,10 +1260,10 @@ fn random_hash() -> String {
     Hash::random().to_base58()
 }
 
-/// Get current timestamp in milliseconds
+/// Get the current Unix timestamp in nanoseconds
 #[pyfunction]
 fn current_timestamp() -> u64 {
-    bulk_keychain::nonce::current_timestamp_millis()
+    bulk_keychain::nonce::current_timestamp_nanos()
 }
 
 /// Validate a base58-encoded public key

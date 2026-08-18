@@ -1317,6 +1317,7 @@ pub struct SignedTransaction {
     /// Actions to execute atomically (compact tagged format)
     pub actions: Vec<serde_json::Value>,
     /// Transaction nonce
+    #[serde(with = "crate::nonce::serde_decimal")]
     pub nonce: u64,
     /// Account public key (base58)
     pub account: String,
