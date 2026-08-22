@@ -22,11 +22,12 @@ class BuilderCodeInput(TypedDict):
 class LiquidatorInstrumentConfig(TypedDict):
     symbol: str
     max_exposure: NotRequired[float]
-    premium_min: NotRequired[float]
-    fee: NotRequired[float]
+    reserve: NotRequired[float]
+    rfactor: NotRequired[float]
     volume_percent: NotRequired[float]
     volume_min: NotRequired[float]
     volume_rampup: NotRequired[float]
+    max_sweep_bps: NotRequired[float]
     max_adl_notional: NotRequired[float]
     max_adl_percent: NotRequired[float]
 
@@ -34,6 +35,8 @@ class LiquidatorConfig(TypedDict):
     cross_exposure: NotRequired[float]
     scoring_skew: NotRequired[float]
     toxicity: NotRequired[float]
+    urgency_size_fraction: NotRequired[float]
+    sweep_sds: NotRequired[float]
     instruments: NotRequired[list[LiquidatorInstrumentConfig]]
 
 class OrderItem(TypedDict):

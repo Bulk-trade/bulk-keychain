@@ -620,11 +620,12 @@ fn parse_liquidator_config(obj: &Bound<'_, PyAny>) -> PyResult<LiquidatorConfig>
                         .ok_or_else(|| PyValueError::new_err("Missing 'symbol'"))?
                         .extract()?,
                     max_exposure: f64_field(inst, "max_exposure")?,
-                    premium_min: f64_field(inst, "premium_min")?,
-                    fee: f64_field(inst, "fee")?,
+                    reserve: f64_field(inst, "reserve")?,
+                    rfactor: f64_field(inst, "rfactor")?,
                     volume_percent: f64_field(inst, "volume_percent")?,
                     volume_min: f64_field(inst, "volume_min")?,
                     volume_rampup: if rampup > 0.0 { rampup as u64 } else { 0 },
+                    max_sweep_bps: f64_field(inst, "max_sweep_bps")?,
                     max_adl_notional: f64_field(inst, "max_adl_notional")?,
                     max_adl_percent: f64_field(inst, "max_adl_percent")?,
                 })
@@ -637,6 +638,8 @@ fn parse_liquidator_config(obj: &Bound<'_, PyAny>) -> PyResult<LiquidatorConfig>
         cross_exposure: f64_field(dict, "cross_exposure")?,
         scoring_skew: f64_field(dict, "scoring_skew")?,
         toxicity: f64_field(dict, "toxicity")?,
+        urgency_size_fraction: f64_field(dict, "urgency_size_fraction")?,
+        sweep_sds: f64_field(dict, "sweep_sds")?,
         instruments,
     })
 }

@@ -880,6 +880,54 @@ mod tests {
     }
 
     #[test]
+    fn test_prepare_liquidator_config_includes_current_schema_fields() {
+        let keypair = Keypair::generate();
+        let config = LiquidatorConfig::new(15e6, 0.5, 0.0, 0.25, 2.0).with_instrument(
+            LiquidatorInstrumentConfig {
+                symbol: "BTC-USD".to_string(),
+                max_exposure: 10e6,
+                reserve: 49.0,
+                rfactor: 0.25,
+                volume_percent: 25.0,
+                volume_min: 0.5,
+                volume_rampup: 0,
+                max_sweep_bps: 100.0,
+                max_adl_notional: 0.0,
+                max_adl_percent: 0.0,
+            },
+        );
+        let prepared = prepare_update_liquidator_config(
+            config,
+            SignatureDomain::Devnet,
+            &keypair.pubkey(),
+            None,
+            Some(42),
+        )
+        .unwrap();
+
+        let liq = prepared.actions[0]["liq"].as_object().unwrap();
+        assert_eq!(liq["urgency_size_fraction"], 0.25);
+        assert_eq!(liq["sweep_sds"], 2.0);
+        let instrument = liq["instruments"][0].as_object().unwrap();
+        for field in [
+            "max_exposure",
+            "reserve",
+            "rfactor",
+            "volume_percent",
+            "volume_min",
+            "volume_rampup",
+            "max_sweep_bps",
+            "max_adl_notional",
+            "max_adl_percent",
+        ] {
+            assert!(instrument.contains_key(field), "missing {field}");
+        }
+        assert!(!instrument.contains_key("premium_min"));
+        assert!(!instrument.contains_key("fee"));
+        assert!(!liq.contains_key("price_to_sweep"));
+    }
+
+    #[test]
     fn test_prepare_group() {
         let keypair = Keypair::generate();
         let account = keypair.pubkey();

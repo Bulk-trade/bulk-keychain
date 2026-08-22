@@ -895,16 +895,18 @@ struct LiquidatorInstrumentInput {
     symbol: String,
     #[serde(default, alias = "maxExposure")]
     max_exposure: f64,
-    #[serde(default, alias = "premiumMin")]
-    premium_min: f64,
     #[serde(default)]
-    fee: f64,
+    reserve: f64,
+    #[serde(default)]
+    rfactor: f64,
     #[serde(default, alias = "volumePercent")]
     volume_percent: f64,
     #[serde(default, alias = "volumeMin")]
     volume_min: f64,
     #[serde(default, alias = "volumeRampup")]
     volume_rampup: u64,
+    #[serde(default, alias = "maxSweepBps")]
+    max_sweep_bps: f64,
     #[serde(default, alias = "maxAdlNotional")]
     max_adl_notional: f64,
     #[serde(default, alias = "maxAdlPercent")]
@@ -919,6 +921,10 @@ struct LiquidatorConfigInput {
     scoring_skew: f64,
     #[serde(default)]
     toxicity: f64,
+    #[serde(default, alias = "urgencySizeFraction")]
+    urgency_size_fraction: f64,
+    #[serde(default, alias = "sweepSds")]
+    sweep_sds: f64,
     #[serde(default)]
     instruments: Vec<LiquidatorInstrumentInput>,
 }
@@ -929,17 +935,20 @@ impl From<LiquidatorConfigInput> for LiquidatorConfig {
             cross_exposure: input.cross_exposure,
             scoring_skew: input.scoring_skew,
             toxicity: input.toxicity,
+            urgency_size_fraction: input.urgency_size_fraction,
+            sweep_sds: input.sweep_sds,
             instruments: input
                 .instruments
                 .into_iter()
                 .map(|i| LiquidatorInstrumentConfig {
                     symbol: i.symbol,
                     max_exposure: i.max_exposure,
-                    premium_min: i.premium_min,
-                    fee: i.fee,
+                    reserve: i.reserve,
+                    rfactor: i.rfactor,
                     volume_percent: i.volume_percent,
                     volume_min: i.volume_min,
                     volume_rampup: i.volume_rampup,
+                    max_sweep_bps: i.max_sweep_bps,
                     max_adl_notional: i.max_adl_notional,
                     max_adl_percent: i.max_adl_percent,
                 })

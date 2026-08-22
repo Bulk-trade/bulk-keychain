@@ -743,11 +743,12 @@ pub type RevokeBuilderCode = RevokeCommissionFee;
 pub struct LiquidatorInstrumentConfig {
     pub symbol: String,
     pub max_exposure: f64,
-    pub premium_min: f64,
-    pub fee: f64,
+    pub reserve: f64,
+    pub rfactor: f64,
     pub volume_percent: f64,
     pub volume_min: f64,
     pub volume_rampup: u64,
+    pub max_sweep_bps: f64,
     pub max_adl_notional: f64,
     pub max_adl_percent: f64,
 }
@@ -769,16 +770,26 @@ pub struct LiquidatorConfig {
     pub scoring_skew: f64,
     /// Downscales every instrument's max exposure. Range 0-100 (0 = off)
     pub toxicity: f64,
+    pub urgency_size_fraction: f64,
+    pub sweep_sds: f64,
     pub instruments: Vec<LiquidatorInstrumentConfig>,
 }
 
 impl LiquidatorConfig {
     /// Create a config with no instruments
-    pub fn new(cross_exposure: f64, scoring_skew: f64, toxicity: f64) -> Self {
+    pub fn new(
+        cross_exposure: f64,
+        scoring_skew: f64,
+        toxicity: f64,
+        urgency_size_fraction: f64,
+        sweep_sds: f64,
+    ) -> Self {
         Self {
             cross_exposure,
             scoring_skew,
             toxicity,
+            urgency_size_fraction,
+            sweep_sds,
             instruments: Vec::new(),
         }
     }
@@ -807,11 +818,12 @@ pub(crate) fn liquidator_config_to_json(config: &LiquidatorConfig) -> serde_json
             serde_json::json!({
                 "symbol": i.symbol,
                 "max_exposure": i.max_exposure,
-                "premium_min": i.premium_min,
-                "fee": i.fee,
+                "reserve": i.reserve,
+                "rfactor": i.rfactor,
                 "volume_percent": i.volume_percent,
                 "volume_min": i.volume_min,
                 "volume_rampup": i.volume_rampup,
+                "max_sweep_bps": i.max_sweep_bps,
                 "max_adl_notional": i.max_adl_notional,
                 "max_adl_percent": i.max_adl_percent,
             })
@@ -822,6 +834,8 @@ pub(crate) fn liquidator_config_to_json(config: &LiquidatorConfig) -> serde_json
         "cross_exposure": config.cross_exposure,
         "scoring_skew": config.scoring_skew,
         "toxicity": config.toxicity,
+        "urgency_size_fraction": config.urgency_size_fraction,
+        "sweep_sds": config.sweep_sds,
         "instruments": instruments,
     })
 }
