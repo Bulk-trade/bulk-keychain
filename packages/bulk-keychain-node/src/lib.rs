@@ -14,8 +14,9 @@ use bulk_keychain::{
     Modify, NonceManager, NonceStrategy, OnFill, OraclePrice, Order, OrderItem, OrderType,
     PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount, SignatureDomain, Signer,
     Stop, TakeProfit, TimeInForce, TrailingStop, Transfer, TransferKind, TriggerBasket,
-    UserSettings,
+    UserSettings, MAX_COMMISSION_FEE_BPS,
 };
+
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde::Deserialize;
@@ -37,7 +38,34 @@ fn parse_optional_nonce(value: Option<String>) -> Result<Option<u64>> {
 }
 
 #[inline]
+fn parse_u64_number(value: f64, field: &str) -> Result<u64> {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value >= u64::MAX as f64 {
+        return Err(Error::from_reason(format!(
+            "{field} must be a non-negative integer u64"
+        )));
+    }
+    Ok(value as u64)
+}
+
+#[inline]
+fn parse_i16_number(value: i32, field: &str) -> Result<i16> {
+    i16::try_from(value)
+        .map_err(|_| Error::from_reason(format!("{field} is outside the i16 range")))
+}
+
+#[inline]
+fn parse_commission_fee(value: u32) -> Result<u8> {
+    if value == 0 || value > u32::from(MAX_COMMISSION_FEE_BPS) {
+        return Err(Error::from_reason(format!(
+            "commission fee must be between 1 and {MAX_COMMISSION_FEE_BPS} bps"
+        )));
+    }
+    Ok(value as u8)
+}
+
+#[inline]
 fn parse_nonce(value: &str) -> Result<u64> {
+
     bulk_keychain::parse_nonce_decimal(value).map_err(|error| Error::from_reason(error.to_string()))
 }
 
@@ -364,7 +392,12 @@ impl NativeSigner {
         let to = Pubkey::from_base58(&to_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
         let signed = self
             .inner
-            .sign_approve_commission_fee(to, fee as u8, parse_optional_nonce(nonce)?)
+            .sign_approve_commission_fee(
+                to,
+                parse_commission_fee(fee)?,
+                parse_optional_nonce(nonce)?,
+            )
+
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(signed.into())
@@ -436,9 +469,10 @@ impl NativeSigner {
         config: LiquidatorConfigInput,
         nonce: Option<String>,
     ) -> Result<SignedTransactionOutput> {
+        let config: LiquidatorConfig = config.try_into()?;
         let signed = self
             .inner
-            .sign_update_liquidator_config(config.into(), parse_optional_nonce(nonce)?)
+            .sign_update_liquidator_config(config, parse_optional_nonce(nonce)?)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
         Ok(signed.into())
@@ -453,12 +487,15 @@ impl NativeSigner {
     ) -> Result<SignedTransactionOutput> {
         let oracle_prices: Vec<OraclePrice> = oracles
             .into_iter()
-            .map(|o| OraclePrice {
-                timestamp: o.timestamp as u64,
-                asset: o.asset,
-                price: o.price,
+            .map(|o| {
+                Ok(OraclePrice {
+                    timestamp: parse_u64_number(o.timestamp, "oracle.timestamp")?,
+                    asset: o.asset,
+                    price: o.price,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
+
         let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
@@ -478,13 +515,16 @@ impl NativeSigner {
     ) -> Result<SignedTransactionOutput> {
         let pyth_oracles: Vec<PythOraclePrice> = oracles
             .into_iter()
-            .map(|o| PythOraclePrice {
-                timestamp: o.timestamp as u64,
-                feed_index: o.feed_index as u64,
-                price: o.price as u64,
-                exponent: o.exponent as i16,
+            .map(|o| {
+                Ok(PythOraclePrice {
+                    timestamp: parse_u64_number(o.timestamp, "pyth.timestamp")?,
+                    feed_index: parse_u64_number(o.feed_index, "pyth.feedIndex")?,
+                    price: parse_u64_number(o.price, "pyth.price")?,
+                    exponent: parse_i16_number(o.exponent, "pyth.exponent")?,
+                })
             })
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
+
         let nonce_val = parse_optional_nonce(nonce)?;
 
         let signed = self
@@ -736,32 +776,35 @@ pub struct LiquidatorConfigInput {
     pub instruments: Vec<LiquidatorInstrumentInput>,
 }
 
-impl From<LiquidatorConfigInput> for LiquidatorConfig {
-    fn from(input: LiquidatorConfigInput) -> Self {
-        Self {
+impl TryFrom<LiquidatorConfigInput> for LiquidatorConfig {
+    type Error = Error;
+
+    fn try_from(input: LiquidatorConfigInput) -> Result<Self> {
+        Ok(Self {
             cross_exposure: input.cross_exposure,
             scoring_skew: input.scoring_skew,
             toxicity: input.toxicity,
             instruments: input
                 .instruments
                 .into_iter()
-                .map(|i| LiquidatorInstrumentConfig {
-                    symbol: i.symbol,
-                    max_exposure: i.max_exposure,
-                    premium_min: i.premium_min,
-                    fee: i.fee,
-                    volume_percent: i.volume_percent,
-                    volume_min: i.volume_min,
-                    volume_rampup: if i.volume_rampup > 0.0 {
-                        i.volume_rampup as u64
-                    } else {
-                        0
-                    },
-                    max_adl_notional: i.max_adl_notional,
-                    max_adl_percent: i.max_adl_percent,
+                .map(|i| {
+                    Ok(LiquidatorInstrumentConfig {
+                        symbol: i.symbol,
+                        max_exposure: i.max_exposure,
+                        premium_min: i.premium_min,
+                        fee: i.fee,
+                        volume_percent: i.volume_percent,
+                        volume_min: i.volume_min,
+                        volume_rampup: parse_u64_number(
+                            i.volume_rampup,
+                            "liquidator.volumeRampup",
+                        )?,
+                        max_adl_notional: i.max_adl_notional,
+                        max_adl_percent: i.max_adl_percent,
+                    })
                 })
-                .collect(),
-        }
+                .collect::<Result<Vec<_>>>()?,
+        })
     }
 }
 
@@ -891,7 +934,7 @@ impl TryFrom<OrderInput> for OrderItem {
                                 Pubkey::from_base58(&commission.to).map_err(|e| {
                                     Error::from_reason(format!("Invalid builderCode.to: {}", e))
                                 })?,
-                                commission.fee as u8,
+                                                                                                parse_commission_fee(commission.fee)?,
                             )
                             .map_err(|e| Error::from_reason(e.to_string()))
                         })
@@ -1376,8 +1419,10 @@ pub fn prepare_update_liquidator_config(
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = parse_optional_nonce(options.nonce)?;
 
+    let config: LiquidatorConfig = config.try_into()?;
     let prepared = core_prepare_update_liquidator_config(
-        config.into(),
+        config,
+
         signature_domain,
         &account,
         signer.as_ref(),
@@ -1408,8 +1453,9 @@ pub fn prepare_approve_commission_fee(
 
     let prepared = core_prepare_approve_commission_fee(
         &to,
-        fee as u8,
+        parse_commission_fee(fee)?,
         signature_domain,
+
         &account,
         signer.as_ref(),
         nonce,
@@ -1670,7 +1716,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn checked_numeric_parsers_reject_lossy_inputs() {
+        assert_eq!(parse_commission_fee(15).unwrap(), 15);
+        assert!(parse_commission_fee(16).is_err());
+        assert_eq!(parse_u64_number(42.0, "value").unwrap(), 42);
+        assert!(parse_u64_number(42.5, "value").is_err());
+        assert!(parse_u64_number(f64::NAN, "value").is_err());
+        assert!(parse_i16_number(i32::from(i16::MAX) + 1, "value").is_err());
+    }
+
+    #[test]
     fn trigger_basket_rejects_stale_top_level_iso() {
+
         let input: OrderInput = serde_json::from_value(serde_json::json!({
             "item_type": "trig",
             "symbol": "BTC-USD",
