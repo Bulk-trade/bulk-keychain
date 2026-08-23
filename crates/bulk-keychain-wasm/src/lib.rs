@@ -614,7 +614,7 @@ impl WasmSigner {
         let signed = self
             .inner
             .sign_multisig_approve(
-                MultisigApprove::new(multisig, proposal_id as u64),
+                MultisigApprove::new(multisig, f64_to_u64(proposal_id, "proposalId")?),
                 nonce_val,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
@@ -635,7 +635,7 @@ impl WasmSigner {
 
         let signed = self
             .inner
-            .sign_multisig_reject(MultisigReject::new(multisig, proposal_id as u64), nonce_val)
+            .sign_multisig_reject(MultisigReject::new(multisig, f64_to_u64(proposal_id, "proposalId")?), nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -654,7 +654,7 @@ impl WasmSigner {
 
         let signed = self
             .inner
-            .sign_multisig_cancel(MultisigCancel::new(multisig, proposal_id as u64), nonce_val)
+            .sign_multisig_cancel(MultisigCancel::new(multisig, f64_to_u64(proposal_id, "proposalId")?), nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
@@ -674,7 +674,7 @@ impl WasmSigner {
         let signed = self
             .inner
             .sign_multisig_execute(
-                MultisigExecute::new(multisig, proposal_id as u64),
+                MultisigExecute::new(multisig, f64_to_u64(proposal_id, "proposalId")?),
                 nonce_val,
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
@@ -1228,7 +1228,7 @@ fn json_u64(
 }
 
 fn f64_to_u64(value: f64, key: &str) -> Result<u64, JsError> {
-    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value > u64::MAX as f64 {
+    if !value.is_finite() || value < 0.0 || value.fract() != 0.0 || value >= u64::MAX as f64 {
         return Err(js_err(format!("{key} must be a non-negative integer u64")));
     }
     Ok(value as u64)
@@ -2565,7 +2565,7 @@ pub fn wasm_prepare_multisig_approve(
     let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_approve(
-        MultisigApprove::new(multisig, proposal_id as u64),
+        MultisigApprove::new(multisig, f64_to_u64(proposal_id, "proposalId")?),
         opts.signature_domain,
         &account,
         signer.as_ref(),
@@ -2596,7 +2596,7 @@ pub fn wasm_prepare_multisig_reject(
     let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_reject(
-        MultisigReject::new(multisig, proposal_id as u64),
+        MultisigReject::new(multisig, f64_to_u64(proposal_id, "proposalId")?),
         opts.signature_domain,
         &account,
         signer.as_ref(),
@@ -2627,7 +2627,7 @@ pub fn wasm_prepare_multisig_cancel(
     let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_cancel(
-        MultisigCancel::new(multisig, proposal_id as u64),
+        MultisigCancel::new(multisig, f64_to_u64(proposal_id, "proposalId")?),
         opts.signature_domain,
         &account,
         signer.as_ref(),
@@ -2658,7 +2658,7 @@ pub fn wasm_prepare_multisig_execute(
     let nonce = parse_optional_nonce(opts.nonce)?;
 
     let prepared = prepare_multisig_execute(
-        MultisigExecute::new(multisig, proposal_id as u64),
+        MultisigExecute::new(multisig, f64_to_u64(proposal_id, "proposalId")?),
         opts.signature_domain,
         &account,
         signer.as_ref(),
@@ -2762,7 +2762,16 @@ mod tests {
         assert_eq!(keypair.pubkey(), restored.pubkey());
     }
 
+    #[test]
+    fn proposal_id_parser_rejects_lossy_numbers() {
+        assert_eq!(f64_to_u64(42.0, "proposalId").unwrap(), 42);
+        for value in [-1.0, 1.5, f64::NAN, f64::INFINITY, u64::MAX as f64] {
+            assert!(f64_to_u64(value, "proposalId").is_err());
+        }
+    }
+
     // serde_wasm_bindgen deserializes structs from JS objects, so serialize
+
     // the JSON as plain objects (not Maps) via the json-compatible serializer.
     fn to_js_object(value: serde_json::Value) -> JsValue {
         serde::Serialize::serialize(&value, &serde_wasm_bindgen::Serializer::json_compatible())

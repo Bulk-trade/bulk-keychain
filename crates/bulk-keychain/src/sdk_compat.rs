@@ -637,8 +637,157 @@ fn nan_to_none(v: f64) -> Option<f64> {
     }
 }
 
+fn validate_finite(value: f64, field: &str) -> Result<()> {
+    if !value.is_finite() {
+        return Err(Error::InvalidOrder(format!("{field} must be finite")));
+    }
+    Ok(())
+}
+
+fn validate_non_negative(value: f64, field: &str) -> Result<()> {
+    validate_finite(value, field)?;
+    if value < 0.0 {
+        return Err(Error::InvalidOrder(format!(
+            "{field} must be non-negative"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_positive(value: f64, field: &str) -> Result<()> {
+    validate_finite(value, field)?;
+    if value <= 0.0 {
+        return Err(Error::InvalidOrder(format!("{field} must be positive")));
+    }
+    Ok(())
+}
+
+fn validate_optional_non_negative(value: f64, field: &str) -> Result<()> {
+    if value.is_nan() {
+        return Ok(());
+    }
+    validate_non_negative(value, field)
+}
+
+fn validate_order_item(item: &OrderItem) -> Result<()> {
+    match item {
+        OrderItem::Order(order) => {
+            validate_non_negative(order.price, "order.price")?;
+            validate_positive(order.size, "order.size")?;
+        }
+        OrderItem::Modify(modify) => validate_positive(modify.amount, "modify.amount")?,
+        OrderItem::Cancel(_) | OrderItem::CancelAll(_) => {}
+        OrderItem::Stop(stop) => {
+            validate_positive(stop.size, "stop.size")?;
+            validate_positive(stop.trigger_price, "stop.trigger_price")?;
+            validate_optional_non_negative(stop.limit_price, "stop.limit_price")?;
+        }
+        OrderItem::TakeProfit(take_profit) => {
+            validate_positive(take_profit.size, "takeProfit.size")?;
+            validate_positive(take_profit.trigger_price, "takeProfit.trigger_price")?;
+            validate_optional_non_negative(take_profit.limit_price, "takeProfit.limit_price")?;
+        }
+        OrderItem::RangeOco(range) => {
+            validate_positive(range.size, "range.size")?;
+            validate_positive(range.collar_min, "range.collar_min")?;
+            validate_positive(range.collar_max, "range.collar_max")?;
+            validate_optional_non_negative(range.limit_min, "range.limit_min")?;
+            validate_optional_non_negative(range.limit_max, "range.limit_max")?;
+        }
+        OrderItem::TriggerBasket(trigger) => {
+            validate_positive(trigger.trigger_price, "trig.trigger_price")?;
+            for action in &trigger.actions {
+                validate_order_item(action)?;
+            }
+        }
+        OrderItem::OnFill(on_fill) => {
+            validate_order_item(on_fill.trigger.as_ref())?;
+            for action in &on_fill.actions {
+                validate_order_item(action)?;
+            }
+        }
+        OrderItem::TrailingStop(trailing) => {
+            validate_positive(trailing.size, "trl.size")?;
+            if let Some(limit_price) = trailing.limit_price {
+                validate_non_negative(limit_price, "trl.limit_price")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_action(action: &Action) -> Result<()> {
+    match action {
+        Action::Order { orders } => {
+            for item in orders {
+                validate_order_item(item)?;
+            }
+        }
+        Action::Oracle { oracles } => {
+            for oracle in oracles {
+                validate_non_negative(oracle.price, "oracle.price")?;
+            }
+        }
+        Action::MultisigPropose(proposal) => {
+            for nested_action in &proposal.actions {
+                validate_action(nested_action)?;
+            }
+        }
+        Action::PythOracle { .. }
+        | Action::AgentWalletCreation(_)
+        | Action::WhitelistFaucet(_)
+        | Action::RemoveSubAccount(_)
+        | Action::RenameSubAccount(_)
+        | Action::CreateMultisig(_)
+        | Action::MultisigApprove(_)
+        | Action::MultisigReject(_)
+        | Action::MultisigCancel(_)
+        | Action::MultisigExecute(_)
+        | Action::UpdateMultisigPolicy(_)
+        | Action::ApproveCommissionFee(_)
+        | Action::RevokeCommissionFee(_)
+        | Action::Withdraw(_)
+        | Action::WithdrawLockRecover(_) => {}
+        Action::Faucet(faucet) => {
+            if let Some(amount) = faucet.amount {
+                validate_non_negative(amount, "faucet.amount")?;
+            }
+        }
+        Action::UpdateUserSettings(settings) => {
+            for (_, leverage) in &settings.max_leverage {
+                validate_positive(*leverage, "userSettings.max_leverage")?;
+            }
+        }
+        Action::CreateSubAccount(sub_account) => {
+            if let Some(amount) = sub_account.margin_amount {
+                validate_non_negative(amount, "createSubAccount.marginAmount")?;
+            }
+        }
+        Action::Transfer(transfer) => {
+            validate_non_negative(transfer.margin_amount, "transfer.marginAmount")?;
+        }
+        Action::UpdateLiquidatorConfig(config) => {
+            validate_finite(config.cross_exposure, "liq.cross_exposure")?;
+            validate_finite(config.scoring_skew, "liq.scoring_skew")?;
+            validate_finite(config.toxicity, "liq.toxicity")?;
+            for instrument in &config.instruments {
+                validate_finite(instrument.max_exposure, "liq.max_exposure")?;
+                validate_finite(instrument.premium_min, "liq.premium_min")?;
+                validate_finite(instrument.fee, "liq.fee")?;
+                validate_finite(instrument.volume_percent, "liq.volume_percent")?;
+                validate_finite(instrument.volume_min, "liq.volume_min")?;
+                validate_finite(instrument.max_adl_notional, "liq.max_adl_notional")?;
+                validate_finite(instrument.max_adl_percent, "liq.max_adl_percent")?;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[inline]
 fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
+    validate_order_item(item)?;
+
     match item {
         OrderItem::Order(order) => match order.order_type {
             OrderType::Limit { tif } => Ok(TxAction::LimitOrder(TxLimitOrder {
@@ -935,7 +1084,9 @@ pub(crate) fn serialize_for_sdk_signing(
     account: &Pubkey,
     out: &mut Vec<u8>,
 ) -> Result<()> {
+    validate_action(action)?;
     let tx_actions = action_to_tx_actions(action)?;
+
     if tx_actions.is_empty() {
         return Err(Error::EmptyOrders);
     }
@@ -949,7 +1100,9 @@ pub(crate) fn serialize_for_sdk_signing(
 
 #[inline]
 fn order_item_to_order_hash_action(item: &OrderItem) -> Result<Option<TxOrderHashAction>> {
+    validate_order_item(item)?;
     match item {
+
         OrderItem::Order(order) => match order.order_type {
             OrderType::Limit { tif } => {
                 Ok(Some(TxOrderHashAction::LimitOrder(TxOrderHashLimitOrder {
@@ -1012,7 +1165,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rejects_invalid_numeric_values_before_fixed_point_serialization() {
+        let account = Pubkey::from_bytes([0xa5; 32]);
+        for value in [-1.0, f64::NAN, f64::INFINITY] {
+            let action = Action::Order {
+                orders: vec![Order::limit("BTC-USD", true, 100_000.0, value, TimeInForce::Gtc).into()],
+            };
+            let mut serialized = Vec::new();
+            assert!(serialize_for_sdk_signing(
+                &action,
+                SignatureDomain::Devnet,
+                7,
+                &account,
+                &mut serialized,
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
     fn sdk_signable_bytes_end_with_the_selected_network_domain() {
+
         let account = Pubkey::from_bytes([0xa5; 32]);
         let action = Action::Faucet(Faucet::new(account));
         let mut canonical_without_domain =
