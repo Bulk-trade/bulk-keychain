@@ -347,6 +347,9 @@ jobs:
     needs: [validate, build-node]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -384,8 +387,6 @@ jobs:
         if: ${{ !inputs.dry_run }}
         working-directory: packages/bulk-keychain-node
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ============================================
   # PUBLISH PYTHON PACKAGE
@@ -426,6 +427,9 @@ jobs:
     needs: [validate, build-wasm]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -445,8 +449,6 @@ jobs:
         if: ${{ !inputs.dry_run }}
         working-directory: crates/bulk-keychain-wasm/pkg
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # ============================================
   # CREATE GITHUB RELEASE
