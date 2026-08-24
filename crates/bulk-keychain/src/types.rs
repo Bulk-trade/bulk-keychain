@@ -1063,11 +1063,16 @@ impl CreateMultisig {
 pub struct MultisigPropose {
     pub multisig: Pubkey,
     pub actions: Vec<Action>,
+    pub proposal_lifetime_secs: Option<u32>,
 }
 
 impl MultisigPropose {
     pub fn new(multisig: Pubkey, actions: Vec<Action>) -> Self {
-        Self { multisig, actions }
+        Self {
+            multisig,
+            actions,
+            proposal_lifetime_secs: None,
+        }
     }
 }
 

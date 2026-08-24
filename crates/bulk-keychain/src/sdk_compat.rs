@@ -468,6 +468,8 @@ struct TxMultisigPropose {
     multisig: Pubkey,
     #[serde(rename = "a")]
     actions: Vec<TxAction>,
+    #[serde(rename = "l")]
+    proposal_lifetime_secs: Option<u32>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -845,6 +847,7 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
             Ok(vec![TxAction::MultisigPropose(TxMultisigPropose {
                 multisig: action.multisig,
                 actions,
+                proposal_lifetime_secs: action.proposal_lifetime_secs,
             })])
         }
         Action::MultisigApprove(action) => {
