@@ -48,11 +48,12 @@ export interface LeverageSetting {
 export interface LiquidatorInstrumentInput {
   symbol: string
   maxExposure: number
-  premiumMin: number
-  fee: number
+  reserve: number
+  rfactor: number
   volumePercent: number
   volumeMin: number
   volumeRampup: number
+  maxSweepBps: number
   maxAdlNotional: number
   maxAdlPercent: number
 }
@@ -60,6 +61,8 @@ export interface LiquidatorConfigInput {
   crossExposure: number
   scoringSkew: number
   toxicity: number
+  urgencySizeFraction: number
+  sweepSds: number
   instruments: Array<LiquidatorInstrumentInput>
 }
 export interface OraclePriceInput {

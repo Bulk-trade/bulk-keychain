@@ -718,11 +718,12 @@ pub struct LeverageSetting {
 pub struct LiquidatorInstrumentInput {
     pub symbol: String,
     pub max_exposure: f64,
-    pub premium_min: f64,
-    pub fee: f64,
+    pub reserve: f64,
+    pub rfactor: f64,
     pub volume_percent: f64,
     pub volume_min: f64,
     pub volume_rampup: f64,
+    pub max_sweep_bps: f64,
     pub max_adl_notional: f64,
     pub max_adl_percent: f64,
 }
@@ -733,6 +734,8 @@ pub struct LiquidatorConfigInput {
     pub cross_exposure: f64,
     pub scoring_skew: f64,
     pub toxicity: f64,
+    pub urgency_size_fraction: f64,
+    pub sweep_sds: f64,
     pub instruments: Vec<LiquidatorInstrumentInput>,
 }
 
@@ -742,14 +745,16 @@ impl From<LiquidatorConfigInput> for LiquidatorConfig {
             cross_exposure: input.cross_exposure,
             scoring_skew: input.scoring_skew,
             toxicity: input.toxicity,
+            urgency_size_fraction: input.urgency_size_fraction,
+            sweep_sds: input.sweep_sds,
             instruments: input
                 .instruments
                 .into_iter()
                 .map(|i| LiquidatorInstrumentConfig {
                     symbol: i.symbol,
                     max_exposure: i.max_exposure,
-                    premium_min: i.premium_min,
-                    fee: i.fee,
+                    reserve: i.reserve,
+                    rfactor: i.rfactor,
                     volume_percent: i.volume_percent,
                     volume_min: i.volume_min,
                     volume_rampup: if i.volume_rampup > 0.0 {
@@ -757,6 +762,7 @@ impl From<LiquidatorConfigInput> for LiquidatorConfig {
                     } else {
                         0
                     },
+                    max_sweep_bps: i.max_sweep_bps,
                     max_adl_notional: i.max_adl_notional,
                     max_adl_percent: i.max_adl_percent,
                 })

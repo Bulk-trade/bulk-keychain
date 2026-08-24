@@ -508,11 +508,12 @@ struct TxRevokeCommissionFee {
 struct TxLiquidatorInstrumentConfig {
     symbol: String,
     max_exposure: f64,
-    premium_min: f64,
-    fee: f64,
+    reserve: f64,
+    rfactor: f64,
     volume_percent: f64,
     volume_min: f64,
     volume_rampup: u64,
+    max_sweep_bps: f64,
     max_adl_notional: f64,
     max_adl_percent: f64,
 }
@@ -522,6 +523,8 @@ struct TxLiquidatorConfig {
     cross_exposure: f64,
     scoring_skew: f64,
     toxicity: f64,
+    urgency_size_fraction: f64,
+    sweep_sds: f64,
     instruments: Vec<TxLiquidatorInstrumentConfig>,
 }
 
@@ -900,17 +903,20 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
                 cross_exposure: config.cross_exposure,
                 scoring_skew: config.scoring_skew,
                 toxicity: config.toxicity,
+                urgency_size_fraction: config.urgency_size_fraction,
+                sweep_sds: config.sweep_sds,
                 instruments: config
                     .sorted_instruments()
                     .into_iter()
                     .map(|i| TxLiquidatorInstrumentConfig {
                         symbol: i.symbol.clone(),
                         max_exposure: i.max_exposure,
-                        premium_min: i.premium_min,
-                        fee: i.fee,
+                        reserve: i.reserve,
+                        rfactor: i.rfactor,
                         volume_percent: i.volume_percent,
                         volume_min: i.volume_min,
                         volume_rampup: i.volume_rampup,
+                        max_sweep_bps: i.max_sweep_bps,
                         max_adl_notional: i.max_adl_notional,
                         max_adl_percent: i.max_adl_percent,
                     })
@@ -1053,15 +1059,16 @@ mod tests {
         let inst = |symbol: &str, max_exposure: f64| LiquidatorInstrumentConfig {
             symbol: symbol.to_string(),
             max_exposure,
-            premium_min: 50.0,
-            fee: 10.0,
+            reserve: 50.0,
+            rfactor: 0.25,
             volume_percent: 5.0,
             volume_min: 1.0,
             volume_rampup: 0,
+            max_sweep_bps: 100.0,
             max_adl_notional: 0.0,
             max_adl_percent: 0.0,
         };
-        LiquidatorConfig::new(15e6, 0.5, 0.0)
+        LiquidatorConfig::new(15e6, 0.5, 0.0, 0.25, 2.0)
             .with_instrument(inst("BTC-USD", 10e6))
             .with_instrument(inst("ETH-USD", 5e6))
     }
@@ -1182,7 +1189,7 @@ mod tests {
         serialize_for_sdk_signing(&action, SignatureDomain::Devnet, 42, &account, &mut out)
             .unwrap();
 
-        assert_eq!(out.len(), 243);
+        assert_eq!(out.len(), 275);
 
         let f64_at = |o: usize| f64::from_le_bytes(out[o..o + 8].try_into().unwrap());
         let u64_at = |o: usize| u64::from_le_bytes(out[o..o + 8].try_into().unwrap());
@@ -1191,25 +1198,28 @@ mod tests {
         assert_eq!(f64_at(12), 15e6);
         assert_eq!(f64_at(20), 0.5);
         assert_eq!(f64_at(28), 0.0);
-        assert_eq!(u64_at(36), 2);
+        assert_eq!(f64_at(36), 0.25);
+        assert_eq!(f64_at(44), 2.0);
+        assert_eq!(u64_at(52), 2);
 
-        assert_eq!(u64_at(44), 7);
-        assert_eq!(&out[52..59], b"BTC-USD");
-        assert_eq!(f64_at(59), 10e6);
-        assert_eq!(f64_at(67), 50.0);
-        assert_eq!(f64_at(75), 10.0);
-        assert_eq!(f64_at(83), 5.0);
-        assert_eq!(f64_at(91), 1.0);
-        assert_eq!(u64_at(99), 0);
-        assert_eq!(f64_at(107), 0.0);
-        assert_eq!(f64_at(115), 0.0);
+        assert_eq!(u64_at(60), 7);
+        assert_eq!(&out[68..75], b"BTC-USD");
+        assert_eq!(f64_at(75), 10e6);
+        assert_eq!(f64_at(83), 50.0);
+        assert_eq!(f64_at(91), 0.25);
+        assert_eq!(f64_at(99), 5.0);
+        assert_eq!(f64_at(107), 1.0);
+        assert_eq!(u64_at(115), 0);
+        assert_eq!(f64_at(123), 100.0);
+        assert_eq!(f64_at(131), 0.0);
+        assert_eq!(f64_at(139), 0.0);
 
-        assert_eq!(&out[131..138], b"ETH-USD");
-        assert_eq!(f64_at(138), 5e6);
+        assert_eq!(&out[155..162], b"ETH-USD");
+        assert_eq!(f64_at(162), 5e6);
 
-        assert_eq!(u64_at(202), 42);
-        assert_eq!(&out[210..242], account.as_bytes());
-        assert_eq!(out[242], SignatureDomain::Devnet as u8);
+        assert_eq!(u64_at(234), 42);
+        assert_eq!(&out[242..274], account.as_bytes());
+        assert_eq!(out[274], SignatureDomain::Devnet as u8);
     }
 
     #[test]
@@ -1227,7 +1237,7 @@ mod tests {
 
         assert_eq!(
             signed.signature,
-            "3J5PoVcsCDYwC5Q77F76zFkoBy59nCL2hSnYB1FXKuwfWZXhD8v7Ab7ZPJFTYv97KM2J18yeNjUAnpfhXvsknxhA"
+            "3kCYJmqzxfj4iotJ2kDMvkE5YY1EutzSoHdiLNpSGc89ryjaoRDKZXjHpWR59Eoxzk5vgR2ASSaE8QrtjH4FQ5PY"
         );
     }
 
