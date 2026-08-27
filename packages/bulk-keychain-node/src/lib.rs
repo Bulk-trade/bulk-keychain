@@ -827,6 +827,22 @@ impl TryFrom<OrderInput> for OrderItem {
     type Error = Error;
 
     fn try_from(input: OrderInput) -> Result<Self> {
+        // An `onFill` payload attached to an order turns that order into the
+        // inline trigger of an OnFill action.
+        if let Some(of) = input.on_fill {
+            let parent = OrderInput {
+                on_fill: None,
+                ..input
+            };
+            let trigger: OrderItem = parent.try_into()?;
+            let consequents: Result<Vec<OrderItem>> =
+                of.actions.into_iter().map(|a| a.try_into()).collect();
+            return Ok(OrderItem::OnFill(OnFill {
+                trigger: Box::new(trigger),
+                actions: consequents?,
+            }));
+        }
+
         match input.item_type.as_str() {
             "order" => {
                 let symbol = input
@@ -1214,34 +1230,15 @@ pub fn prepare_order(order: OrderInput, options: PrepareOptions) -> Result<Prepa
         .map_err(|e| Error::from_reason(e.to_string()))?;
     let nonce = parse_optional_nonce(options.nonce)?;
 
-    // If onFill is present, wrap the parent inline as the OnFill trigger.
-    let on_fill_input = order.on_fill;
-    let order_no_fill = OrderInput {
-        on_fill: None,
-        ..order
-    };
-
-    let prepared = if let Some(of) = on_fill_input {
-        let parent: OrderItem = order_no_fill.try_into()?;
-        let consequents: Result<Vec<OrderItem>> =
-            of.actions.into_iter().map(|a| a.try_into()).collect();
-        let of_item = OrderItem::OnFill(OnFill {
-            trigger: Box::new(parent),
-            actions: consequents?,
-        });
-        prepare_message(of_item, signature_domain, &account, signer.as_ref(), nonce)
-            .map_err(|e| Error::from_reason(e.to_string()))?
-    } else {
-        let order_item: OrderItem = order_no_fill.try_into()?;
-        prepare_message(
-            order_item,
-            signature_domain,
-            &account,
-            signer.as_ref(),
-            nonce,
-        )
-        .map_err(|e| Error::from_reason(e.to_string()))?
-    };
+    let order_item: OrderItem = order.try_into()?;
+    let prepared = prepare_message(
+        order_item,
+        signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| Error::from_reason(e.to_string()))?;
 
     Ok(prepared.into())
 }
@@ -1689,5 +1686,61 @@ mod tests {
 
         let error = OrderItem::try_from(input).unwrap_err();
         assert!(error.to_string().contains("trig.iso"));
+    }
+
+    fn limit_order_with_on_fill() -> serde_json::Value {
+        serde_json::json!({
+            "item_type": "order",
+            "symbol": "BTC-USD",
+            "is_buy": true,
+            "price": 100_000.0,
+            "size": 0.1,
+            "order_type": { "type_name": "limit", "tif": "GTC" },
+            "on_fill": {
+                "actions": [{
+                    "item_type": "order",
+                    "symbol": "BTC-USD",
+                    "is_buy": false,
+                    "price": 0.0,
+                    "size": 0.1,
+                    "reduce_only": true,
+                    "order_type": { "type_name": "market" },
+                }],
+            },
+        })
+    }
+
+    #[test]
+    fn order_with_on_fill_becomes_an_on_fill_action() {
+        let input: OrderInput = serde_json::from_value(limit_order_with_on_fill()).unwrap();
+
+        match OrderItem::try_from(input).unwrap() {
+            OrderItem::OnFill(on_fill) => {
+                assert!(matches!(*on_fill.trigger, OrderItem::Order(_)));
+                assert_eq!(on_fill.actions.len(), 1);
+            }
+            other => panic!("attached onFill was dropped; got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn sign_emits_the_on_fill_action_for_an_attached_on_fill() {
+        let keypair = NativeKeypair::new();
+        let mut signer = NativeSigner::new(&keypair, "devnet".to_string()).unwrap();
+
+        let signed = signer
+            .sign(
+                serde_json::from_value(limit_order_with_on_fill()).unwrap(),
+                Some(7.0),
+            )
+            .unwrap();
+
+        let actions: Vec<serde_json::Value> = serde_json::from_str(&signed.actions).unwrap();
+        assert_eq!(actions.len(), 1);
+        assert!(
+            actions[0].get("of").is_some(),
+            "expected an on-fill action, got {}",
+            signed.actions
+        );
     }
 }
