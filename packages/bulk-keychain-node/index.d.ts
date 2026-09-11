@@ -15,6 +15,7 @@ export interface OrderInput {
   reduceOnly?: boolean
   iso?: boolean
   builderCode?: BuilderCodeInput
+  slippage?: number
   orderType?: OrderTypeInput
   clientId?: string
   orderId?: string

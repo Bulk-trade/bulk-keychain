@@ -672,6 +672,7 @@ pub struct OrderInput {
     #[napi(js_name = "builderCode")]
     #[serde(rename = "builderCode")]
     pub builder_code: Option<BuilderCodeInput>,
+    pub slippage: Option<f64>,
     pub order_type: Option<OrderTypeInput>,
     pub client_id: Option<String>,
     pub order_id: Option<String>,
@@ -902,6 +903,7 @@ impl TryFrom<OrderInput> for OrderItem {
                             .map_err(|e| Error::from_reason(e.to_string()))
                         })
                         .transpose()?,
+                    slippage: input.slippage,
                 };
                 if let Some(cid) = client_id {
                     order.client_id = Some(cid);

@@ -757,6 +757,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                     }
                     parse_commission(dict.get_item("builder_code")?)?
                 },
+                slippage: dict
+                    .get_item("slippage")?
+                    .map(|value| value.extract())
+                    .transpose()?,
             }))
         }
         "cancel" => {
@@ -1096,6 +1100,7 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
                 }
                 parse_commission(limit.get_item("builder_code")?)?
             },
+            slippage: None,
         }));
     }
 
@@ -1142,6 +1147,10 @@ fn parse_compact_order_item(dict: &Bound<'_, PyDict>) -> PyResult<OrderItem> {
                 }
                 parse_commission(market.get_item("builder_code")?)?
             },
+            slippage: market
+                .get_item("slippage")?
+                .map(|value| value.extract())
+                .transpose()?,
         }));
     }
 

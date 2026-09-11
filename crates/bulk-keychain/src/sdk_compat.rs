@@ -2,12 +2,14 @@
 
 use crate::types::*;
 use crate::{Error, Result};
+use serde::ser::{SerializeStruct, SerializeTuple};
 use serde::Serialize;
 use serde::Serializer;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 
 const SCALE: f64 = 1e8;
+const SIGNABLE_ACTIONS_V2_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x02";
 
 mod serde_hash {
     use super::*;
@@ -76,6 +78,14 @@ mod serde_safe_f64 {
     }
 }
 
+struct SafeF64(f64);
+
+impl Serialize for SafeF64 {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serde_safe_f64::serialize(&self.0, serializer)
+    }
+}
+
 mod serde_opt_f64 {
     use super::*;
 
@@ -139,20 +149,61 @@ impl TryFrom<Commission> for TxCommission {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 struct TxMarketOrder {
-    #[serde(rename = "c")]
     symbol: String,
-    #[serde(rename = "b")]
     is_buy: bool,
-    #[serde(rename = "sz", with = "serde_safe_f64")]
     size: f64,
-    #[serde(rename = "r")]
     reduce_only: bool,
-    #[serde(rename = "i")]
     iso: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     commission: Option<TxCommission>,
+    slippage: Option<f64>,
+}
+
+// Explicit slippage uses the V2 layout; omitted slippage preserves legacy bytes.
+impl Serialize for TxMarketOrder {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        if serializer.is_human_readable() {
+            let mut state = serializer.serialize_struct(
+                "MarketOrder",
+                5 + usize::from(self.commission.is_some()) + usize::from(self.slippage.is_some()),
+            )?;
+            state.serialize_field("c", &self.symbol)?;
+            state.serialize_field("b", &self.is_buy)?;
+            state.serialize_field("sz", &SafeF64(self.size))?;
+            state.serialize_field("r", &self.reduce_only)?;
+            state.serialize_field("i", &self.iso)?;
+            if let Some(commission) = &self.commission {
+                state.serialize_field("builderCode", commission)?;
+            }
+            if let Some(slippage) = self.slippage {
+                state.serialize_field("slippage", &SafeF64(slippage))?;
+            }
+            state.end()
+        } else if self.slippage.is_some() {
+            let mut tuple = serializer.serialize_tuple(7)?;
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&self.reduce_only)?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.serialize_element(&self.slippage.map(SafeF64))?;
+            tuple.end()
+        } else {
+            let mut tuple =
+                serializer.serialize_tuple(5 + usize::from(self.commission.is_some()))?;
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&self.reduce_only)?;
+            tuple.serialize_element(&self.iso)?;
+            if let Some(commission) = &self.commission {
+                tuple.serialize_element(commission)?;
+            }
+            tuple.end()
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -187,6 +238,13 @@ struct TxOrderHashMarketOrder {
     reduce_only: bool,
     #[serde(rename = "i")]
     iso: bool,
+    #[serde(
+        rename = "slippage",
+        with = "serde_opt_f64",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    slippage: Option<f64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -672,6 +730,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                     reduce_only: order.reduce_only,
                     iso: order.iso,
                     commission: order.commission.map(TxCommission::try_from).transpose()?,
+                    slippage: order.slippage,
                 }))
             }
         },
@@ -949,11 +1008,37 @@ pub(crate) fn serialize_for_sdk_signing(
         return Err(Error::EmptyOrders);
     }
 
-    serialize_into_buffer(&tx_actions, out)?;
+    out.clear();
+    if action_has_explicit_slippage(action) {
+        out.extend_from_slice(SIGNABLE_ACTIONS_V2_PREFIX);
+    }
+    bincode::serialize_into(&mut *out, &tx_actions)
+        .map_err(|e| Error::SerializationError(e.to_string()))?;
     out.extend_from_slice(&nonce.to_le_bytes());
     out.extend_from_slice(account.as_bytes());
     out.push(signature_domain as u8);
     Ok(())
+}
+
+fn action_has_explicit_slippage(action: &Action) -> bool {
+    match action {
+        Action::Order { orders } => orders.iter().any(order_item_has_explicit_slippage),
+        _ => false,
+    }
+}
+
+fn order_item_has_explicit_slippage(item: &OrderItem) -> bool {
+    match item {
+        OrderItem::Order(order) => order.slippage.is_some(),
+        OrderItem::TriggerBasket(trigger) => {
+            trigger.actions.iter().any(order_item_has_explicit_slippage)
+        }
+        OrderItem::OnFill(on_fill) => {
+            order_item_has_explicit_slippage(&on_fill.trigger)
+                || on_fill.actions.iter().any(order_item_has_explicit_slippage)
+        }
+        _ => false,
+    }
 }
 
 #[inline]
@@ -987,6 +1072,7 @@ fn order_item_to_order_hash_action(item: &OrderItem) -> Result<Option<TxOrderHas
                         size: order.size,
                         reduce_only: order.reduce_only,
                         iso: order.iso,
+                        slippage: order.slippage,
                     },
                 )))
             }
@@ -1043,6 +1129,55 @@ mod tests {
             assert_eq!(actual.len(), canonical_without_domain.len() + 1);
             assert_eq!(actual.last(), Some(&byte));
         }
+    }
+
+    #[test]
+    fn market_order_slippage_is_optional_and_changes_signed_bytes() {
+        let account = Pubkey::from_bytes([0x5a; 32]);
+        let nonce = 42;
+        let without_slippage = Action::Order {
+            orders: vec![Order::market("BTC-USD", true, 0.25).into()],
+        };
+        let with_slippage = Action::Order {
+            orders: vec![Order::market("BTC-USD", true, 0.25)
+                .with_slippage(25.5)
+                .into()],
+        };
+
+        let without_json =
+            serde_json::to_string(&action_to_tx_actions(&without_slippage).unwrap()).unwrap();
+        let with_json =
+            serde_json::to_string(&action_to_tx_actions(&with_slippage).unwrap()).unwrap();
+        assert!(!without_json.contains("slippage"));
+        assert!(with_json.contains("\"slippage\":\"25.5\""));
+
+        let mut without_bytes = Vec::new();
+        let mut with_bytes = Vec::new();
+        serialize_for_sdk_signing(
+            &without_slippage,
+            SignatureDomain::Devnet,
+            nonce,
+            &account,
+            &mut without_bytes,
+        )
+        .unwrap();
+        serialize_for_sdk_signing(
+            &with_slippage,
+            SignatureDomain::Devnet,
+            nonce,
+            &account,
+            &mut with_bytes,
+        )
+        .unwrap();
+        assert_ne!(without_bytes, with_bytes);
+        assert!(with_bytes.starts_with(SIGNABLE_ACTIONS_V2_PREFIX));
+        assert_eq!(
+            with_bytes.len(),
+            without_bytes.len()
+                + SIGNABLE_ACTIONS_V2_PREFIX.len()
+                + 2 * std::mem::size_of::<u8>()
+                + std::mem::size_of::<u64>()
+        );
     }
 
     fn first_action_discriminant(action: &Action) -> u32 {
