@@ -745,6 +745,9 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                         "fee": commission.fee
                     });
                 }
+                if let Some(slippage) = order.slippage {
+                    body["slippage"] = json!(slippage);
+                }
                 Ok(json!({ "m": body }))
             }
         },
@@ -991,6 +994,33 @@ mod tests {
         .unwrap();
 
         assert!(prepared.actions[0]["trig"].get("i").is_none());
+    }
+
+    #[test]
+    fn test_prepare_market_order_includes_slippage() {
+        let account = Keypair::generate().pubkey();
+        let without_slippage = prepare_message(
+            Order::market("SOL-USD", true, 1.0).into(),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+        let with_slippage = prepare_message(
+            Order::market("SOL-USD", true, 1.0)
+                .with_slippage(50.0)
+                .into(),
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+
+        assert!(without_slippage.actions[0]["m"].get("slippage").is_none());
+        assert_eq!(with_slippage.actions[0]["m"]["slippage"], 50.0);
+        assert_ne!(without_slippage.message_bytes, with_slippage.message_bytes);
     }
 
     #[test]

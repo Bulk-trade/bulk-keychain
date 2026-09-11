@@ -55,6 +55,7 @@ pub fn compute_limit_order_id(
         iso: false,
         client_id: None,
         commission: None,
+        slippage: None,
     };
     compute_order_id(&order, nonce, owner)
 }
@@ -82,6 +83,7 @@ pub fn compute_market_order_id(
         iso: false,
         client_id: None,
         commission: None,
+        slippage: None,
     };
     compute_order_id(&order, nonce, owner)
 }
@@ -104,6 +106,7 @@ fn compute_order_id_at_index(order: &Order, seqno: u32, nonce: u64, owner: &Pubk
             iso: order.iso,
             client_id: order.client_id,
             commission: order.commission,
+            slippage: order.slippage,
         },
     };
 

@@ -848,6 +848,7 @@ struct OrderInput {
     reduce_only: Option<bool>,
     iso: Option<bool>,
     builder_code: Option<BuilderCodeInput>,
+    slippage: Option<f64>,
     order_type: Option<OrderTypeInput>,
     client_id: Option<String>,
     order_id: Option<String>,
@@ -1034,6 +1035,7 @@ impl TryFrom<OrderInput> for OrderItem {
                             .map_err(|e| e.to_string())
                         })
                         .transpose()?,
+                    slippage: input.slippage,
                 };
                 if let Some(cid) = client_id {
                     order.client_id = Some(cid);
@@ -1290,6 +1292,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                     .transpose()
                     .map_err(|e| js_err(e.to_string()))?,
                 commission: None,
+                slippage: None,
             }))
         }
         "m" => {
@@ -1304,6 +1307,10 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 order_type: OrderType::market(),
                 client_id: None,
                 commission: None,
+                slippage: p
+                    .contains_key("slippage")
+                    .then(|| json_f64(p, "slippage"))
+                    .transpose()?,
             }))
         }
         "cx" => {

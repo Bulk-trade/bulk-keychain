@@ -288,6 +288,9 @@ pub struct Order {
     /// Builder codes are encoded as commission fees on the wire.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commission: Option<Commission>,
+    /// Market-order slippage limit in basis points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slippage: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -328,6 +331,7 @@ impl Order {
             order_type: OrderType::limit(tif),
             client_id: None,
             commission: None,
+            slippage: None,
         }
     }
 
@@ -343,12 +347,19 @@ impl Order {
             order_type: OrderType::market(),
             client_id: None,
             commission: None,
+            slippage: None,
         }
     }
 
     /// Set reduce-only flag
     pub fn reduce_only(mut self) -> Self {
         self.reduce_only = true;
+        self
+    }
+
+    /// Set the market-order slippage limit in basis points.
+    pub fn with_slippage(mut self, slippage: f64) -> Self {
+        self.slippage = Some(slippage);
         self
     }
 
