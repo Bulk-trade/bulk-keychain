@@ -149,6 +149,14 @@ impl TryFrom<Commission> for TxCommission {
     }
 }
 
+// The SDK preserves a distinct pre-slippage persisted layout inside legacy multisigs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SigningLayout {
+    Legacy,
+    LegacyEmbedded,
+    V2,
+}
+
 #[derive(Clone, Debug)]
 struct TxMarketOrder {
     symbol: String,
@@ -158,7 +166,7 @@ struct TxMarketOrder {
     iso: bool,
     commission: Option<TxCommission>,
     slippage: Option<f64>,
-    v2: bool,
+    layout: SigningLayout,
 }
 
 // V2 applies to the complete action array, including orders without explicit slippage.
@@ -181,7 +189,7 @@ impl Serialize for TxMarketOrder {
                 state.serialize_field("slippage", &SafeF64(slippage))?;
             }
             state.end()
-        } else if self.v2 {
+        } else if self.layout == SigningLayout::V2 {
             let mut tuple = serializer.serialize_tuple(7)?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
@@ -192,15 +200,18 @@ impl Serialize for TxMarketOrder {
             tuple.serialize_element(&self.slippage.map(SafeF64))?;
             tuple.end()
         } else {
-            let mut tuple =
-                serializer.serialize_tuple(5 + usize::from(self.commission.is_some()))?;
+            let mut tuple = serializer.serialize_tuple(
+                5 + usize::from(
+                    self.layout == SigningLayout::LegacyEmbedded || self.commission.is_some(),
+                ),
+            )?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
             tuple.serialize_element(&SafeF64(self.size))?;
             tuple.serialize_element(&self.reduce_only)?;
             tuple.serialize_element(&self.iso)?;
-            if let Some(commission) = &self.commission {
-                tuple.serialize_element(commission)?;
+            if self.layout == SigningLayout::LegacyEmbedded || self.commission.is_some() {
+                tuple.serialize_element(&self.commission)?;
             }
             tuple.end()
         }
@@ -217,14 +228,14 @@ struct TxLimitOrder {
     reduce_only: bool,
     iso: bool,
     commission: Option<TxCommission>,
-    v2: bool,
+    layout: SigningLayout,
 }
 
 impl Serialize for TxLimitOrder {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         let mut state = serializer.serialize_struct(
             "TxLimitOrder",
-            7 + usize::from(self.v2 || self.commission.is_some()),
+            7 + usize::from(self.layout != SigningLayout::Legacy || self.commission.is_some()),
         )?;
         state.serialize_field("c", &self.symbol)?;
         state.serialize_field("b", &self.is_buy)?;
@@ -233,7 +244,7 @@ impl Serialize for TxLimitOrder {
         state.serialize_field("tif", &self.tif)?;
         state.serialize_field("r", &self.reduce_only)?;
         state.serialize_field("i", &self.iso)?;
-        if self.v2 || self.commission.is_some() {
+        if self.layout != SigningLayout::Legacy || self.commission.is_some() {
             state.serialize_field("commission", &self.commission)?;
         }
         state.end()
@@ -694,7 +705,7 @@ fn nan_to_none(v: f64) -> Option<f64> {
 }
 
 #[inline]
-fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
+fn order_item_to_tx_action(item: &OrderItem, layout: SigningLayout) -> Result<TxAction> {
     match item {
         OrderItem::Order(order) => match order.order_type {
             OrderType::Limit { .. } if order.slippage.is_some() => Err(Error::InvalidOrder(
@@ -709,7 +720,7 @@ fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
                 reduce_only: order.reduce_only,
                 iso: order.iso,
                 commission: order.commission.map(TxCommission::try_from).transpose()?,
-                v2,
+                layout,
             })),
             OrderType::Trigger {
                 is_market,
@@ -727,7 +738,7 @@ fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
                     reduce_only: order.reduce_only,
                     iso: order.iso,
                     commission: order.commission.map(TxCommission::try_from).transpose()?,
-                    v2,
+                    layout,
                     slippage: order.slippage,
                 }))
             }
@@ -774,7 +785,7 @@ fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
             let actions: Result<Vec<TxAction>> = trig
                 .actions
                 .iter()
-                .map(|item| order_item_to_tx_action(item, v2))
+                .map(|item| order_item_to_tx_action(item, layout))
                 .collect();
             Ok(TxAction::TriggerBasket(TxTriggerBasket {
                 symbol: trig.symbol.clone(),
@@ -789,11 +800,11 @@ fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
                     "on-fill trigger must be a market or limit order".to_string(),
                 ));
             }
-            let trigger = Box::new(order_item_to_tx_action(&of.trigger, v2)?);
+            let trigger = Box::new(order_item_to_tx_action(&of.trigger, layout)?);
             let actions: Result<Vec<TxAction>> = of
                 .actions
                 .iter()
-                .map(|item| order_item_to_tx_action(item, v2))
+                .map(|item| order_item_to_tx_action(item, layout))
                 .collect();
             Ok(TxAction::OnFill(TxOnFill {
                 trigger,
@@ -813,11 +824,11 @@ fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
 }
 
 #[inline]
-fn action_to_tx_actions(action: &Action, v2: bool) -> Result<Vec<TxAction>> {
+fn action_to_tx_actions(action: &Action, layout: SigningLayout) -> Result<Vec<TxAction>> {
     match action {
         Action::Order { orders } => orders
             .iter()
-            .map(|item| order_item_to_tx_action(item, v2))
+            .map(|item| order_item_to_tx_action(item, layout))
             .collect(),
         Action::Oracle { oracles } => Ok(oracles
             .iter()
@@ -896,7 +907,14 @@ fn action_to_tx_actions(action: &Action, v2: bool) -> Result<Vec<TxAction>> {
         Action::MultisigPropose(action) => {
             let mut actions = Vec::new();
             for inner in &action.actions {
-                actions.extend(action_to_tx_actions(inner, v2)?);
+                actions.extend(action_to_tx_actions(
+                    inner,
+                    if layout == SigningLayout::V2 {
+                        SigningLayout::V2
+                    } else {
+                        SigningLayout::LegacyEmbedded
+                    },
+                )?);
             }
             Ok(vec![TxAction::MultisigPropose(TxMultisigPropose {
                 multisig: action.multisig,
@@ -998,14 +1016,18 @@ pub(crate) fn serialize_for_sdk_signing(
     account: &Pubkey,
     out: &mut Vec<u8>,
 ) -> Result<()> {
-    let v2 = action_has_explicit_slippage(action);
-    let tx_actions = action_to_tx_actions(action, v2)?;
+    let layout = if action_has_explicit_slippage(action) {
+        SigningLayout::V2
+    } else {
+        SigningLayout::Legacy
+    };
+    let tx_actions = action_to_tx_actions(action, layout)?;
     if tx_actions.is_empty() {
         return Err(Error::EmptyOrders);
     }
 
     out.clear();
-    if v2 {
+    if layout == SigningLayout::V2 {
         out.extend_from_slice(SIGNABLE_ACTIONS_V2_PREFIX);
     }
     bincode::serialize_into(&mut *out, &tx_actions)
@@ -1110,7 +1132,8 @@ mod tests {
         let account = Pubkey::from_bytes([0xa5; 32]);
         let action = Action::Faucet(Faucet::new(account));
         let mut canonical_without_domain =
-            bincode::serialize(&action_to_tx_actions(&action, false).unwrap()).unwrap();
+            bincode::serialize(&action_to_tx_actions(&action, SigningLayout::Legacy).unwrap())
+                .unwrap();
         canonical_without_domain.extend_from_slice(&7u64.to_le_bytes());
         canonical_without_domain.extend_from_slice(account.as_bytes());
         let mut actual = Vec::with_capacity(128);
@@ -1143,11 +1166,14 @@ mod tests {
                 .into()],
         };
 
-        let without_json =
-            serde_json::to_string(&action_to_tx_actions(&without_slippage, false).unwrap())
-                .unwrap();
-        let with_json =
-            serde_json::to_string(&action_to_tx_actions(&with_slippage, true).unwrap()).unwrap();
+        let without_json = serde_json::to_string(
+            &action_to_tx_actions(&without_slippage, SigningLayout::Legacy).unwrap(),
+        )
+        .unwrap();
+        let with_json = serde_json::to_string(
+            &action_to_tx_actions(&with_slippage, SigningLayout::V2).unwrap(),
+        )
+        .unwrap();
         assert!(!without_json.contains("slippage"));
         assert!(with_json.contains("\"slippage\":\"25.5\""));
 
