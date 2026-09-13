@@ -275,8 +275,8 @@ export declare function buildDepositInstruction(owner: string, amount: string): 
 export declare function buildWithdrawIntentInstruction(owner: string, amount: string): SolanaInstruction
 /** Ed25519 keypair for signing transactions */
 export declare class NativeKeypair {
-  /** Generate a new random keypair */
-  constructor()
+  /** Import a base58 key or Uint8Array (32/64 bytes); omitted key generates a random keypair. */
+  constructor(key?: string | Uint8Array)
   /** Create from base58-encoded secret key or full keypair */
   static fromBase58(s: string): NativeKeypair
   /** Create from raw bytes (32-byte secret or 64-byte full keypair) */

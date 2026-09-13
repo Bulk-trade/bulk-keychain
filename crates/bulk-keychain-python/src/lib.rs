@@ -14,7 +14,7 @@ use bulk_keychain::{
 };
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList, PyTuple};
 
 #[inline]
 fn parse_signature_domain(value: &str) -> PyResult<SignatureDomain> {
@@ -35,12 +35,32 @@ pub struct PyKeypair {
 
 #[pymethods]
 impl PyKeypair {
-    /// Generate a new random keypair
+    /// Import a base58 string or bytes (32/64 bytes); no argument generates a random keypair.
     #[new]
-    fn new() -> Self {
-        Self {
-            inner: Keypair::generate(),
-        }
+    #[pyo3(signature = (*args))]
+    fn new(args: &Bound<'_, PyTuple>) -> PyResult<Self> {
+        let inner = match args.len() {
+            0 => Keypair::generate(),
+            1 => {
+                let key = args.get_item(0)?;
+                if let Ok(key) = key.extract::<String>() {
+                    Keypair::from_base58(&key)
+                } else if let Ok(key) = key.downcast::<PyBytes>() {
+                    Keypair::from_bytes(key.as_bytes())
+                } else {
+                    return Err(pyo3::exceptions::PyTypeError::new_err(
+                        "key must be a base58 string or bytes",
+                    ));
+                }
+                .map_err(|error| PyValueError::new_err(error.to_string()))?
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "expected at most one key",
+                ))
+            }
+        };
+        Ok(Self { inner })
     }
 
     /// Create from base58-encoded secret key or full keypair

@@ -122,6 +122,28 @@ let json = signed.to_json()?;
 
 Python method names are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelist_faucet`, `sign_approve_builder_code`, and `sign_revoke_builder_code`. Rust equivalents are `sign_oracle_prices`, `sign_pyth_oracle`, `sign_whitelist_faucet`, `sign_approve_builder_code`, and `sign_revoke_builder_code`.
 
+## Importing an existing key
+
+Pass the existing key to the constructor or use `fromBase58` / `fromBytes`
+(`from_base58` / `from_bytes` in Python). Node and WASM accept a base58 string or
+`Uint8Array` (including a Node Buffer); Python accepts a positional base58 string
+or `bytes`. A 32-byte value is an Ed25519 seed. A 64-byte value must contain the
+seed followed by its matching public key; inconsistent pairs are rejected.
+
+```typescript
+const imported = new NativeKeypair(existingBase58Key);
+// Browser: new WasmKeypair(existingBase58Key)
+const importedBytes = new NativeKeypair(existingKeyBytes);
+```
+
+```python
+imported = Keypair(existing_base58_key)
+imported_bytes = Keypair(existing_key_bytes)
+```
+
+A constructor with no argument still generates a new random keypair. Supplied
+malformed keys and `null` / `None` raise an error; they never generate a replacement.
+
 ## Transaction Nonces
 
 The Node.js and browser/WASM APIs accept transaction nonces only as unsigned

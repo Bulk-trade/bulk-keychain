@@ -53,12 +53,18 @@ pub struct NativeKeypair {
 
 #[napi]
 impl NativeKeypair {
-    /// Generate a new random keypair
-    #[napi(constructor)]
-    pub fn new() -> Self {
-        Self {
-            inner: Keypair::generate(),
-        }
+    /// Import a base58 key or Uint8Array (32/64 bytes); omitted key generates a random keypair.
+    #[napi(constructor, ts_args_type = "key?: string | Uint8Array")]
+    pub fn new(key: Either3<Undefined, String, Uint8Array>) -> Result<Self> {
+        let inner =
+            match key {
+                Either3::A(()) => Keypair::generate(),
+                Either3::B(key) => Keypair::from_base58(&key)
+                    .map_err(|error| Error::from_reason(error.to_string()))?,
+                Either3::C(key) => Keypair::from_bytes(&key)
+                    .map_err(|error| Error::from_reason(error.to_string()))?,
+            };
+        Ok(Self { inner })
     }
 
     /// Create from base58-encoded secret key or full keypair
@@ -110,7 +116,7 @@ impl NativeKeypair {
 
 impl Default for NativeKeypair {
     fn default() -> Self {
-        Self::new()
+        Self { inner: Keypair::generate() }
     }
 }
 

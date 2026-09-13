@@ -33,7 +33,8 @@ impl Keypair {
 
     /// Create from a 64-byte keypair (32-byte secret + 32-byte public)
     ///
-    /// This is the format used by Solana and some other systems.
+    /// This is the format used by Solana and some other systems. The public key
+    /// must match the secret key; inconsistent keypairs are rejected.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() == 32 {
             return Self::from_secret_key(bytes);
@@ -44,8 +45,10 @@ impl Keypair {
                 got: bytes.len(),
             });
         }
-        // First 32 bytes are the secret key
-        Self::from_secret_key(&bytes[..32])
+        let bytes: &[u8; 64] = bytes.try_into().expect("keypair length checked above");
+        let signing_key =
+            SigningKey::from_keypair_bytes(bytes).map_err(|_| Error::InvalidKeypair)?;
+        Ok(Self { signing_key })
     }
 
     /// Create from base58-encoded secret key or keypair
@@ -141,5 +144,36 @@ mod tests {
 
         let result = Keypair::from_bytes(&[0u8; 65]);
         assert!(result.is_err());
+    }
+    #[test]
+    fn imported_keypair_rejects_inconsistent_public_key() {
+        let keypair = Keypair::from_secret_key(&[1; 32]).unwrap();
+        let mut bytes = keypair.to_bytes();
+        bytes[63] ^= 1;
+        assert!(matches!(
+            Keypair::from_bytes(&bytes),
+            Err(Error::InvalidKeypair)
+        ));
+        assert!(matches!(
+            Keypair::from_base58(&bs58::encode(bytes).into_string()),
+            Err(Error::InvalidKeypair)
+        ));
+    }
+
+    #[test]
+    fn imported_seed_and_valid_keypair_sign_identically() {
+        use ed25519_dalek::Signer;
+        let keypair = Keypair::from_secret_key(&[1; 32]).unwrap();
+        for imported in [
+            Keypair::from_bytes(&[1; 32]).unwrap(),
+            Keypair::from_bytes(&keypair.to_bytes()).unwrap(),
+            Keypair::from_base58(&keypair.to_base58()).unwrap(),
+        ] {
+            assert_eq!(imported.to_bytes(), keypair.to_bytes());
+            assert_eq!(
+                imported.signing_key().sign(b"fixture"),
+                keypair.signing_key().sign(b"fixture")
+            );
+        }
     }
 }

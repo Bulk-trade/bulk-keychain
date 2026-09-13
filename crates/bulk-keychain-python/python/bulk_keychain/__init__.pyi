@@ -86,7 +86,7 @@ class SignedTransaction(TypedDict):
 class Keypair:
     """Ed25519 keypair for signing transactions"""
 
-    def __init__(self) -> None:
+    def __init__(self, key: str | bytes = ..., /) -> None:
         """Generate a new random keypair"""
         ...
 

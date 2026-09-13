@@ -66,12 +66,22 @@ pub struct WasmKeypair {
 
 #[wasm_bindgen]
 impl WasmKeypair {
-    /// Generate a new random keypair
+    /// Import a base58 key or Uint8Array (32/64 bytes); omitted key generates a random keypair.
     #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        Self {
-            inner: Keypair::generate(),
-        }
+    pub fn new(
+        #[wasm_bindgen(unchecked_optional_param_type = "string | Uint8Array")] key: JsValue,
+    ) -> Result<Self, JsError> {
+        use wasm_bindgen::JsCast;
+        let inner = if key.is_undefined() {
+            Keypair::generate()
+        } else if let Some(key) = key.as_string() {
+            Keypair::from_base58(&key).map_err(|error| JsError::new(&error.to_string()))?
+        } else if let Some(key) = key.dyn_ref::<js_sys::Uint8Array>() {
+            Keypair::from_bytes(&key.to_vec()).map_err(|error| JsError::new(&error.to_string()))?
+        } else {
+            return Err(JsError::new("key must be a base58 string or Uint8Array"));
+        };
+        Ok(Self { inner })
     }
 
     /// Create from base58-encoded secret key or full keypair
@@ -115,7 +125,7 @@ impl WasmKeypair {
 
 impl Default for WasmKeypair {
     fn default() -> Self {
-        Self::new()
+        Self { inner: Keypair::generate() }
     }
 }
 
@@ -2765,14 +2775,14 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_keypair_generation() {
-        let keypair = WasmKeypair::new();
+        let keypair = WasmKeypair::default();
         let pubkey = keypair.pubkey();
         assert!(!pubkey.is_empty());
     }
 
     #[wasm_bindgen_test]
     fn test_keypair_roundtrip() {
-        let keypair = WasmKeypair::new();
+        let keypair = WasmKeypair::default();
         let b58 = keypair.to_base58();
         let restored = WasmKeypair::from_base58(&b58).unwrap();
         assert_eq!(keypair.pubkey(), restored.pubkey());
@@ -2936,8 +2946,8 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_sign_prepared_account_ne_signer() {
-        let agent = WasmSigner::new(&WasmKeypair::new(), "devnet").unwrap();
-        let target_account = WasmKeypair::new().pubkey();
+        let agent = WasmSigner::new(&WasmKeypair::default(), "devnet").unwrap();
+        let target_account = WasmKeypair::default().pubkey();
         let options = to_js_object(serde_json::json!({
             "signatureDomain": "devnet",
             "account": target_account,
@@ -2959,11 +2969,11 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_sign_prepared_rejects_signer_mismatch() {
-        let agent = WasmSigner::new(&WasmKeypair::new(), "devnet").unwrap();
-        let other = WasmSigner::new(&WasmKeypair::new(), "devnet").unwrap();
+        let agent = WasmSigner::new(&WasmKeypair::default(), "devnet").unwrap();
+        let other = WasmSigner::new(&WasmKeypair::default(), "devnet").unwrap();
         let options = to_js_object(serde_json::json!({
             "signatureDomain": "devnet",
-            "account": WasmKeypair::new().pubkey(),
+            "account": WasmKeypair::default().pubkey(),
             "signer": agent.pubkey(),
             "nonce": "1234567890",
         }));
@@ -2978,7 +2988,7 @@ mod tests {
         const NONCE: u64 = 9_007_199_254_740_993;
         const NONCE_DECIMAL: &str = "9007199254740993";
 
-        let keypair = WasmKeypair::new();
+        let keypair = WasmKeypair::default();
         let mut signer = WasmSigner::new(&keypair, "devnet").unwrap();
         let options = to_js_object(serde_json::json!({
             "signatureDomain": "devnet",
@@ -3029,7 +3039,7 @@ mod tests {
 
     #[wasm_bindgen_test]
     fn test_prepare_rejects_numeric_or_out_of_range_nonce() {
-        let account = WasmKeypair::new().pubkey();
+        let account = WasmKeypair::default().pubkey();
         let numeric_options = to_js_object(serde_json::json!({
             "signatureDomain": "devnet",
             "account": account.clone(),
@@ -3052,7 +3062,7 @@ mod tests {
         assert!(second > first);
         assert!(first > 9_007_199_254_740_991);
 
-        let keypair = WasmKeypair::new();
+        let keypair = WasmKeypair::default();
         let mut signer = WasmSigner::new(&keypair, "devnet").unwrap();
         let options = to_js_object(serde_json::json!({
             "signatureDomain": "devnet",

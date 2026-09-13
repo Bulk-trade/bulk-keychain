@@ -18,6 +18,9 @@ pub enum Error {
     #[error("invalid key length: expected {expected}, got {got}")]
     InvalidKeyLength { expected: usize, got: usize },
 
+    #[error("keypair public key does not match its secret key")]
+    InvalidKeypair,
+
     /// Invalid hash length (expected 32 bytes)
     #[error("invalid hash length: expected 32 bytes, got {0}")]
     InvalidHashLength(usize),
