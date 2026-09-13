@@ -239,7 +239,8 @@ impl WasmSigner {
         }
 
         let signature = self.inner.sign_bytes(&prepared.inner.message_bytes);
-        let signed = finalize_transaction(prepared.inner.clone(), &signature);
+        let signed = finalize_transaction(prepared.inner.clone(), &signature)
+            .map_err(|error| JsError::new(&error.to_string()))?;
         serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
@@ -1810,16 +1811,18 @@ impl WasmPreparedMessage {
     ///
     /// Call this after your wallet signs the messageBytes.
     #[wasm_bindgen]
-    pub fn finalize(&self, signature: &str) -> JsValue {
-        let signed = finalize_transaction(self.inner.clone(), signature);
-        serde_wasm_bindgen::to_value(&signed).unwrap_or(JsValue::NULL)
+    pub fn finalize(&self, signature: &str) -> Result<JsValue, JsError> {
+        let signed = finalize_transaction(self.inner.clone(), signature)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        serde_wasm_bindgen::to_value(&signed).map_err(|error| JsError::new(&error.to_string()))
     }
 
     /// Finalize with signature bytes (Uint8Array)
     #[wasm_bindgen(js_name = finalizeBytes)]
-    pub fn finalize_bytes(&self, signature: &[u8]) -> JsValue {
-        let sig_b58 = bulk_keychain::bs58::encode(signature).into_string();
-        self.finalize(&sig_b58)
+    pub fn finalize_bytes(&self, signature: &[u8]) -> Result<JsValue, JsError> {
+        let signed = bulk_keychain::finalize_transaction_bytes(self.inner.clone(), signature)
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        serde_wasm_bindgen::to_value(&signed).map_err(|error| JsError::new(&error.to_string()))
     }
 }
 
@@ -2764,7 +2767,8 @@ pub fn wasm_prepare_update_multisig_policy(
 pub fn wasm_finalize_transaction(prepared: JsValue, signature: &str) -> Result<JsValue, JsError> {
     let prep: PreparedMessage =
         serde_wasm_bindgen::from_value(prepared).map_err(|e| JsError::new(&e.to_string()))?;
-    let signed = finalize_transaction(prep, signature);
+    let signed = finalize_transaction(prep, signature)
+        .map_err(|error| JsError::new(&error.to_string()))?;
     serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
 }
 
@@ -2962,7 +2966,7 @@ mod tests {
 
         // It preserves account/signer and matches the manual signBytes + finalize path
         let sig = agent.sign_bytes(&prepared.inner.message_bytes);
-        let expected = finalize_transaction(prepared.inner.clone(), &sig);
+        let expected = finalize_transaction(prepared.inner.clone(), &sig).unwrap();
         assert_eq!(expected.account, target_account);
         assert_eq!(expected.signer, agent.pubkey());
     }

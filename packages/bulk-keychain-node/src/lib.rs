@@ -1664,19 +1664,19 @@ pub fn finalize_prepared_transaction(
     prepared: PreparedMessageOutput,
     signature: String,
 ) -> Result<SignedTransactionOutput> {
-    // Reconstruct the PreparedMessage (we only need the fields for finalization)
-    let actions: Vec<serde_json::Value> =
-        serde_json::from_str(&prepared.actions).unwrap_or_default();
-    let signed = bulk_keychain::SignedTransaction {
-        actions,
+    let prepared = PreparedMessage {
+        message_bytes: prepared.message_bytes.to_vec(),
+        actions: serde_json::from_str(&prepared.actions)
+            .map_err(|error| Error::from_reason(error.to_string()))?,
         nonce: parse_nonce(&prepared.nonce)?,
         account: prepared.account,
         signer: prepared.signer,
-        signature,
         order_id: prepared.order_id,
         order_ids: prepared.order_ids,
     };
-    Ok(signed.into())
+    bulk_keychain::finalize_transaction(prepared, &signature)
+        .map(Into::into)
+        .map_err(|error| Error::from_reason(error.to_string()))
 }
 
 #[cfg(test)]

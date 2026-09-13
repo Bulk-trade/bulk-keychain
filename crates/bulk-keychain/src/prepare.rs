@@ -487,9 +487,53 @@ fn prepare_single_item(
     })
 }
 
-/// Finalize a prepared message with a base58 signature.
-pub fn finalize_transaction(prepared: PreparedMessage, signature: &str) -> SignedTransaction {
-    SignedTransaction {
+/// Finalize after verifying the named signer's signature and account/nonce suffix.
+///
+/// Actions and order IDs must remain the original trusted prepare output: this
+/// does not rederive canonical message bytes from the action JSON.
+pub fn finalize_transaction(
+    prepared: PreparedMessage,
+    signature: &str,
+) -> Result<SignedTransaction> {
+    if signature.len() > 88 {
+        return Err(Error::SigningFailed(
+            "signature must encode exactly 64 bytes".into(),
+        ));
+    }
+    if prepared.actions.is_empty() {
+        return Err(Error::EmptyOrders);
+    }
+    let signature_bytes = bs58::decode(signature)
+        .into_vec()
+        .map_err(|_| Error::SigningFailed("signature must be base58".into()))?;
+    let decoded_signature = ed25519_dalek::Signature::from_slice(&signature_bytes)
+        .map_err(|_| Error::InvalidSignatureLength(signature_bytes.len()))?;
+    let account = Pubkey::from_base58(&prepared.account)?;
+    let signer = Pubkey::from_base58(&prepared.signer)?;
+    let suffix = prepared
+        .message_bytes
+        .len()
+        .checked_sub(41)
+        .and_then(|offset| prepared.message_bytes.get(offset..))
+        .ok_or_else(|| {
+            Error::SigningFailed("prepared message is missing its signing suffix".into())
+        })?;
+    if suffix[..8] != prepared.nonce.to_le_bytes()
+        || suffix[8..40] != account.as_bytes()[..]
+        || !matches!(suffix[40], 1..=3)
+    {
+        return Err(Error::SigningFailed(
+            "prepared account, nonce, or network domain does not match message bytes".into(),
+        ));
+    }
+    ed25519_dalek::VerifyingKey::from_bytes(signer.as_bytes())
+        .and_then(|key| key.verify_strict(&prepared.message_bytes, &decoded_signature))
+        .map_err(|_| {
+            Error::SigningFailed(
+                "signature does not verify for the prepared signer and message".into(),
+            )
+        })?;
+    Ok(SignedTransaction {
         actions: prepared.actions,
         nonce: prepared.nonce,
         account: prepared.account,
@@ -497,14 +541,17 @@ pub fn finalize_transaction(prepared: PreparedMessage, signature: &str) -> Signe
         signature: signature.to_string(),
         order_id: prepared.order_id,
         order_ids: prepared.order_ids,
-    }
+    })
 }
 
 /// Finalize a prepared message with raw signature bytes.
 pub fn finalize_transaction_bytes(
     prepared: PreparedMessage,
     signature: &[u8],
-) -> SignedTransaction {
+) -> Result<SignedTransaction> {
+    if signature.len() != 64 {
+        return Err(Error::InvalidSignatureLength(signature.len()));
+    }
     let signature_b58 = bs58::encode(signature).into_string();
     finalize_transaction(prepared, &signature_b58)
 }
@@ -521,11 +568,11 @@ pub fn finalize_all(
         });
     }
 
-    Ok(prepared
+    prepared
         .into_iter()
         .zip(signatures)
         .map(|(p, sig)| finalize_transaction(p, sig))
-        .collect())
+        .collect()
 }
 
 fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
@@ -1138,11 +1185,12 @@ mod tests {
             Some(1234567890),
         )
         .unwrap();
-        let signed = finalize_transaction(prepared.clone(), "sig");
+        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet).sign_bytes(&prepared.message_bytes);
+        let signed = finalize_transaction(prepared.clone(), &signature).unwrap();
 
         assert_eq!(signed.nonce, prepared.nonce);
         assert_eq!(signed.actions, prepared.actions);
-        assert_eq!(signed.signature, "sig");
+        assert_eq!(signed.signature, signature);
         assert_eq!(signed.order_ids, prepared.order_ids);
     }
 
@@ -1174,7 +1222,8 @@ mod tests {
         let restored: PreparedMessage = serde_json::from_value(prepared_json).unwrap();
         assert_eq!(restored.nonce, NONCE);
 
-        let signed = finalize_transaction(restored, "sig");
+        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet).sign_bytes(&restored.message_bytes);
+        let signed = finalize_transaction(restored, &signature).unwrap();
         let signed_json = signed.to_json().unwrap();
         let signed_value: serde_json::Value = serde_json::from_str(&signed_json).unwrap();
         assert_eq!(signed_value["nonce"], NONCE_DECIMAL);

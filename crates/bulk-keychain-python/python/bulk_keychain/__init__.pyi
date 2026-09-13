@@ -552,8 +552,11 @@ def finalize_transaction(
     prepared: PreparedMessage,
     signature: str
 ) -> SignedTransaction:
-    """Finalize a prepared message with a signature from an external wallet
-    
+    """Verify signature and account/nonce metadata, then finalize.
+
+    Raises ValueError for invalid signatures or metadata. Actions and order IDs
+    must remain original trusted prepare output; action JSON is not rederived.
+
     Args:
         prepared: PreparedMessage dict from prepare_* functions
         signature: Base58-encoded signature from wallet

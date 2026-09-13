@@ -1853,45 +1853,49 @@ fn py_prepare_create_sub_account(
 ///     signed = finalize_transaction(prepared, signature)
 #[pyfunction]
 fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyResult<PyObject> {
-    let account: String = prepared
-        .get_item("account")?
-        .ok_or_else(|| PyValueError::new_err("Missing 'account'"))?
+    let py = prepared.py();
+    let actions: String = py
+        .import("json")?
+        .call_method1(
+            "dumps",
+            (prepared
+                .get_item("actions")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?,),
+        )?
         .extract()?;
-    let signer: String = prepared
-        .get_item("signer")?
-        .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
-        .extract()?;
-    let nonce: u64 = prepared
-        .get_item("nonce")?
-        .ok_or_else(|| PyValueError::new_err("Missing 'nonce'"))?
-        .extract()?;
-    let actions = prepared
-        .get_item("actions")?
-        .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?;
-    let order_id: Option<String> = prepared
-        .get_item("order_id")?
-        .map(|v| v.extract())
-        .transpose()?;
-    let order_ids: Option<Vec<String>> = prepared
-        .get_item("order_ids")?
-        .map(|v| v.extract())
-        .transpose()?;
-
-    Python::with_gil(|py| {
-        let dict = PyDict::new(py);
-        dict.set_item("actions", actions)?;
-        dict.set_item("nonce", nonce)?;
-        dict.set_item("account", &account)?;
-        dict.set_item("signer", &signer)?;
-        dict.set_item("signature", signature)?;
-        if let Some(order_id) = order_id {
-            dict.set_item("order_id", &order_id)?;
-        }
-        if let Some(order_ids) = order_ids {
-            dict.set_item("order_ids", &order_ids)?;
-        }
-        Ok(dict.into())
-    })
+    let prepared = PreparedMessage {
+        message_bytes: prepared
+            .get_item("message_bytes")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?
+            .extract()?,
+        account: prepared
+            .get_item("account")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'account'"))?
+            .extract()?,
+        signer: prepared
+            .get_item("signer")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
+            .extract()?,
+        nonce: prepared
+            .get_item("nonce")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'nonce'"))?
+            .extract()?,
+        actions: serde_json::from_str(&actions)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        order_id: prepared
+            .get_item("order_id")?
+            .map(|value| value.extract())
+            .transpose()?
+            .flatten(),
+        order_ids: prepared
+            .get_item("order_ids")?
+            .map(|value| value.extract())
+            .transpose()?
+            .flatten(),
+    };
+    let signed = bulk_keychain::finalize_transaction(prepared, signature)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    signed_to_py(py, &signed)
 }
 
 // ============================================================================

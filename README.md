@@ -675,3 +675,21 @@ returning base64 strings for a Solana transaction library or wallet to consume.
 Existing Bulk `prepareOrder` exports raw Bulk message bytes for offchain
 `signMessage` and Bulk finalization. These Solana exports use wallet
 `signTransaction`; do not pass their decoded bytes to Bulk `finalizeTransaction`.
+
+## Finalizing external Bulk signatures
+
+Finalization verifies a 64-byte Ed25519 signature against the named signer and
+prepared message bytes. It also checks that the prepared account and nonce match
+the signed suffix and that the network domain is recognized. Invalid signatures,
+changed account/nonce metadata, empty actions and malformed action JSON raise errors.
+
+Keep `actions` and optional order IDs from the original trusted prepare output.
+Finalization does **not** reconstruct canonical signing bytes from action JSON,
+so it does not prove that changed action JSON describes the signed message.
+Raw `signBytes` remains a low-level arbitrary-message signing API.
+
+Rust migration: `finalize_transaction` and `finalize_transaction_bytes` now return
+`Result<SignedTransaction>`; propagate errors with `?` or handle them explicitly.
+`finalize_all` returns an error if any signature fails. JavaScript/Python callers
+receive exceptions on failure; browser `prepared.finalize` / `finalizeBytes` no
+longer silently return null. Successful transaction output shapes are unchanged.
