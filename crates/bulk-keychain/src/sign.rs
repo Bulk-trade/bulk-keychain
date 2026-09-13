@@ -886,6 +886,9 @@ impl Signer {
                             "fee": commission.fee
                         });
                     }
+                    if let Some(slippage) = order.slippage {
+                        body["slippage"] = json!(slippage);
+                    }
                     Ok(json!({ "m": body }))
                 }
             },

@@ -77,6 +77,25 @@ fn whole_transaction_v2_matches_sdk_vectors() {
  _ => unreachable!(),
  };
         assert_eq!(hex::encode(&prepared.message_bytes), expected, "{name}");
+        let signed = Signer::new(
+            Keypair::from_secret_key(&[9; 32]).unwrap(),
+            SignatureDomain::Devnet,
+        )
+        .sign_action(&action, 42, &account)
+        .unwrap();
+        assert_eq!(
+            signed.actions, prepared.actions,
+            "{name}: signed JSON must preserve every prepared field"
+        );
+        assert_eq!(
+            signed.signature,
+            Signer::new(
+                Keypair::from_secret_key(&[9; 32]).unwrap(),
+                SignatureDomain::Devnet
+            )
+            .sign_bytes(&prepared.message_bytes),
+            "{name}"
+        );
     }
 }
 
