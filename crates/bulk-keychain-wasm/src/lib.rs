@@ -238,6 +238,9 @@ impl WasmSigner {
             )));
         }
 
+        if prepared.inner.message_bytes.last().copied() != Some(self.inner.signature_domain() as u8) {
+            return Err(JsError::new("Prepared message network domain does not match signer"));
+        }
         let signature = self.inner.sign_bytes(&prepared.inner.message_bytes);
         let signed = finalize_transaction(prepared.inner.clone(), &signature)
             .map_err(|error| JsError::new(&error.to_string()))?;

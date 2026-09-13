@@ -15,3 +15,11 @@ test('finalization verifies signature and prepared metadata', () => {
     assert.throws(() => finalizePreparedTransaction({...prepared,...changes}, signature));
   }
 });
+
+test('signPrepared enforces the signer network domain', () => {
+  const mainnet = prepareOrder({type:'order',symbol:'BTC-USD',isBuy:true,price:100,size:1,orderType:{type:'limit',tif:'GTC'}},
+    {signatureDomain:'mainnet',account:key.pubkey,nonce:'42'});
+  assert.throws(() => signer.signPrepared(mainnet), /network domain/);
+  assert.equal(new NativeSigner(key, 'mainnet').signPrepared(mainnet).nonce, '42');
+  assert.equal(finalizePreparedTransaction(mainnet, signer.signBytes(mainnet.messageBytes)).nonce, '42');
+});

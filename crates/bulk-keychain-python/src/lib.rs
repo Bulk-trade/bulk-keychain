@@ -224,6 +224,11 @@ impl PySigner {
             .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?
             .extract()?;
 
+        if message_bytes.last().copied() != Some(self.inner.signature_domain() as u8) {
+            return Err(PyValueError::new_err(
+                "Prepared message network domain does not match signer",
+            ));
+        }
         let signature = self.inner.sign_bytes(&message_bytes);
         py_finalize_transaction(prepared, &signature)
     }

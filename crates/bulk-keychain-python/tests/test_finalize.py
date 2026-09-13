@@ -18,5 +18,15 @@ class FinalizationTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 finalize_transaction({**prepared, **changes}, signature)
 
+    def test_sign_prepared_enforces_network(self):
+        key = Keypair(bytes([1]) * 32)
+        signer = Signer(key, "devnet")
+        prepared = prepare_order({"type":"order", "symbol":"BTC-USD", "is_buy":True,
+                                  "price":100.0, "size":1.0}, "mainnet", key.pubkey, nonce=42)
+        with self.assertRaisesRegex(ValueError, "network domain"):
+            signer.sign_prepared(prepared)
+        self.assertEqual(Signer(key, "mainnet").sign_prepared(prepared)["nonce"], 42)
+        self.assertEqual(finalize_transaction(prepared, signer.sign_bytes(prepared["message_bytes"]))["nonce"], 42)
+
 if __name__ == "__main__":
     unittest.main()

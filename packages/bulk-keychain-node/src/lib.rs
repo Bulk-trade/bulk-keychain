@@ -232,6 +232,11 @@ impl NativeSigner {
             )));
         }
 
+        if prepared.message_bytes.last().copied() != Some(self.inner.signature_domain() as u8) {
+            return Err(Error::from_reason(
+                "Prepared message network domain does not match signer",
+            ));
+        }
         let signature = self.inner.sign_bytes(&prepared.message_bytes);
         finalize_prepared_transaction(prepared, signature)
     }
