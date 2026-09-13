@@ -158,9 +158,10 @@ struct TxMarketOrder {
     iso: bool,
     commission: Option<TxCommission>,
     slippage: Option<f64>,
+    v2: bool,
 }
 
-// Explicit slippage uses the V2 layout; omitted slippage preserves legacy bytes.
+// V2 applies to the complete action array, including orders without explicit slippage.
 impl Serialize for TxMarketOrder {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
@@ -180,7 +181,7 @@ impl Serialize for TxMarketOrder {
                 state.serialize_field("slippage", &SafeF64(slippage))?;
             }
             state.end()
-        } else if self.slippage.is_some() {
+        } else if self.v2 {
             let mut tuple = serializer.serialize_tuple(7)?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
@@ -206,24 +207,37 @@ impl Serialize for TxMarketOrder {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug)]
 struct TxLimitOrder {
-    #[serde(rename = "c")]
     symbol: String,
-    #[serde(rename = "b")]
     is_buy: bool,
-    #[serde(rename = "px", with = "serde_safe_f64")]
     price: f64,
-    #[serde(rename = "sz", with = "serde_safe_f64")]
     size: f64,
-    #[serde(rename = "tif")]
     tif: TxTimeInForce,
-    #[serde(rename = "r")]
     reduce_only: bool,
-    #[serde(rename = "i")]
     iso: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     commission: Option<TxCommission>,
+    v2: bool,
+}
+
+impl Serialize for TxLimitOrder {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut state = serializer.serialize_struct(
+            "TxLimitOrder",
+            7 + usize::from(self.v2 || self.commission.is_some()),
+        )?;
+        state.serialize_field("c", &self.symbol)?;
+        state.serialize_field("b", &self.is_buy)?;
+        state.serialize_field("px", &SafeF64(self.price))?;
+        state.serialize_field("sz", &SafeF64(self.size))?;
+        state.serialize_field("tif", &self.tif)?;
+        state.serialize_field("r", &self.reduce_only)?;
+        state.serialize_field("i", &self.iso)?;
+        if self.v2 || self.commission.is_some() {
+            state.serialize_field("commission", &self.commission)?;
+        }
+        state.end()
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -680,9 +694,12 @@ fn nan_to_none(v: f64) -> Option<f64> {
 }
 
 #[inline]
-fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
+fn order_item_to_tx_action(item: &OrderItem, v2: bool) -> Result<TxAction> {
     match item {
         OrderItem::Order(order) => match order.order_type {
+            OrderType::Limit { .. } if order.slippage.is_some() => Err(Error::InvalidOrder(
+                "slippage is only supported on market orders".to_string(),
+            )),
             OrderType::Limit { tif } => Ok(TxAction::LimitOrder(TxLimitOrder {
                 symbol: order.symbol.clone(),
                 is_buy: order.is_buy,
@@ -692,6 +709,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                 reduce_only: order.reduce_only,
                 iso: order.iso,
                 commission: order.commission.map(TxCommission::try_from).transpose()?,
+                v2,
             })),
             OrderType::Trigger {
                 is_market,
@@ -709,6 +727,7 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                     reduce_only: order.reduce_only,
                     iso: order.iso,
                     commission: order.commission.map(TxCommission::try_from).transpose()?,
+                    v2,
                     slippage: order.slippage,
                 }))
             }
@@ -752,8 +771,11 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
             iso: rng.iso,
         })),
         OrderItem::TriggerBasket(trig) => {
-            let actions: Result<Vec<TxAction>> =
-                trig.actions.iter().map(order_item_to_tx_action).collect();
+            let actions: Result<Vec<TxAction>> = trig
+                .actions
+                .iter()
+                .map(|item| order_item_to_tx_action(item, v2))
+                .collect();
             Ok(TxAction::TriggerBasket(TxTriggerBasket {
                 symbol: trig.symbol.clone(),
                 is_buy: trig.is_buy,
@@ -767,9 +789,12 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
                     "on-fill trigger must be a market or limit order".to_string(),
                 ));
             }
-            let trigger = Box::new(order_item_to_tx_action(&of.trigger)?);
-            let actions: Result<Vec<TxAction>> =
-                of.actions.iter().map(order_item_to_tx_action).collect();
+            let trigger = Box::new(order_item_to_tx_action(&of.trigger, v2)?);
+            let actions: Result<Vec<TxAction>> = of
+                .actions
+                .iter()
+                .map(|item| order_item_to_tx_action(item, v2))
+                .collect();
             Ok(TxAction::OnFill(TxOnFill {
                 trigger,
                 actions: actions?,
@@ -788,9 +813,12 @@ fn order_item_to_tx_action(item: &OrderItem) -> Result<TxAction> {
 }
 
 #[inline]
-fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
+fn action_to_tx_actions(action: &Action, v2: bool) -> Result<Vec<TxAction>> {
     match action {
-        Action::Order { orders } => orders.iter().map(order_item_to_tx_action).collect(),
+        Action::Order { orders } => orders
+            .iter()
+            .map(|item| order_item_to_tx_action(item, v2))
+            .collect(),
         Action::Oracle { oracles } => Ok(oracles
             .iter()
             .map(|oracle| {
@@ -868,7 +896,7 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
         Action::MultisigPropose(action) => {
             let mut actions = Vec::new();
             for inner in &action.actions {
-                actions.extend(action_to_tx_actions(inner)?);
+                actions.extend(action_to_tx_actions(inner, v2)?);
             }
             Ok(vec![TxAction::MultisigPropose(TxMultisigPropose {
                 multisig: action.multisig,
@@ -970,13 +998,14 @@ pub(crate) fn serialize_for_sdk_signing(
     account: &Pubkey,
     out: &mut Vec<u8>,
 ) -> Result<()> {
-    let tx_actions = action_to_tx_actions(action)?;
+    let v2 = action_has_explicit_slippage(action);
+    let tx_actions = action_to_tx_actions(action, v2)?;
     if tx_actions.is_empty() {
         return Err(Error::EmptyOrders);
     }
 
     out.clear();
-    if action_has_explicit_slippage(action) {
+    if v2 {
         out.extend_from_slice(SIGNABLE_ACTIONS_V2_PREFIX);
     }
     bincode::serialize_into(&mut *out, &tx_actions)
@@ -990,6 +1019,9 @@ pub(crate) fn serialize_for_sdk_signing(
 fn action_has_explicit_slippage(action: &Action) -> bool {
     match action {
         Action::Order { orders } => orders.iter().any(order_item_has_explicit_slippage),
+        Action::MultisigPropose(proposal) => {
+            proposal.actions.iter().any(action_has_explicit_slippage)
+        }
         _ => false,
     }
 }
@@ -1078,7 +1110,7 @@ mod tests {
         let account = Pubkey::from_bytes([0xa5; 32]);
         let action = Action::Faucet(Faucet::new(account));
         let mut canonical_without_domain =
-            bincode::serialize(&action_to_tx_actions(&action).unwrap()).unwrap();
+            bincode::serialize(&action_to_tx_actions(&action, false).unwrap()).unwrap();
         canonical_without_domain.extend_from_slice(&7u64.to_le_bytes());
         canonical_without_domain.extend_from_slice(account.as_bytes());
         let mut actual = Vec::with_capacity(128);
@@ -1112,9 +1144,10 @@ mod tests {
         };
 
         let without_json =
-            serde_json::to_string(&action_to_tx_actions(&without_slippage).unwrap()).unwrap();
+            serde_json::to_string(&action_to_tx_actions(&without_slippage, false).unwrap())
+                .unwrap();
         let with_json =
-            serde_json::to_string(&action_to_tx_actions(&with_slippage).unwrap()).unwrap();
+            serde_json::to_string(&action_to_tx_actions(&with_slippage, true).unwrap()).unwrap();
         assert!(!without_json.contains("slippage"));
         assert!(with_json.contains("\"slippage\":\"25.5\""));
 
