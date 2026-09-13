@@ -495,6 +495,14 @@ pub fn finalize_transaction(
     prepared: PreparedMessage,
     signature: &str,
 ) -> Result<SignedTransaction> {
+    finalize_with_message(prepared, signature, None)
+}
+
+pub(crate) fn finalize_with_message(
+    prepared: PreparedMessage,
+    signature: &str,
+    signing_message: Option<&[u8]>,
+) -> Result<SignedTransaction> {
     if signature.len() > 88 {
         return Err(Error::SigningFailed(
             "signature must encode exactly 64 bytes".into(),
@@ -527,7 +535,7 @@ pub fn finalize_transaction(
         ));
     }
     ed25519_dalek::VerifyingKey::from_bytes(signer.as_bytes())
-        .and_then(|key| key.verify_strict(&prepared.message_bytes, &decoded_signature))
+        .and_then(|key| key.verify_strict(signing_message.unwrap_or(&prepared.message_bytes), &decoded_signature))
         .map_err(|_| {
             Error::SigningFailed(
                 "signature does not verify for the prepared signer and message".into(),

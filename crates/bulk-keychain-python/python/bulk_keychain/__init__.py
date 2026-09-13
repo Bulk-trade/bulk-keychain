@@ -26,6 +26,8 @@ Quick Start
 """
 
 from bulk_keychain._native import (
+    prepare_wallet_message,
+    finalize_wallet_message,
     export_deposit_transaction,
     export_withdraw_intent_transaction,
     build_deposit_instruction,
@@ -56,6 +58,8 @@ from bulk_keychain._native import (
 )
 
 __all__ = [
+    "prepare_wallet_message",
+    "finalize_wallet_message",
     "export_deposit_transaction",
     "export_withdraw_intent_transaction",
     "build_deposit_instruction",

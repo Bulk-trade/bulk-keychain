@@ -1,0 +1,324 @@
+{
+  "sdk_revision": "1521f300895f2aa35a8517d2015ad7c4f53ac6e3",
+  "vectors": [
+    {
+      "actions": [
+        {
+          "m": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "r": false,
+            "slippage": "25",
+            "sz": "1.000000005"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: f15aca232c260458268ab14de8aeafd3dca93cb16300ae053cff21134013f5cb\n[0] Market BTC-USD Buy sz=1.00000001 ro=false iso=false slippage=25.00000000bps\n",
+      "message_hex": "ffffffffffffffff62756c6b2d616374696f6e730201000000000000000000000007000000000000004254432d5553440101e1f505000000000000000100f90295000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "l": {
+            "b": false,
+            "c": "BTC-USD",
+            "i": true,
+            "px": "100.123456789",
+            "r": true,
+            "sz": "2",
+            "tif": "ALO"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 1db1ef29f95b6ca4e7d0a46875d5a5fb0b63f5347000d1746bc420e78c9f0492\n[0] Limit BTC-USD Sell px=100.12345679 sz=2.00000000 tif=ALO ro=true iso=true\n",
+      "message_hex": "01000000000000000100000007000000000000004254432d555344004f45c8540200000000c2eb0b000000000200000001012a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "mod": {
+            "c": "BTC-USD",
+            "oid": "11111111111111111111111111111111",
+            "sz": "1"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: a5376ce81ec69eef94a45ef033ddbfafea5562c45871959ee65a78f4cf1c5596\n[0] Modify BTC-USD oid=11111111111111111111111111111111 sz=1.00000000\n",
+      "message_hex": "010000000000000002000000000000000000000000000000000000000000000000000000000000000000000007000000000000004254432d55534400e1f505000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "cx": {
+            "c": "BTC-USD",
+            "oid": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: e105b8d0828908d811b8c4fca6c8b33b044472858cc948df6f8dee9597f1ba09\n[0] Cancel BTC-USD oid=11111111111111111111111111111111\n",
+      "message_hex": "01000000000000000300000007000000000000004254432d55534400000000000000000000000000000000000000000000000000000000000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "cxa": {
+            "c": []
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: fb6bfd08e2f11b90e4a9760b18cbddd057e2ed44c3161faf918798797bb12582\n[0] CancelAll *\n",
+      "message_hex": "01000000000000000400000000000000000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "cxa": {
+            "c": [
+              "BTC-USD",
+              "ETH-USD"
+            ]
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: e2ca86ad96231e508a1686972207d6d13d620f230c5ee3661c58a5450adcc44e\n[0] CancelAll BTC-USD,ETH-USD\n",
+      "message_hex": "010000000000000004000000020000000000000007000000000000004254432d55534407000000000000004554482d5553442a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "st": {
+            "c": "BTC-USD",
+            "d": true,
+            "i": false,
+            "lim": null,
+            "sz": "1",
+            "tr": "101"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: b1082483ec6a2b62407d173ca37e025058cd1dfb05da17021394c0bc5079785f\n[0] Stop BTC-USD Above thresh=101.00000000 sz=1.00000000 limit=-\n",
+      "message_hex": "01000000000000000500000007000000000000004254432d5553440100e1f5050000000000c5015a0200000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "tp": {
+            "c": "BTC-USD",
+            "d": true,
+            "i": false,
+            "lim": null,
+            "sz": "1",
+            "tr": "101"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 8c101ee6d568cd8699c9fa466d0534b10f84820a175b67d2b350cef88f08db97\n[0] TakeProfit BTC-USD Above thresh=101.00000000 sz=1.00000000 limit=-\n",
+      "message_hex": "01000000000000000600000007000000000000004254432d5553440100e1f5050000000000c5015a0200000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "rng": {
+            "c": "BTC-USD",
+            "d": false,
+            "i": false,
+            "lmax": "111",
+            "lmin": null,
+            "pmax": "110",
+            "pmin": "90",
+            "sz": "1"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: cda76c39cd375dc0f3375fb7ede279b6d354dc2686dd13c1ff37448ff7e77926\n[0] Range BTC-USD Sell min=90.00000000 max=110.00000000 sz=1.00000000 lmin=- lmax=111.00000000\n",
+      "message_hex": "01000000000000000700000007000000000000004254432d5553440000e1f50500000000001a71180200000000aea68f020000000001008f9c9502000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "trig": {
+            "actions": [
+              {
+                "m": {
+                  "b": true,
+                  "c": "BTC-USD",
+                  "i": false,
+                  "r": false,
+                  "slippage": "25",
+                  "sz": "1.000000005"
+                }
+              }
+            ],
+            "c": "BTC-USD",
+            "d": false,
+            "tr": "99"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: eb3582776e62fea8a188144fc237dbb67ae39f32cd695bab0624fe10e25f9ae7\n[0] Trigger BTC-USD Below thresh=99.00000000 nested=1\n",
+      "message_hex": "ffffffffffffffff62756c6b2d616374696f6e730201000000000000000800000007000000000000004254432d555344000003164e0200000001000000000000000000000007000000000000004254432d5553440101e1f505000000000000000100f90295000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "trl": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "lim": null,
+            "stb": 5,
+            "sz": "1",
+            "trb": 50
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 8a29075dacda0ecceb36155aad172e2aa652a41c097587e4eadd948513da8f6a\n[0] Trailing BTC-USD Buy sz=1.00000000 trail=50bps step=5bps limit=-\n",
+      "message_hex": "01000000000000000900000007000000000000004254432d5553440100e1f50500000000320000000500000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "faucet": {
+            "amount": 12.5,
+            "u": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 82b31dd60637fcf5682d05284b815c4d6c4c47442b0b6e97f190f9e714e0f9ea\n[0] Faucet user=11111111111111111111111111111111 amount=12.50000000\n",
+      "message_hex": "01000000000000001000000000000000000000000000000000000000000000000000000000000000000000000100000000000029402a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "faucet": {
+            "u": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: b1b22ceb1813872331076461055f94512f0f0bdb9064e6561cf3b9589b31d734\n[0] Faucet user=11111111111111111111111111111111 amount=-\n",
+      "message_hex": "0100000000000000100000000000000000000000000000000000000000000000000000000000000000000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "agentWalletCreation": {
+            "a": "11111111111111111111111111111111",
+            "d": true
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 2acc337eec33aea388582cd688e705d4623ffea9d2b0b371df8f7c644062e678\n[0] AgentWallet agent=11111111111111111111111111111111 delete=true\n",
+      "message_hex": "0100000000000000110000000000000000000000000000000000000000000000000000000000000000000000012a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "updateUserSettings": {
+            "m": {
+              "BTC-USD": 10.5,
+              "ETH-USD": 4.125
+            }
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 2f15872e62013c194bd38b5f927a47704753a08411e829b62b7612f3ee69b9a2\n[0] UpdateLeverage BTC-USD:10.50000000,ETH-USD:4.12500000\n",
+      "message_hex": "010000000000000012000000020000000000000007000000000000004254432d555344000000000000254007000000000000004554482d55534400000000008010402a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "createSubAccount": {
+            "marginAmount": 12.5,
+            "name": "Unicode测试\naccount"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: bd3f6813be7136fba9440901f52727ec0d6a4b0b09cd17053e55b5b9408fb0a4\n[0] CreateSubAccount name=Unicode测试\naccount amt=12.50000000\n",
+      "message_hex": "01000000000000001b0000001500000000000000556e69636f6465e6b58be8af950a6163636f756e740100000000000029402a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "createSubAccount": {
+            "name": "empty"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 981c19c05f60474c9d34d45b68422f80d312f0e4bcd58cc5be086038871a7d1a\n[0] CreateSubAccount name=empty amt=-\n",
+      "message_hex": "01000000000000001b0000000500000000000000656d707479002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "removeSubAccount": {
+            "toRemove": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: d273f091af62da9cf48e1783ae6125884983b7967c1e3400e4e9aefc501f26b8\n[0] RemoveSubAccount 11111111111111111111111111111111\n",
+      "message_hex": "01000000000000001c00000000000000000000000000000000000000000000000000000000000000000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "renameSubAccount": {
+            "account": "11111111111111111111111111111111",
+            "name": "next"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: c3e6117941add820419f964b365f4babbfabe642a8a5b6bed1fe089870ea9c1e\n[0] RenameSubAccount account=11111111111111111111111111111111 name=next\n",
+      "message_hex": "010000000000000025000000000000000000000000000000000000000000000000000000000000000000000004000000000000006e6578742a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "transfer": {
+            "from": "11111111111111111111111111111111",
+            "k": "external",
+            "marginAmount": 1.25,
+            "to": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 104cab8a64425609749f0526a22bd3c09b76e5443059104d4a52b775e1b4ad95\n[0] Transfer External from=11111111111111111111111111111111 to=11111111111111111111111111111111 amt=1.25000000\n",
+      "message_hex": "01000000000000001d0000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f43f2a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "abc": {
+            "fee": 5,
+            "to": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 5a4e4b6db3a0d879dc76e3a3dd8a56e7f58589ba08e17e93649a26df529bf629\n[0] ApproveCommissionFee to=11111111111111111111111111111111 max_fee=5\n",
+      "message_hex": "0100000000000000280000000000000000000000000000000000000000000000000000000000000000000000052a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "rbc": {
+            "to": "11111111111111111111111111111111"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: 66988be84b3a9e67a07d555c4f03befcd14ac296dbda11c0860c8dab040a9cd1\n[0] RevokeCommissionFee to=11111111111111111111111111111111\n",
+      "message_hex": "01000000000000002900000000000000000000000000000000000000000000000000000000000000000000002a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "actions": [
+        {
+          "whitelistFaucet": {
+            "target": "11111111111111111111111111111111",
+            "whitelist": true
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: 11111111111111111111111111111111\nNonce: 42\nActions: 1\nSignable-Hash: bc3cf052b8868771c994c58b07f615611d122bc1ad1bc2be625f93b09c15360f\n[0] WhitelistFaucet target=11111111111111111111111111111111 whitelist=true\n",
+      "message_hex": "0100000000000000130000000000000000000000000000000000000000000000000000000000000000000000012a00000000000000000000000000000000000000000000000000000000000000000000000000000003"
+    }
+  ]
+}

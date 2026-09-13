@@ -48,6 +48,7 @@
 //! ```
 
 mod error;
+mod clear_sign;
 mod keypair;
 pub mod nonce;
 pub mod order_id;
@@ -56,6 +57,7 @@ mod sdk_compat;
 mod sign;
 pub mod solana;
 pub mod types;
+pub mod wallet;
 
 pub use error::{Error, Result};
 pub use keypair::Keypair;
@@ -75,6 +77,7 @@ pub use prepare::{
     prepare_withdraw, prepare_withdraw_lock_recover, PreparedMessage,
 };
 pub use sign::Signer;
+pub use wallet::{finalize_wallet_message, prepare_wallet_message, sign_wallet_message, WalletPreparedMessage, WalletSignatureMode};
 pub use types::*;
 
 /// Re-export for convenience

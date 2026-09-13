@@ -277,6 +277,16 @@ export declare function buildWithdrawIntentInstruction(owner: string, amount: st
 export declare function exportDepositTransaction(owner: string, amount: string, recentBlockhash: string): string
 /** Export a base64 unsigned mainnet USDC withdrawal-intent transaction for wallet signing. */
 export declare function exportWithdrawIntentTransaction(owner: string, amount: string, recentBlockhash: string): string
+export interface WalletPreparedMessageOutput {
+  prepared: PreparedMessageOutput
+  signatureMode: string
+  messageBytes: Buffer
+  clearSignMessage?: string
+}
+/** Select explicit wallet signing bytes for an original trusted raw preparation. */
+export declare function prepareWalletMessage(prepared: PreparedMessageOutput, mode: string): WalletPreparedMessageOutput
+/** Verify the signature over exactly the selected wallet bytes and finalize. */
+export declare function finalizeWalletMessage(wallet: WalletPreparedMessageOutput, signature: string): SignedTransactionOutput
 /** Ed25519 keypair for signing transactions */
 export declare class NativeKeypair {
   /** Import a base58 key or Uint8Array (32/64 bytes); omitted key generates a random keypair. */
@@ -314,6 +324,8 @@ export declare class NativeSigner {
   computesOrderId(): boolean
   /** Whether batch order ID computation is enabled. */
   computesBatchOrderIds(): boolean
+  /** Sign a wallet-mode preparation using this signer's key and configured network. */
+  signWalletPrepared(wallet: WalletPreparedMessageOutput): SignedTransactionOutput
   /** Sign raw message bytes and return a base58 Ed25519 signature. */
   signBytes(message: Buffer): string
   /**

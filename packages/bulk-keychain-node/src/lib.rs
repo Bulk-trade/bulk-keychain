@@ -209,6 +209,13 @@ impl NativeSigner {
         self.inner.computes_batch_order_ids()
     }
 
+    /// Sign a wallet-mode preparation using this signer's key and configured network.
+    #[napi]
+    pub fn sign_wallet_prepared(&self, wallet: WalletPreparedMessageOutput) -> Result<SignedTransactionOutput> {
+        bulk_keychain::sign_wallet_message(&self.inner, wallet.try_into()?)
+            .map(Into::into).map_err(|error| Error::from_reason(error.to_string()))
+    }
+
     /// Sign raw message bytes and return a base58 Ed25519 signature.
     #[napi(js_name = "signBytes")]
     pub fn sign_bytes(&self, message: Buffer) -> String {
@@ -1669,16 +1676,7 @@ pub fn finalize_prepared_transaction(
     prepared: PreparedMessageOutput,
     signature: String,
 ) -> Result<SignedTransactionOutput> {
-    let prepared = PreparedMessage {
-        message_bytes: prepared.message_bytes.to_vec(),
-        actions: serde_json::from_str(&prepared.actions)
-            .map_err(|error| Error::from_reason(error.to_string()))?,
-        nonce: parse_nonce(&prepared.nonce)?,
-        account: prepared.account,
-        signer: prepared.signer,
-        order_id: prepared.order_id,
-        order_ids: prepared.order_ids,
-    };
+    let prepared = prepared.try_into()?;
     bulk_keychain::finalize_transaction(prepared, &signature)
         .map(Into::into)
         .map_err(|error| Error::from_reason(error.to_string()))
@@ -1796,4 +1794,74 @@ pub fn export_withdraw_intent_transaction(
         &recent_blockhash,
     )
     .map_err(|error| Error::from_reason(error.to_string()))
+}
+
+impl TryFrom<PreparedMessageOutput> for PreparedMessage {
+    type Error = Error;
+    fn try_from(prepared: PreparedMessageOutput) -> Result<Self> {
+        Ok(PreparedMessage {
+            message_bytes: prepared.message_bytes.to_vec(),
+            actions: serde_json::from_str(&prepared.actions)
+                .map_err(|error| Error::from_reason(error.to_string()))?,
+            nonce: parse_nonce(&prepared.nonce)?,
+            account: prepared.account,
+            signer: prepared.signer,
+            order_id: prepared.order_id,
+            order_ids: prepared.order_ids,
+        })
+    }
+}
+
+#[napi(object)]
+pub struct WalletPreparedMessageOutput {
+    pub prepared: PreparedMessageOutput,
+    pub signature_mode: String,
+    pub message_bytes: Buffer,
+    pub clear_sign_message: Option<String>,
+}
+
+impl TryFrom<WalletPreparedMessageOutput> for bulk_keychain::WalletPreparedMessage {
+    type Error = Error;
+    fn try_from(wallet: WalletPreparedMessageOutput) -> Result<Self> {
+        Ok(Self {
+            prepared: wallet.prepared.try_into()?,
+            signature_mode: wallet
+                .signature_mode
+                .parse()
+                .map_err(|error: bulk_keychain::Error| Error::from_reason(error.to_string()))?,
+            message_bytes: wallet.message_bytes.to_vec(),
+            clear_sign_message: wallet.clear_sign_message,
+        })
+    }
+}
+
+/// Select explicit wallet signing bytes for an original trusted raw preparation.
+#[napi]
+pub fn prepare_wallet_message(
+    prepared: PreparedMessageOutput,
+    mode: String,
+) -> Result<WalletPreparedMessageOutput> {
+    let wallet = bulk_keychain::prepare_wallet_message(
+        prepared.try_into()?,
+        mode.parse()
+            .map_err(|error: bulk_keychain::Error| Error::from_reason(error.to_string()))?,
+    )
+    .map_err(|error| Error::from_reason(error.to_string()))?;
+    Ok(WalletPreparedMessageOutput {
+        prepared: wallet.prepared.into(),
+        signature_mode: mode,
+        message_bytes: Buffer::from(wallet.message_bytes),
+        clear_sign_message: wallet.clear_sign_message,
+    })
+}
+
+/// Verify the signature over exactly the selected wallet bytes and finalize.
+#[napi]
+pub fn finalize_wallet_message(
+    wallet: WalletPreparedMessageOutput,
+    signature: String,
+) -> Result<SignedTransactionOutput> {
+    bulk_keychain::finalize_wallet_message(wallet.try_into()?, &signature)
+        .map(Into::into)
+        .map_err(|error| Error::from_reason(error.to_string()))
 }

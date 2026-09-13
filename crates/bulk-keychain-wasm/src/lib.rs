@@ -224,6 +224,14 @@ impl WasmSigner {
         self.inner.computes_batch_order_ids()
     }
 
+    /// Sign an explicit wallet mode using this signer's key and configured network.
+    #[wasm_bindgen(js_name = signWalletPrepared)]
+    pub fn sign_wallet_prepared(&self, wallet: &WasmWalletPreparedMessage) -> Result<JsValue, JsError> {
+        let signed = bulk_keychain::sign_wallet_message(&self.inner, wallet.inner.clone())
+            .map_err(|error| JsError::new(&error.to_string()))?;
+        to_js_value(&signed).map_err(|error| JsError::new(&error.to_string()))
+    }
+
     /// Sign raw message bytes and return a base58 Ed25519 signature.
     #[wasm_bindgen(js_name = signBytes)]
     pub fn sign_bytes(&self, message: &[u8]) -> String {
@@ -3167,4 +3175,56 @@ pub fn export_withdraw_intent_transaction(
         recent_blockhash,
     )
     .map_err(|error| JsError::new(&error.to_string()))
+}
+
+/// Explicit wallet signing bytes and the retained original Bulk preparation.
+#[wasm_bindgen]
+pub struct WasmWalletPreparedMessage {
+    inner: bulk_keychain::WalletPreparedMessage,
+}
+
+#[wasm_bindgen]
+impl WasmWalletPreparedMessage {
+    #[wasm_bindgen(getter)]
+    pub fn prepared(&self) -> WasmPreparedMessage {
+        WasmPreparedMessage {
+            inner: self.inner.prepared.clone(),
+        }
+    }
+    #[wasm_bindgen(getter, js_name = signatureMode)]
+    pub fn signature_mode(&self) -> String {
+        self.inner.signature_mode.as_str().into()
+    }
+    #[wasm_bindgen(getter, js_name = messageBytes)]
+    pub fn message_bytes(&self) -> Vec<u8> {
+        self.inner.message_bytes.clone()
+    }
+    #[wasm_bindgen(getter, js_name = clearSignMessage)]
+    pub fn clear_sign_message(&self) -> Option<String> {
+        self.inner.clear_sign_message.clone()
+    }
+}
+
+#[wasm_bindgen(js_name = prepareWalletMessage)]
+pub fn prepare_wallet_message(
+    prepared: &WasmPreparedMessage,
+    mode: &str,
+) -> Result<WasmWalletPreparedMessage, JsError> {
+    bulk_keychain::prepare_wallet_message(
+        prepared.inner.clone(),
+        mode.parse()
+            .map_err(|error: bulk_keychain::Error| JsError::new(&error.to_string()))?,
+    )
+    .map(|inner| WasmWalletPreparedMessage { inner })
+    .map_err(|error| JsError::new(&error.to_string()))
+}
+
+#[wasm_bindgen(js_name = finalizeWalletMessage)]
+pub fn finalize_wallet_message(
+    wallet: &WasmWalletPreparedMessage,
+    signature: &str,
+) -> Result<JsValue, JsError> {
+    let signed = bulk_keychain::finalize_wallet_message(wallet.inner.clone(), signature)
+        .map_err(|error| JsError::new(&error.to_string()))?;
+    to_js_value(&signed).map_err(|error| JsError::new(&error.to_string()))
 }

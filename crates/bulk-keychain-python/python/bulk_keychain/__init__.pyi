@@ -163,6 +163,10 @@ class Signer:
         """Sign raw message bytes and return a base58 Ed25519 signature"""
         ...
 
+    def sign_wallet_prepared(self, wallet: WalletPreparedMessage) -> SignedTransaction:
+        """Sign the selected wallet mode, enforcing configured key and network."""
+        ...
+
     def sign_prepared(self, prepared: "PreparedMessage") -> SignedTransaction:
         """Sign a prepared message and finalize it into a signed transaction.
 
@@ -590,4 +594,16 @@ def export_deposit_transaction(owner: str, amount: int, recent_blockhash: str) -
 
 def export_withdraw_intent_transaction(owner: str, amount: int, recent_blockhash: str) -> str:
     """Export base64 unsigned mainnet USDC withdrawal-intent transaction."""
+    ...
+
+class WalletPreparedMessage(TypedDict):
+    prepared: PreparedMessage
+    signature_mode: Literal["raw", "base58", "offchain"]
+    message_bytes: bytes
+    clear_sign_message: str | None
+
+def prepare_wallet_message(prepared: PreparedMessage, mode: Literal["raw", "base58", "offchain"]) -> WalletPreparedMessage:
+    ...
+
+def finalize_wallet_message(wallet: WalletPreparedMessage, signature: str) -> SignedTransaction:
     ...

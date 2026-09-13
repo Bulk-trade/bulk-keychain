@@ -1,0 +1,159 @@
+{
+  "fixture_seed": "09 repeated 32 times, synthetic only",
+  "sdk_revision": "1521f300895f2aa35a8517d2015ad7c4f53ac6e3",
+  "vectors": [
+    {
+      "account": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf",
+      "actions": [
+        {
+          "m": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "r": false,
+            "slippage": "25",
+            "sz": "1.00000001"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\nNonce: 42\nActions: 1\nSignable-Hash: 4abbbd846e27219fd770cdbac9cef065e34af8bad544416a78a303329ec7bdd8\n[0] Market BTC-USD Buy sz=1.00000001 ro=false iso=false slippage=25.00000000bps\n",
+      "domain": "devnet",
+      "message_hex": "ffffffffffffffff62756c6b2d616374696f6e730201000000000000000000000007000000000000004254432d5553440101e1f505000000000000000100f90295000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "mode": "Raw",
+      "name": "market",
+      "nonce": "42",
+      "raw_hex": "ffffffffffffffff62756c6b2d616374696f6e730201000000000000000000000007000000000000004254432d5553440101e1f505000000000000000100f90295000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "sdk_verified": true,
+      "signature": "2Vf5YrULNhVjinGBmKLM6dkLn8bdVnSXzmQzMMrFVhsrcCj2JRpjeNR3bLhLsUhuZT6padt9QSz8DWn6U8nYN1Lg",
+      "signer": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf"
+    },
+    {
+      "account": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf",
+      "actions": [
+        {
+          "m": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "r": false,
+            "slippage": "25",
+            "sz": "1.00000001"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\nNonce: 42\nActions: 1\nSignable-Hash: 4abbbd846e27219fd770cdbac9cef065e34af8bad544416a78a303329ec7bdd8\n[0] Market BTC-USD Buy sz=1.00000001 ro=false iso=false slippage=25.00000000bps\n",
+      "domain": "devnet",
+      "message_hex": "335536584c65416844645037484d50746b37684e78325632655742705a5951485644575a6b766d465864784344616d7453467a7856556e435350734c6a334736527555394d386d53765547376a394e4461367735543253584567635265716d796f466843693476686a31593452527358674353335975524d314c44594379455363447533794e6f47476a68357178774256695978555941",
+      "mode": "Base58",
+      "name": "market",
+      "nonce": "42",
+      "raw_hex": "ffffffffffffffff62756c6b2d616374696f6e730201000000000000000000000007000000000000004254432d5553440101e1f505000000000000000100f90295000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "sdk_verified": true,
+      "signature": "66vGeAZmF5pzWdxJ8kyoZHwfiX9rkxr23Qvq5PkrWMx5Apv1xkhWPHLtBzSrABVfE9q5yLHDBoDX4XuPcmR6dtBp",
+      "signer": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf"
+    },
+    {
+      "account": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf",
+      "actions": [
+        {
+          "m": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "r": false,
+            "slippage": "25",
+            "sz": "1.00000001"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\nNonce: 42\nActions: 1\nSignable-Hash: 4abbbd846e27219fd770cdbac9cef065e34af8bad544416a78a303329ec7bdd8\n[0] Market BTC-USD Buy sz=1.00000001 ro=false iso=false slippage=25.00000000bps\n",
+      "domain": "devnet",
+      "message_hex": "ff736f6c616e61206f6666636861696e0003000000000000000000000000000000000000000000000000000000000000000101fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f618150142756c6b2045786368616e6765205472616e73616374696f6e0a4e6574776f726b3a206465766e65740a4163636f756e743a204a32786363527475473433647245534c597a6e48684c68516b4c5464666570634b596269513942734a5661660a4e6f6e63653a2034320a416374696f6e733a20310a5369676e61626c652d486173683a20346162626264383436653237323139666437373063646261633963656630363565333461663862616435343434313661373861333033333239656337626464380a5b305d204d61726b6574204254432d5553442042757920737a3d312e303030303030303120726f3d66616c73652069736f3d66616c736520736c6970706167653d32352e30303030303030306270730a",
+      "mode": "Offchain",
+      "name": "market",
+      "nonce": "42",
+      "raw_hex": "ffffffffffffffff62756c6b2d616374696f6e730201000000000000000000000007000000000000004254432d5553440101e1f505000000000000000100f90295000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "sdk_verified": true,
+      "signature": "4oBYJnzTPDYbQJWFaTYmDUhhnW3hAdcXqKQQr7U5Wi9bYee13Lf3822unPsVnf7LWBGPjQGG86yAjV6s4iXFnDqP",
+      "signer": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf"
+    },
+    {
+      "account": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf",
+      "actions": [
+        {
+          "l": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "px": "100",
+            "r": false,
+            "sz": "1",
+            "tif": "GTC"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\nNonce: 42\nActions: 1\nSignable-Hash: ecc3040480bc8cc621705118f97e3a515883232534240f443b6b57f32e6000f6\n[0] Limit BTC-USD Buy px=100.00000000 sz=1.00000000 tif=GTC ro=false iso=false\n",
+      "domain": "devnet",
+      "message_hex": "01000000000000000100000007000000000000004254432d5553440100e40b540200000000e1f505000000000000000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "mode": "Raw",
+      "name": "limit",
+      "nonce": "42",
+      "raw_hex": "01000000000000000100000007000000000000004254432d5553440100e40b540200000000e1f505000000000000000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "sdk_verified": true,
+      "signature": "4ETpH2FBx1GjvyAZaaBbsBBjiRGRCAwysEfFemPEuSzbjiC3tLDPqPKxsyJtry2SrHCHzwGkJ3XKcdRL9NK22Ah3",
+      "signer": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf"
+    },
+    {
+      "account": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf",
+      "actions": [
+        {
+          "l": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "px": "100",
+            "r": false,
+            "sz": "1",
+            "tif": "GTC"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\nNonce: 42\nActions: 1\nSignable-Hash: ecc3040480bc8cc621705118f97e3a515883232534240f443b6b57f32e6000f6\n[0] Limit BTC-USD Buy px=100.00000000 sz=1.00000000 tif=GTC ro=false iso=false\n",
+      "domain": "devnet",
+      "message_hex": "6838353846774167556a37537654343644323157727a677173685145376555505334514d5a716766536b7468584d57386f56446d6942787a55716175374d47796267346463534465554c4e4a336d6877737652543371467a4254335943766a44576f66684b764d633339643353506647774a326941423467506a59",
+      "mode": "Base58",
+      "name": "limit",
+      "nonce": "42",
+      "raw_hex": "01000000000000000100000007000000000000004254432d5553440100e40b540200000000e1f505000000000000000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "sdk_verified": true,
+      "signature": "3oSUy55yakGXnNkvBJ6qXRNCmVbhmW1Es3vt2GbP71mxopx68uEdgmUppwXoR4T4twX5JZSRRvozkKTiiPT1BCjb",
+      "signer": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf"
+    },
+    {
+      "account": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf",
+      "actions": [
+        {
+          "l": {
+            "b": true,
+            "c": "BTC-USD",
+            "i": false,
+            "px": "100",
+            "r": false,
+            "sz": "1",
+            "tif": "GTC"
+          }
+        }
+      ],
+      "canonical_text": "Bulk Exchange Transaction\nNetwork: devnet\nAccount: J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf\nNonce: 42\nActions: 1\nSignable-Hash: ecc3040480bc8cc621705118f97e3a515883232534240f443b6b57f32e6000f6\n[0] Limit BTC-USD Buy px=100.00000000 sz=1.00000000 tif=GTC ro=false iso=false\n",
+      "domain": "devnet",
+      "message_hex": "ff736f6c616e61206f6666636861696e0003000000000000000000000000000000000000000000000000000000000000000101fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f618140142756c6b2045786368616e6765205472616e73616374696f6e0a4e6574776f726b3a206465766e65740a4163636f756e743a204a32786363527475473433647245534c597a6e48684c68516b4c5464666570634b596269513942734a5661660a4e6f6e63653a2034320a416374696f6e733a20310a5369676e61626c652d486173683a20656363333034303438306263386363363231373035313138663937653361353135383833323332353334323430663434336236623537663332653630303066360a5b305d204c696d6974204254432d555344204275792070783d3130302e303030303030303020737a3d312e3030303030303030207469663d47544320726f3d66616c73652069736f3d66616c73650a",
+      "mode": "Offchain",
+      "name": "limit",
+      "nonce": "42",
+      "raw_hex": "01000000000000000100000007000000000000004254432d5553440100e40b540200000000e1f505000000000000000000002a00000000000000fd1724385aa0c75b64fb78cd602fa1d991fdebf76b13c58ed702eac835e9f61803",
+      "sdk_verified": true,
+      "signature": "66gDE9ihsLKmeinCkCCixs4y1Au5B2dm5o4L84F3oRjkaX7Qfp5mZg7cxFcXqdU7zpZHMALZjMoXcH4EoraBzHdw",
+      "signer": "J2xccRtuG43drESLYznHhLhQkLTdfepcKYbiQ9BsJVaf"
+    }
+  ]
+}

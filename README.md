@@ -693,3 +693,44 @@ Rust migration: `finalize_transaction` and `finalize_transaction_bytes` now retu
 `finalize_all` returns an error if any signature fails. JavaScript/Python callers
 receive exceptions on failure; browser `prepared.finalize` / `finalizeBytes` no
 longer silently return null. Successful transaction output shapes are unchanged.
+
+## Explicit Bulk wallet signature modes
+
+The existing raw `prepareOrder` and signing APIs retain their behavior. To choose
+an encoding explicitly, call `prepareWalletMessage(rawPrepared, mode)` with `raw`,
+`base58`, or `offchain`. It retains the original preparation and returns the exact
+`messageBytes` to sign, `signatureMode`, and optional `clearSignMessage` display text.
+Offchain mode includes its complete Solana offchain envelope in `messageBytes` and
+rejects action types outside the supported clear-sign subset.
+
+```typescript
+const rawPrepared = prepareOrder(order, {
+  signatureDomain: 'mainnet', account: wallet.publicKey.toBase58(), nonce,
+});
+const prepared = prepareWalletMessage(rawPrepared, 'offchain');
+// Sign exactly these bytes. Do not prepend another envelope or sign only the display text.
+const { signature } = await wallet.signMessage(prepared.messageBytes);
+const signed = finalizeWalletMessage(prepared, bs58.encode(signature));
+await fetch(apiUrl + '/api/v1/order', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json', 'X-Bulk-Sig-Mode': prepared.signatureMode },
+  // Node action JSON is a string; WASM action JSON is already an array of objects.
+  body: JSON.stringify({ ...signed, actions: typeof signed.actions === 'string'
+    ? JSON.parse(signed.actions) : signed.actions }),
+});
+```
+
+`raw` signs canonical Bulk bytes. `base58` signs the ASCII base58 encoding of those
+bytes. All returned signatures still use base58 transport encoding regardless of
+mode. The `X-Bulk-Sig-Mode` header selects verification mode; it does not describe
+how the signature string itself is encoded. Wallets that automatically add their
+own message envelope need an integration that signs the returned bytes unchanged.
+
+For a held key, use `signer.signWalletPrepared(prepared)`; it checks the configured
+signer and network. In Python use `prepare_wallet_message(raw_prepared, mode)`,
+`finalize_wallet_message(prepared, signature)` and `signer.sign_wallet_prepared(prepared)`.
+Python wrapper fields are `prepared`, `signature_mode`, `message_bytes` (bytes), and
+`clear_sign_message`. Node uses an object; WASM uses a class with getters and retains
+its original preparation privately. Wrappers are language-specific, while the
+exact signing bytes match across bindings. Keep original actions and order IDs
+trusted and unchanged, as required by raw preparation/finalization.

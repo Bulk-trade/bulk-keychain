@@ -192,6 +192,13 @@ impl PySigner {
         self.inner.computes_batch_order_ids()
     }
 
+    /// Sign a wallet mode with this signer's key and configured network.
+    fn sign_wallet_prepared(&self, wallet: &Bound<'_, PyDict>) -> PyResult<PyObject> {
+        let signed = bulk_keychain::sign_wallet_message(&self.inner, wallet_from_py(wallet)?)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        signed_to_py(wallet.py(), &signed)
+    }
+
     /// Sign raw message bytes and return a base58 Ed25519 signature.
     fn sign_bytes(&self, message: &[u8]) -> String {
         self.inner.sign_bytes(message)
@@ -1859,45 +1866,7 @@ fn py_prepare_create_sub_account(
 #[pyfunction]
 fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyResult<PyObject> {
     let py = prepared.py();
-    let actions: String = py
-        .import("json")?
-        .call_method1(
-            "dumps",
-            (prepared
-                .get_item("actions")?
-                .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?,),
-        )?
-        .extract()?;
-    let prepared = PreparedMessage {
-        message_bytes: prepared
-            .get_item("message_bytes")?
-            .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?
-            .extract()?,
-        account: prepared
-            .get_item("account")?
-            .ok_or_else(|| PyValueError::new_err("Missing 'account'"))?
-            .extract()?,
-        signer: prepared
-            .get_item("signer")?
-            .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
-            .extract()?,
-        nonce: prepared
-            .get_item("nonce")?
-            .ok_or_else(|| PyValueError::new_err("Missing 'nonce'"))?
-            .extract()?,
-        actions: serde_json::from_str(&actions)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?,
-        order_id: prepared
-            .get_item("order_id")?
-            .map(|value| value.extract())
-            .transpose()?
-            .flatten(),
-        order_ids: prepared
-            .get_item("order_ids")?
-            .map(|value| value.extract())
-            .transpose()?
-            .flatten(),
-    };
+    let prepared = prepared_from_py(prepared)?;
     let signed = bulk_keychain::finalize_transaction(prepared, signature)
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
     signed_to_py(py, &signed)
@@ -1910,6 +1879,8 @@ fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyR
 /// High-performance transaction signing for BULK DEX
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(prepare_wallet_message, m)?)?;
+    m.add_function(wrap_pyfunction!(finalize_wallet_message, m)?)?;
     m.add_function(wrap_pyfunction!(export_deposit_transaction, m)?)?;
     m.add_function(wrap_pyfunction!(export_withdraw_intent_transaction, m)?)?;
     m.add_function(wrap_pyfunction!(build_deposit_instruction, m)?)?;
@@ -2003,4 +1974,99 @@ fn export_withdraw_intent_transaction(
 ) -> PyResult<String> {
     bulk_keychain::solana::export_withdraw_intent_transaction(owner, amount, recent_blockhash)
         .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
+fn prepared_from_py(prepared: &Bound<'_, PyDict>) -> PyResult<PreparedMessage> {
+    let py = prepared.py();
+    let actions: String = py
+        .import("json")?
+        .call_method1(
+            "dumps",
+            (prepared
+                .get_item("actions")?
+                .ok_or_else(|| PyValueError::new_err("Missing 'actions'"))?,),
+        )?
+        .extract()?;
+    let prepared = PreparedMessage {
+        message_bytes: prepared
+            .get_item("message_bytes")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?
+            .extract()?,
+        account: prepared
+            .get_item("account")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'account'"))?
+            .extract()?,
+        signer: prepared
+            .get_item("signer")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'signer'"))?
+            .extract()?,
+        nonce: prepared
+            .get_item("nonce")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'nonce'"))?
+            .extract()?,
+        actions: serde_json::from_str(&actions)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?,
+        order_id: prepared
+            .get_item("order_id")?
+            .map(|value| value.extract())
+            .transpose()?
+            .flatten(),
+        order_ids: prepared
+            .get_item("order_ids")?
+            .map(|value| value.extract())
+            .transpose()?
+            .flatten(),
+    };
+    Ok(prepared)
+}
+
+fn wallet_from_py(wallet: &Bound<'_, PyDict>) -> PyResult<bulk_keychain::WalletPreparedMessage> {
+    let prepared = wallet
+        .get_item("prepared")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'prepared'"))?;
+    let mode: String = wallet
+        .get_item("signature_mode")?
+        .ok_or_else(|| PyValueError::new_err("Missing 'signature_mode'"))?
+        .extract()?;
+    Ok(bulk_keychain::WalletPreparedMessage {
+        prepared: prepared_from_py(prepared.downcast::<PyDict>()?)?,
+        signature_mode: mode
+            .parse()
+            .map_err(|error: bulk_keychain::Error| PyValueError::new_err(error.to_string()))?,
+        message_bytes: wallet
+            .get_item("message_bytes")?
+            .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?
+            .extract()?,
+        clear_sign_message: wallet
+            .get_item("clear_sign_message")?
+            .map(|value| value.extract())
+            .transpose()?
+            .flatten(),
+    })
+}
+
+#[pyfunction]
+fn prepare_wallet_message(prepared: &Bound<'_, PyDict>, mode: &str) -> PyResult<PyObject> {
+    let wallet = bulk_keychain::prepare_wallet_message(
+        prepared_from_py(prepared)?,
+        mode.parse()
+            .map_err(|error: bulk_keychain::Error| PyValueError::new_err(error.to_string()))?,
+    )
+    .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let output = PyDict::new(prepared.py());
+    output.set_item("prepared", prepared_to_py(prepared.py(), &wallet.prepared)?)?;
+    output.set_item("signature_mode", mode)?;
+    output.set_item(
+        "message_bytes",
+        PyBytes::new(prepared.py(), &wallet.message_bytes),
+    )?;
+    output.set_item("clear_sign_message", wallet.clear_sign_message)?;
+    Ok(output.into())
+}
+
+#[pyfunction]
+fn finalize_wallet_message(wallet: &Bound<'_, PyDict>, signature: &str) -> PyResult<PyObject> {
+    let signed = bulk_keychain::finalize_wallet_message(wallet_from_py(wallet)?, signature)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    signed_to_py(wallet.py(), &signed)
 }
