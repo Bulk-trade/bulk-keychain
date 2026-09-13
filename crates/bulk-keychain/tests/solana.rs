@@ -67,3 +67,40 @@ fn rejects_invalid_inputs_and_preserves_u64_amount() {
             .pubkey
     );
 }
+
+#[test]
+fn exported_transactions_are_unsigned_and_bind_owner_and_blockhash() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use bulk_keychain::solana::{export_deposit_transaction, export_withdraw_intent_transaction};
+    let owner = bulk_keychain::Keypair::from_secret_key(&[1; 32])
+        .unwrap()
+        .pubkey()
+        .to_base58();
+    let blockhash = solana_hash::Hash::new_from_array([7; 32]);
+    for (exported, opcode) in [
+        (
+            export_deposit_transaction(&owner, 1_000_000, &blockhash.to_string()).unwrap(),
+            2,
+        ),
+        (
+            export_withdraw_intent_transaction(&owner, u64::MAX, &blockhash.to_string()).unwrap(),
+            4,
+        ),
+    ] {
+        let tx: solana_transaction::Transaction =
+            bincode::deserialize(&STANDARD.decode(exported).unwrap()).unwrap();
+        assert_eq!(tx.message.account_keys[0].to_string(), owner);
+        assert_eq!(tx.message.recent_blockhash, blockhash);
+        assert_eq!(tx.message.header.num_required_signatures, 1);
+        assert_eq!(tx.signatures.len(), 1);
+        assert_eq!(tx.signatures[0].as_ref(), &[0; 64]);
+        assert_eq!(tx.message.instructions.len(), 1);
+        assert_eq!(tx.message.instructions[0].data[0], opcode);
+        assert_eq!(
+            tx.message.account_keys[tx.message.instructions[0].program_id_index as usize]
+                .to_string(),
+            PROGRAM_ID
+        );
+    }
+    assert!(export_deposit_transaction(&owner, 1, "bad-blockhash").is_err());
+}

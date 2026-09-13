@@ -1901,6 +1901,8 @@ fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyR
 /// High-performance transaction signing for BULK DEX
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(export_deposit_transaction, m)?)?;
+    m.add_function(wrap_pyfunction!(export_withdraw_intent_transaction, m)?)?;
     m.add_function(wrap_pyfunction!(build_deposit_instruction, m)?)?;
     m.add_function(wrap_pyfunction!(build_withdraw_intent_instruction, m)?)?;
     m.add_class::<PyKeypair>()?;
@@ -1970,4 +1972,26 @@ fn build_withdraw_intent_instruction(
         bulk_keychain::solana::request_withdraw(owner, amount)
             .map_err(|error| PyValueError::new_err(error.to_string()))?,
     )
+}
+
+/// Export a base64 unsigned mainnet USDC deposit transaction for wallet signing.
+#[pyfunction]
+fn export_deposit_transaction(
+    owner: &str,
+    amount: u64,
+    recent_blockhash: &str,
+) -> PyResult<String> {
+    bulk_keychain::solana::export_deposit_transaction(owner, amount, recent_blockhash)
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
+/// Export a base64 unsigned mainnet USDC withdrawal-intent transaction for wallet signing.
+#[pyfunction]
+fn export_withdraw_intent_transaction(
+    owner: &str,
+    amount: u64,
+    recent_blockhash: &str,
+) -> PyResult<String> {
+    bulk_keychain::solana::export_withdraw_intent_transaction(owner, amount, recent_blockhash)
+        .map_err(|error| PyValueError::new_err(error.to_string()))
 }

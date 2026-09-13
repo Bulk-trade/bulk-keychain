@@ -639,3 +639,39 @@ not Bulk API actions; do not pass them to Bulk `prepareOrder` or `finalizeTransa
 The previous Bulk-action `Withdraw` / `WithdrawLockRecover` helpers are retained for
 source compatibility but return a legacy-withdrawal error. Use the Solana withdrawal
 intent builder above for the current flow.
+
+## Exporting unsigned Solana transactions
+
+`exportDepositTransaction(owner, amount, recentBlockhash)` and
+`exportWithdrawIntentTransaction(owner, amount, recentBlockhash)` return standard
+base64-encoded, unsigned legacy Solana transactions. The owner is the fee payer
+and sole required signer; its signature slot is zero-filled. The same mainnet
+USDC restrictions as the instruction builders apply. No key or RPC connection
+is needed to export these transactions.
+
+```typescript
+import { exportDepositTransaction } from 'bulk-keychain';
+import { Transaction } from '@solana/web3.js';
+
+// connection must point to Solana mainnet. Keep both values until confirmation.
+const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+const encoded = exportDepositTransaction(wallet.publicKey.toBase58(), '1000000', blockhash);
+const transaction = Transaction.from(Buffer.from(encoded, 'base64'));
+const signed = await wallet.signTransaction(transaction);
+const signature = await connection.sendRawTransaction(signed.serialize());
+const confirmation = await connection.confirmTransaction(
+  { signature, blockhash, lastValidBlockHeight }, 'confirmed',
+);
+if (confirmation.value.err) throw new Error(JSON.stringify(confirmation.value.err));
+```
+
+For withdrawal intent, use `exportWithdrawIntentTransaction` in the same flow.
+Confirmation proves the intent landed; it does not prove withdrawal settlement.
+The browser/WASM package exports the same names. Python exports
+`export_deposit_transaction(owner, amount, recent_blockhash)` and
+`export_withdraw_intent_transaction(...)`, taking integer base-unit amounts and
+returning base64 strings for a Solana transaction library or wallet to consume.
+
+Existing Bulk `prepareOrder` exports raw Bulk message bytes for offchain
+`signMessage` and Bulk finalization. These Solana exports use wallet
+`signTransaction`; do not pass their decoded bytes to Bulk `finalizeTransaction`.

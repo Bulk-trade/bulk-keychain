@@ -273,6 +273,10 @@ export interface SolanaInstruction {
 export declare function buildDepositInstruction(owner: string, amount: string): SolanaInstruction
 /** Build a mainnet USDC withdrawal intent; this instruction does not transfer tokens. */
 export declare function buildWithdrawIntentInstruction(owner: string, amount: string): SolanaInstruction
+/** Export a base64 unsigned mainnet USDC deposit transaction for wallet signing. */
+export declare function exportDepositTransaction(owner: string, amount: string, recentBlockhash: string): string
+/** Export a base64 unsigned mainnet USDC withdrawal-intent transaction for wallet signing. */
+export declare function exportWithdrawIntentTransaction(owner: string, amount: string, recentBlockhash: string): string
 /** Ed25519 keypair for signing transactions */
 export declare class NativeKeypair {
   /** Import a base58 key or Uint8Array (32/64 bytes); omitted key generates a random keypair. */

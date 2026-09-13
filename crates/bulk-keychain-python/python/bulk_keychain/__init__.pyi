@@ -580,3 +580,11 @@ def build_deposit_instruction(owner: str, amount: int) -> SolanaInstruction:
 def build_withdraw_intent_instruction(owner: str, amount: int) -> SolanaInstruction:
     """Build a mainnet USDC withdrawal intent; this instruction transfers no tokens."""
     ...
+
+def export_deposit_transaction(owner: str, amount: int, recent_blockhash: str) -> str:
+    """Export base64 unsigned mainnet USDC deposit transaction; amount is base units."""
+    ...
+
+def export_withdraw_intent_transaction(owner: str, amount: int, recent_blockhash: str) -> str:
+    """Export base64 unsigned mainnet USDC withdrawal-intent transaction."""
+    ...

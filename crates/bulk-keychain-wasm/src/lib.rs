@@ -3123,3 +3123,35 @@ export function buildDepositInstruction(owner: string, amount: string): SolanaIn
 /** Signals a mainnet USDC withdrawal; this instruction transfers no tokens. */
 export function buildWithdrawIntentInstruction(owner: string, amount: string): SolanaInstruction;
 "#;
+
+/// Export a base64 unsigned mainnet USDC deposit transaction for wallet signing.
+#[wasm_bindgen(js_name = exportDepositTransaction)]
+pub fn export_deposit_transaction(
+    owner: &str,
+    amount: &str,
+    recent_blockhash: &str,
+) -> Result<String, JsError> {
+    bulk_keychain::solana::export_deposit_transaction(
+        owner,
+        bulk_keychain::parse_nonce_decimal(amount)
+            .map_err(|_| JsError::new("amount must be an unsigned 64-bit decimal string"))?,
+        recent_blockhash,
+    )
+    .map_err(|error| JsError::new(&error.to_string()))
+}
+
+/// Export a base64 unsigned mainnet USDC withdrawal-intent transaction for wallet signing.
+#[wasm_bindgen(js_name = exportWithdrawIntentTransaction)]
+pub fn export_withdraw_intent_transaction(
+    owner: &str,
+    amount: &str,
+    recent_blockhash: &str,
+) -> Result<String, JsError> {
+    bulk_keychain::solana::export_withdraw_intent_transaction(
+        owner,
+        bulk_keychain::parse_nonce_decimal(amount)
+            .map_err(|_| JsError::new("amount must be an unsigned 64-bit decimal string"))?,
+        recent_blockhash,
+    )
+    .map_err(|error| JsError::new(&error.to_string()))
+}

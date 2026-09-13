@@ -1760,3 +1760,35 @@ pub fn build_withdraw_intent_instruction(
     .map(Into::into)
     .map_err(|error| Error::from_reason(error.to_string()))
 }
+
+/// Export a base64 unsigned mainnet USDC deposit transaction for wallet signing.
+#[napi]
+pub fn export_deposit_transaction(
+    owner: String,
+    amount: String,
+    recent_blockhash: String,
+) -> Result<String> {
+    bulk_keychain::solana::export_deposit_transaction(
+        &owner,
+        bulk_keychain::parse_nonce_decimal(&amount)
+            .map_err(|_| Error::from_reason("amount must be an unsigned 64-bit decimal string"))?,
+        &recent_blockhash,
+    )
+    .map_err(|error| Error::from_reason(error.to_string()))
+}
+
+/// Export a base64 unsigned mainnet USDC withdrawal-intent transaction for wallet signing.
+#[napi]
+pub fn export_withdraw_intent_transaction(
+    owner: String,
+    amount: String,
+    recent_blockhash: String,
+) -> Result<String> {
+    bulk_keychain::solana::export_withdraw_intent_transaction(
+        &owner,
+        bulk_keychain::parse_nonce_decimal(&amount)
+            .map_err(|_| Error::from_reason("amount must be an unsigned 64-bit decimal string"))?,
+        &recent_blockhash,
+    )
+    .map_err(|error| Error::from_reason(error.to_string()))
+}

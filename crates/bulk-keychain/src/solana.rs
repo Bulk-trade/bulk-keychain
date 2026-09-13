@@ -46,6 +46,61 @@ pub fn request_withdraw(owner: &str, amount: u64) -> Result<Instruction> {
     instruction(owner, amount, false)
 }
 
+/// Export a base64-encoded unsigned Solana deposit transaction for wallet signing.
+/// The caller supplies a recent mainnet blockhash and tracks its expiry. This
+/// performs no RPC and never requests, creates or uses a private key.
+pub fn export_deposit_transaction(
+    owner: &str,
+    amount: u64,
+    recent_blockhash: &str,
+) -> Result<String> {
+    export_transaction(deposit(owner, amount)?, recent_blockhash)
+}
+
+/// Export a base64-encoded unsigned withdrawal-intent transaction for wallet signing.
+/// Confirmation of the signed intent is separate from withdrawal settlement.
+pub fn export_withdraw_intent_transaction(
+    owner: &str,
+    amount: u64,
+    recent_blockhash: &str,
+) -> Result<String> {
+    export_transaction(request_withdraw(owner, amount)?, recent_blockhash)
+}
+
+fn export_transaction(instruction: Instruction, recent_blockhash: &str) -> Result<String> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    // Account strings originate only from the validated pinned builders above.
+    let accounts = instruction
+        .accounts
+        .into_iter()
+        .map(|account| {
+            Ok(solana_instruction::AccountMeta {
+                pubkey: account
+                    .pubkey
+                    .parse()
+                    .map_err(|_| Error::InvalidSolanaInstruction("invalid account public key"))?,
+                is_signer: account.is_signer,
+                is_writable: account.is_writable,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let payer = accounts[0].pubkey;
+    let message = solana_message::Message::new_with_blockhash(
+        &[solana_instruction::Instruction {
+            program_id: Pubkey::from_str_const(PROGRAM_ID),
+            accounts,
+            data: instruction.data,
+        }],
+        Some(&payer),
+        &recent_blockhash.parse::<solana_hash::Hash>().map_err(|_| {
+            Error::InvalidSolanaInstruction("recent blockhash must be a base58 32-byte hash")
+        })?,
+    );
+    bincode::serialize(&solana_transaction::Transaction::new_unsigned(message))
+        .map(|bytes| STANDARD.encode(bytes))
+        .map_err(|error| Error::SerializationError(error.to_string()))
+}
+
 fn instruction(owner: &str, amount: u64, deposit: bool) -> Result<Instruction> {
     if amount == 0 {
         return Err(Error::InvalidSolanaInstruction("amount must be positive"));

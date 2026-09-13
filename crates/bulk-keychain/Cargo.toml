@@ -22,6 +22,10 @@ serde_bytes = "0.11"
 rayon = { workspace = true }
 thiserror = { workspace = true }
 solana-pubkey = { version = "=3.0.0", features = ["curve25519"] }
+solana-hash = "3.0"
+solana-instruction = "3.0"
+solana-message = "3.0"
+solana-transaction = { version = "3.0", features = ["bincode"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { workspace = true }
