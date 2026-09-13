@@ -562,3 +562,21 @@ def finalize_transaction(
         SignedTransaction dict ready for API submission
     """
     ...
+
+class SolanaAccountMeta(TypedDict):
+    pubkey: str
+    is_signer: bool
+    is_writable: bool
+
+class SolanaInstruction(TypedDict):
+    program_id: str
+    accounts: list[SolanaAccountMeta]
+    data: bytes
+
+def build_deposit_instruction(owner: str, amount: int) -> SolanaInstruction:
+    """Build a mainnet USDC deposit instruction; amount is u64 base units."""
+    ...
+
+def build_withdraw_intent_instruction(owner: str, amount: int) -> SolanaInstruction:
+    """Build a mainnet USDC withdrawal intent; this instruction transfers no tokens."""
+    ...

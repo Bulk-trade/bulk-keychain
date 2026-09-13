@@ -1030,7 +1030,8 @@ impl Transfer {
 // Portfolio withdraw
 // ============================================================================
 
-/// Portfolio withdraw from the deposit/withdraw vault.
+/// Legacy Bulk withdrawal request retained for source compatibility.
+/// Preparation and signing fail with `Error::LegacyWithdrawal`; use Solana `request_withdraw`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Withdraw {
     pub user: Pubkey,
@@ -1040,7 +1041,8 @@ pub struct Withdraw {
     pub blockhash: Hash,
 }
 
-/// Recover a withdraw lock after a withdraw is rejected or interrupted.
+/// Legacy Bulk withdrawal recovery retained for source compatibility.
+/// Preparation and signing fail with `Error::LegacyWithdrawal`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WithdrawLockRecover {
     pub user: Pubkey,
@@ -1197,9 +1199,9 @@ pub enum Action {
     RenameSubAccount(RenameSubAccount),
     /// Margin transfer between accounts
     Transfer(Transfer),
-    /// Portfolio withdraw
+    /// Unsupported legacy withdrawal; preparation and signing return `Error::LegacyWithdrawal`.
     Withdraw(Withdraw),
-    /// Recover a withdraw lock
+    /// Unsupported legacy recovery; preparation and signing return `Error::LegacyWithdrawal`.
     WithdrawLockRecover(WithdrawLockRecover),
     /// Create a multisig account
     CreateMultisig(CreateMultisig),

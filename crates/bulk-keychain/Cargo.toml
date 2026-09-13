@@ -21,6 +21,7 @@ bincode = { workspace = true }
 serde_bytes = "0.11"
 rayon = { workspace = true }
 thiserror = { workspace = true }
+solana-pubkey = { version = "=3.0.0", features = ["curve25519"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { workspace = true }

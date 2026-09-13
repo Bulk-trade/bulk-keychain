@@ -430,7 +430,8 @@ impl Signer {
         self.sign_action_self(&action, nonce)
     }
 
-    /// Sign a portfolio withdraw.
+    /// Legacy helper retained for source compatibility; always returns `Error::LegacyWithdrawal`.
+    /// Use the Solana `request_withdraw` instruction instead.
     pub fn sign_withdraw(
         &mut self,
         withdraw: Withdraw,
@@ -441,7 +442,8 @@ impl Signer {
         self.sign_action_self(&action, nonce)
     }
 
-    /// Sign a withdraw-lock recovery.
+    /// Legacy helper retained for source compatibility; always returns `Error::LegacyWithdrawal`.
+    /// Withdrawal requests now use the Solana `request_withdraw` instruction.
     pub fn sign_withdraw_lock_recover(
         &mut self,
         recover: WithdrawLockRecover,
@@ -765,21 +767,7 @@ impl Signer {
                     "marginAmount": transfer.margin_amount,
                 }
             })]),
-            Action::Withdraw(withdraw) => Ok(vec![json!({
-                "withdraw": {
-                    "u": withdraw.user.to_base58(),
-                    "v": withdraw.vault.to_base58(),
-                    "rta": withdraw.recipient_token_account.to_base58(),
-                    "a": withdraw.amount,
-                    "b": withdraw.blockhash.to_base58(),
-                }
-            })]),
-            Action::WithdrawLockRecover(recover) => Ok(vec![json!({
-                "withdrawLockRecover": {
-                    "u": recover.user.to_base58(),
-                    "h": recover.hash.to_base58(),
-                }
-            })]),
+            Action::Withdraw(_) | Action::WithdrawLockRecover(_) => Err(Error::LegacyWithdrawal),
             Action::CreateMultisig(action) => Ok(vec![json!({
                 "createMultisig": {
                     "signers": action.signers.iter().map(Pubkey::to_base58).collect::<Vec<_>>(),
@@ -1383,5 +1371,55 @@ mod tests {
         let signed = signer.sign_orders_batch(batches, Some(300)).unwrap();
         assert_eq!(signed.len(), 1);
         assert_eq!(signed[0].order_ids.as_ref().map(Vec::len), Some(2));
+    }
+    #[test]
+    fn legacy_withdrawal_signing_fails_closed() {
+        let mut signer = Signer::new(Keypair::generate(), SignatureDomain::Devnet);
+        for action in [
+            Action::Withdraw(Withdraw {
+                user: signer.pubkey(),
+                vault: Pubkey::from_bytes([2; 32]),
+                recipient_token_account: Pubkey::from_bytes([3; 32]),
+                amount: 42,
+                blockhash: Hash::from_bytes([4; 32]),
+            }),
+            Action::WithdrawLockRecover(WithdrawLockRecover {
+                user: signer.pubkey(),
+                hash: Hash::from_bytes([5; 32]),
+            }),
+        ] {
+            assert!(matches!(
+                match action.clone() {
+                    Action::Withdraw(withdraw) => signer.sign_withdraw(withdraw, Some(1)),
+                    Action::WithdrawLockRecover(recover) =>
+                        signer.sign_withdraw_lock_recover(recover, Some(1)),
+                    _ => unreachable!(),
+                },
+                Err(Error::LegacyWithdrawal)
+            ));
+            assert!(matches!(
+                signer.sign_action_self(&action, 1),
+                Err(Error::LegacyWithdrawal)
+            ));
+            assert!(matches!(
+                signer.sign_action_self(
+                    &Action::MultisigPropose(MultisigPropose::new(
+                        signer.pubkey(),
+                        vec![Action::MultisigPropose(MultisigPropose::new(
+                            signer.pubkey(),
+                            vec![action]
+                        )),]
+                    )),
+                    1,
+                ),
+                Err(Error::LegacyWithdrawal)
+            ));
+        }
+        assert!(signer
+            .sign_transfer(
+                Transfer::internal(signer.pubkey(), Pubkey::from_bytes([6; 32]), 1.0),
+                Some(2),
+            )
+            .is_ok());
     }
 }

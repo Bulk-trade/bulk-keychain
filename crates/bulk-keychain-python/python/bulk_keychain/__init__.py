@@ -26,6 +26,8 @@ Quick Start
 """
 
 from bulk_keychain._native import (
+    build_deposit_instruction,
+    build_withdraw_intent_instruction,
     Keypair,
     Signer,
     random_hash,
@@ -52,6 +54,8 @@ from bulk_keychain._native import (
 )
 
 __all__ = [
+    "build_deposit_instruction",
+    "build_withdraw_intent_instruction",
     "Keypair",
     "Signer",
     "random_hash",

@@ -54,6 +54,7 @@ pub mod order_id;
 pub mod prepare;
 mod sdk_compat;
 mod sign;
+pub mod solana;
 pub mod types;
 
 pub use error::{Error, Result};

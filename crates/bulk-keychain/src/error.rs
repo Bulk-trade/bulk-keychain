@@ -5,6 +5,11 @@ use thiserror::Error;
 /// All errors that can occur in bulk-keychain
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("invalid Solana instruction: {0}")]
+    InvalidSolanaInstruction(&'static str),
+
+    #[error("legacy Bulk withdrawal actions are unsupported; use solana::request_withdraw to build a Solana withdrawal intent")]
+    LegacyWithdrawal,
     /// Invalid base58 encoding
     #[error("invalid base58: {0}")]
     InvalidBase58(String),

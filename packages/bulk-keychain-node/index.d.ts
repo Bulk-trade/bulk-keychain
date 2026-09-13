@@ -257,6 +257,22 @@ export declare function prepareCreateSubAccountTx(name: string, options: CreateS
  * ```
  */
 export declare function finalizePreparedTransaction(prepared: PreparedMessageOutput, signature: string): SignedTransactionOutput
+/** Ordered Solana instruction account metadata. */
+export interface SolanaAccountMeta {
+  pubkey: string
+  isSigner: boolean
+  isWritable: boolean
+}
+/** Unsigned mainnet USDC instruction; submit through a Solana wallet/client. */
+export interface SolanaInstruction {
+  programId: string
+  accounts: Array<SolanaAccountMeta>
+  data: Buffer
+}
+/** Build a mainnet USDC deposit instruction. Amount is an exact decimal u64 in base units. */
+export declare function buildDepositInstruction(owner: string, amount: string): SolanaInstruction
+/** Build a mainnet USDC withdrawal intent; this instruction does not transfer tokens. */
+export declare function buildWithdrawIntentInstruction(owner: string, amount: string): SolanaInstruction
 /** Ed25519 keypair for signing transactions */
 export declare class NativeKeypair {
   /** Generate a new random keypair */

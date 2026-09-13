@@ -550,3 +550,70 @@ const limitWithSL = {
 };
 const signed = prepareOrder(limitWithSL, { account, signer });
 ```
+
+## Solana mainnet USDC deposit and withdrawal intent
+
+`buildDepositInstruction(owner, amount)` and `buildWithdrawIntentInstruction(owner, amount)`
+build unsigned Solana instructions for the pinned Bulk mainnet program and USDC mint.
+The owner must be an on-curve wallet and its USDC associated token account must already
+exist; the address is derived automatically. Amounts must be positive. JavaScript amounts
+must be decimal strings in USDC base units (six decimals); Python accepts integers.
+One USDC is `"1000000"`. Program, mint and token-account overrides are not accepted.
+
+| Pinned account | Address |
+| --- | --- |
+| Bulk mainnet program | `BULK2CNYn3mbgfYXEXiBBFxmmDChznpjQ4oRfce8w6R4` |
+| Mainnet USDC mint | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` |
+| Bulk USDC vault | `7Wpp33Dn5KKUFjaij4zKYy1XZ9kdBtHjUatAT6NcjjGt` |
+| Vault token account | `HwdwwKH1tMXo7ggTKcA5cdQrpcgqSoVib2eQh3BiyEQL` |
+
+The classic SPL Token and Associated Token programs are also pinned. Both deposit
+source and withdrawal destination are the supplied wallet's USDC ATA, so these
+builders cannot select a different token account. They build locally and do not
+verify account existence or cluster state; use a mainnet Solana connection.
+
+Rust exposes the same builders with `u64` amounts:
+
+```rust
+let deposit = bulk_keychain::solana::deposit(&owner_pubkey, 1_000_000)?;
+let intent = bulk_keychain::solana::request_withdraw(&owner_pubkey, 1_000_000)?;
+```
+
+```typescript
+import { buildDepositInstruction, buildWithdrawIntentInstruction } from 'bulk-keychain';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+
+const instruction = buildDepositInstruction(wallet.publicKey.toBase58(), '1000000');
+const deposit = new TransactionInstruction({
+  programId: new PublicKey(instruction.programId),
+  keys: instruction.accounts.map(account => ({
+    pubkey: new PublicKey(account.pubkey),
+    isSigner: account.isSigner,
+    isWritable: account.isWritable,
+  })),
+  data: Buffer.from(instruction.data),
+});
+// Add deposit to a Solana transaction and sign/send through your wallet or client.
+const withdrawalIntent = buildWithdrawIntentInstruction(wallet.publicKey.toBase58(), '1000000');
+```
+
+Browser/WASM exports the same function names and camelCase account fields; `data`
+is an array of bytes (Node returns a Buffer). Python returns snake_case fields and bytes:
+
+```python
+from bulk_keychain import build_deposit_instruction, build_withdraw_intent_instruction
+
+deposit = build_deposit_instruction(owner_pubkey, 1_000_000)
+withdrawal_intent = build_withdraw_intent_instruction(owner_pubkey, 1_000_000)
+# {"program_id": str, "accounts": [{"pubkey": str, "is_signer": bool,
+#   "is_writable": bool}], "data": bytes}
+```
+
+Deposit transfers USDC into the vault. Withdrawal intent signals a withdrawal;
+it does not itself transfer tokens. The client/wallet handles transaction assembly,
+recent blockhash, signing, submission and confirmation. These are Solana instructions,
+not Bulk API actions; do not pass them to Bulk `prepareOrder` or `finalizeTransaction`.
+
+The previous Bulk-action `Withdraw` / `WithdrawLockRecover` helpers are retained for
+source compatibility but return a legacy-withdrawal error. Use the Solana withdrawal
+intent builder above for the current flow.

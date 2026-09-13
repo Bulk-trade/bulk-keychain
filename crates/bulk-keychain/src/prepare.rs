@@ -236,7 +236,8 @@ pub fn prepare_transfer(
     prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
-/// Prepare a portfolio withdraw transaction.
+/// Legacy helper retained for source compatibility; always returns `Error::LegacyWithdrawal`.
+/// Use the Solana `request_withdraw` instruction instead.
 pub fn prepare_withdraw(
     withdraw: Withdraw,
     signature_domain: SignatureDomain,
@@ -248,7 +249,8 @@ pub fn prepare_withdraw(
     prepare_action(&action, signature_domain, account, signer, nonce)
 }
 
-/// Prepare a withdraw-lock recovery transaction.
+/// Legacy helper retained for source compatibility; always returns `Error::LegacyWithdrawal`.
+/// Withdrawal requests now use the Solana `request_withdraw` instruction.
 pub fn prepare_withdraw_lock_recover(
     recover: WithdrawLockRecover,
     signature_domain: SignatureDomain,
@@ -612,21 +614,7 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "marginAmount": transfer.margin_amount,
             }
         })]),
-        Action::Withdraw(withdraw) => Ok(vec![json!({
-            "withdraw": {
-                "u": withdraw.user.to_base58(),
-                "v": withdraw.vault.to_base58(),
-                "rta": withdraw.recipient_token_account.to_base58(),
-                "a": withdraw.amount,
-                "b": withdraw.blockhash.to_base58(),
-            }
-        })]),
-        Action::WithdrawLockRecover(recover) => Ok(vec![json!({
-            "withdrawLockRecover": {
-                "u": recover.user.to_base58(),
-                "h": recover.hash.to_base58(),
-            }
-        })]),
+        Action::Withdraw(_) | Action::WithdrawLockRecover(_) => Err(Error::LegacyWithdrawal),
         Action::CreateMultisig(action) => Ok(vec![json!({
             "createMultisig": {
                 "signers": action.signers.iter().map(Pubkey::to_base58).collect::<Vec<_>>(),
@@ -1259,88 +1247,56 @@ mod tests {
     }
 
     #[test]
-    fn test_prepare_withdraw_matches_client_wire_shape() {
+    fn legacy_withdrawal_preparation_fails_closed() {
         let account = Pubkey::from_bytes([1; 32]);
-        let vault = Pubkey::from_bytes([2; 32]);
-        let recipient_token_account = Pubkey::from_bytes([3; 32]);
-        let blockhash = Hash::from_bytes([4; 32]);
-        let amount = 42u64;
-        let nonce = 1234567890u64;
-        let withdraw = Withdraw {
-            user: account,
-            vault,
-            recipient_token_account,
-            amount,
-            blockhash,
-        };
-        let prepared = prepare_withdraw(
-            withdraw,
-            SignatureDomain::Devnet,
-            &account,
-            None,
-            Some(nonce),
-        )
-        .unwrap();
-
-        let mut expected = Vec::new();
-        expected.extend_from_slice(&1u64.to_le_bytes());
-        expected.extend_from_slice(&45u32.to_le_bytes());
-        expected.extend_from_slice(account.as_bytes());
-        expected.extend_from_slice(vault.as_bytes());
-        expected.extend_from_slice(recipient_token_account.as_bytes());
-        expected.extend_from_slice(&amount.to_le_bytes());
-        expected.extend_from_slice(blockhash.as_bytes());
-        expected.extend_from_slice(&nonce.to_le_bytes());
-        expected.extend_from_slice(account.as_bytes());
-        expected.push(SignatureDomain::Devnet as u8);
-        assert_eq!(prepared.message_bytes, expected);
-
-        let obj = prepared.actions[0].get("withdraw").unwrap();
-        assert_eq!(
-            obj.get("u").and_then(|v| v.as_str()),
-            Some(account.to_base58().as_str())
-        );
-        assert_eq!(
-            obj.get("v").and_then(|v| v.as_str()),
-            Some(vault.to_base58().as_str())
-        );
-        assert_eq!(obj.get("a").and_then(|v| v.as_u64()), Some(amount));
-        assert!(obj.get("recipientTokenAccount").is_none());
-    }
-
-    #[test]
-    fn test_prepare_withdraw_lock_recover_matches_client_wire_shape() {
-        let account = Pubkey::from_bytes([1; 32]);
-        let user = Pubkey::from_bytes([2; 32]);
-        let hash = Hash::from_bytes([3; 32]);
-        let nonce = 1234567890u64;
-        let prepared = prepare_withdraw_lock_recover(
-            WithdrawLockRecover { user, hash },
-            SignatureDomain::Devnet,
-            &account,
-            None,
-            Some(nonce),
-        )
-        .unwrap();
-
-        let mut expected = Vec::new();
-        expected.extend_from_slice(&1u64.to_le_bytes());
-        expected.extend_from_slice(&54u32.to_le_bytes());
-        expected.extend_from_slice(user.as_bytes());
-        expected.extend_from_slice(hash.as_bytes());
-        expected.extend_from_slice(&nonce.to_le_bytes());
-        expected.extend_from_slice(account.as_bytes());
-        expected.push(SignatureDomain::Devnet as u8);
-        assert_eq!(prepared.message_bytes, expected);
-
-        let obj = prepared.actions[0].get("withdrawLockRecover").unwrap();
-        assert_eq!(
-            obj.get("u").and_then(|v| v.as_str()),
-            Some(user.to_base58().as_str())
-        );
-        assert_eq!(
-            obj.get("h").and_then(|v| v.as_str()),
-            Some(hash.to_base58().as_str())
-        );
+        for action in [
+            Action::Withdraw(Withdraw {
+                user: account,
+                vault: Pubkey::from_bytes([2; 32]),
+                recipient_token_account: Pubkey::from_bytes([3; 32]),
+                amount: 42,
+                blockhash: Hash::from_bytes([4; 32]),
+            }),
+            Action::WithdrawLockRecover(WithdrawLockRecover {
+                user: account,
+                hash: Hash::from_bytes([5; 32]),
+            }),
+        ] {
+            assert!(matches!(
+                match action.clone() {
+                    Action::Withdraw(withdraw) =>
+                        prepare_withdraw(withdraw, SignatureDomain::Devnet, &account, None, Some(1),),
+                    Action::WithdrawLockRecover(recover) => prepare_withdraw_lock_recover(
+                        recover,
+                        SignatureDomain::Devnet,
+                        &account,
+                        None,
+                        Some(1),
+                    ),
+                    _ => unreachable!(),
+                },
+                Err(Error::LegacyWithdrawal)
+            ));
+            assert!(matches!(
+                prepare_action(&action, SignatureDomain::Devnet, &account, None, Some(1)),
+                Err(Error::LegacyWithdrawal)
+            ));
+            assert!(matches!(
+                prepare_action(
+                    &Action::MultisigPropose(MultisigPropose::new(
+                        account,
+                        vec![Action::MultisigPropose(MultisigPropose::new(
+                            account,
+                            vec![action]
+                        )),]
+                    )),
+                    SignatureDomain::Devnet,
+                    &account,
+                    None,
+                    Some(1),
+                ),
+                Err(Error::LegacyWithdrawal)
+            ));
+        }
     }
 }

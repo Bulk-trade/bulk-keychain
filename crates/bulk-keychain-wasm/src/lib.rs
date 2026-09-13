@@ -3072,3 +3072,44 @@ mod tests {
         assert!(signed_nonce.parse::<u64>().unwrap() > prepared_nonce);
     }
 }
+
+/// Build an unsigned mainnet USDC deposit instruction from an exact base-unit amount.
+#[wasm_bindgen(js_name = buildDepositInstruction, skip_typescript)]
+pub fn build_deposit_instruction(owner: &str, amount: &str) -> Result<JsValue, JsError> {
+    serde_wasm_bindgen::to_value(
+        &bulk_keychain::solana::deposit(
+            owner,
+            bulk_keychain::parse_nonce_decimal(amount)
+                .map_err(|_| JsError::new("amount must be an unsigned 64-bit decimal string"))?,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?,
+    )
+    .map_err(|error| JsError::new(&error.to_string()))
+}
+
+/// Build an unsigned mainnet USDC withdrawal intent; no tokens transfer in this instruction.
+#[wasm_bindgen(js_name = buildWithdrawIntentInstruction, skip_typescript)]
+pub fn build_withdraw_intent_instruction(owner: &str, amount: &str) -> Result<JsValue, JsError> {
+    serde_wasm_bindgen::to_value(
+        &bulk_keychain::solana::request_withdraw(
+            owner,
+            bulk_keychain::parse_nonce_decimal(amount)
+                .map_err(|_| JsError::new("amount must be an unsigned 64-bit decimal string"))?,
+        )
+        .map_err(|error| JsError::new(&error.to_string()))?,
+    )
+    .map_err(|error| JsError::new(&error.to_string()))
+}
+
+#[wasm_bindgen(typescript_custom_section)]
+const SOLANA_INSTRUCTION_TYPES: &str = r#"
+export interface SolanaInstruction {
+    programId: string;
+    accounts: Array<{ pubkey: string; isSigner: boolean; isWritable: boolean }>;
+    data: number[];
+}
+/** Mainnet USDC only; amount is an exact decimal u64 string in base units. */
+export function buildDepositInstruction(owner: string, amount: string): SolanaInstruction;
+/** Signals a mainnet USDC withdrawal; this instruction transfers no tokens. */
+export function buildWithdrawIntentInstruction(owner: string, amount: string): SolanaInstruction;
+"#;

@@ -1693,3 +1693,64 @@ mod tests {
         assert!(error.to_string().contains("trig.iso"));
     }
 }
+
+/// Ordered Solana instruction account metadata.
+#[napi(object)]
+pub struct SolanaAccountMeta {
+    pub pubkey: String,
+    pub is_signer: bool,
+    pub is_writable: bool,
+}
+
+/// Unsigned mainnet USDC instruction; submit through a Solana wallet/client.
+#[napi(object)]
+pub struct SolanaInstruction {
+    pub program_id: String,
+    pub accounts: Vec<SolanaAccountMeta>,
+    pub data: Buffer,
+}
+
+impl From<bulk_keychain::solana::Instruction> for SolanaInstruction {
+    fn from(instruction: bulk_keychain::solana::Instruction) -> Self {
+        Self {
+            program_id: instruction.program_id,
+            accounts: instruction
+                .accounts
+                .into_iter()
+                .map(|account| SolanaAccountMeta {
+                    pubkey: account.pubkey,
+                    is_signer: account.is_signer,
+                    is_writable: account.is_writable,
+                })
+                .collect(),
+            data: Buffer::from(instruction.data),
+        }
+    }
+}
+
+/// Build a mainnet USDC deposit instruction. Amount is an exact decimal u64 in base units.
+#[napi]
+pub fn build_deposit_instruction(owner: String, amount: String) -> Result<SolanaInstruction> {
+    bulk_keychain::solana::deposit(
+        &owner,
+        bulk_keychain::parse_nonce_decimal(&amount)
+            .map_err(|_| Error::from_reason("amount must be an unsigned 64-bit decimal string"))?,
+    )
+    .map(Into::into)
+    .map_err(|error| Error::from_reason(error.to_string()))
+}
+
+/// Build a mainnet USDC withdrawal intent; this instruction does not transfer tokens.
+#[napi]
+pub fn build_withdraw_intent_instruction(
+    owner: String,
+    amount: String,
+) -> Result<SolanaInstruction> {
+    bulk_keychain::solana::request_withdraw(
+        &owner,
+        bulk_keychain::parse_nonce_decimal(&amount)
+            .map_err(|_| Error::from_reason("amount must be an unsigned 64-bit decimal string"))?,
+    )
+    .map(Into::into)
+    .map_err(|error| Error::from_reason(error.to_string()))
+}

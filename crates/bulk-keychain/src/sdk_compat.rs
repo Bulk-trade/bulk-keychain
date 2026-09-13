@@ -490,27 +490,6 @@ struct TxTransfer {
 }
 
 #[derive(Clone, Debug, Serialize)]
-struct TxWithdraw {
-    #[serde(with = "serde_pubkey")]
-    user: Pubkey,
-    #[serde(with = "serde_pubkey")]
-    vault: Pubkey,
-    #[serde(with = "serde_pubkey")]
-    recipient_token_account: Pubkey,
-    amount: u64,
-    #[serde(with = "serde_hash")]
-    blockhash: Hash,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct TxWithdrawLockRecover {
-    #[serde(with = "serde_pubkey", rename = "u")]
-    user: Pubkey,
-    #[serde(with = "serde_hash", rename = "h")]
-    hash: Hash,
-}
-
-#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct TxCreateMultisig {
     #[serde(with = "serde_pubkey_vec")]
@@ -661,8 +640,8 @@ enum TxAction {
     UpdateLiquidatorConfig(TxLiquidatorConfig),
     #[allow(dead_code)]
     Reserved44,
-    #[serde(rename = "withdraw")]
-    Withdraw(TxWithdraw),
+    #[allow(dead_code)]
+    Reserved45,
     #[allow(dead_code)]
     Reserved46,
     #[allow(dead_code)]
@@ -679,8 +658,8 @@ enum TxAction {
     Reserved52,
     #[allow(dead_code)]
     Reserved53,
-    #[serde(rename = "withdrawLockRecover")]
-    WithdrawLockRecover(TxWithdrawLockRecover),
+    #[allow(dead_code)]
+    Reserved54,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -879,19 +858,7 @@ fn action_to_tx_actions(action: &Action) -> Result<Vec<TxAction>> {
             to: transfer.to,
             margin_amount: transfer.margin_amount,
         })]),
-        Action::Withdraw(withdraw) => Ok(vec![TxAction::Withdraw(TxWithdraw {
-            user: withdraw.user,
-            vault: withdraw.vault,
-            recipient_token_account: withdraw.recipient_token_account,
-            amount: withdraw.amount,
-            blockhash: withdraw.blockhash,
-        })]),
-        Action::WithdrawLockRecover(recover) => {
-            Ok(vec![TxAction::WithdrawLockRecover(TxWithdrawLockRecover {
-                user: recover.user,
-                hash: recover.hash,
-            })])
-        }
+        Action::Withdraw(_) | Action::WithdrawLockRecover(_) => Err(Error::LegacyWithdrawal),
         Action::CreateMultisig(action) => Ok(vec![TxAction::CreateMultisig(TxCreateMultisig {
             signers: action.signers.clone(),
             threshold: action.threshold,

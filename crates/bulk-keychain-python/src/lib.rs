@@ -1881,6 +1881,8 @@ fn py_finalize_transaction(prepared: &Bound<'_, PyDict>, signature: &str) -> PyR
 /// High-performance transaction signing for BULK DEX
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(build_deposit_instruction, m)?)?;
+    m.add_function(wrap_pyfunction!(build_withdraw_intent_instruction, m)?)?;
     m.add_class::<PyKeypair>()?;
     m.add_class::<PySigner>()?;
     m.add_function(wrap_pyfunction!(random_hash, m)?)?;
@@ -1905,4 +1907,47 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(py_prepare_transfer, m)?)?;
     m.add_function(wrap_pyfunction!(py_finalize_transaction, m)?)?;
     Ok(())
+}
+
+fn solana_instruction_to_py(
+    py: Python<'_>,
+    instruction: bulk_keychain::solana::Instruction,
+) -> PyResult<PyObject> {
+    let output = PyDict::new(py);
+    output.set_item("program_id", instruction.program_id)?;
+    let accounts = PyList::empty(py);
+    for account in instruction.accounts {
+        let entry = PyDict::new(py);
+        entry.set_item("pubkey", account.pubkey)?;
+        entry.set_item("is_signer", account.is_signer)?;
+        entry.set_item("is_writable", account.is_writable)?;
+        accounts.append(entry)?;
+    }
+    output.set_item("accounts", accounts)?;
+    output.set_item("data", pyo3::types::PyBytes::new(py, &instruction.data))?;
+    Ok(output.into())
+}
+
+/// Build an unsigned mainnet USDC deposit instruction, with amount in base units.
+#[pyfunction]
+fn build_deposit_instruction(py: Python<'_>, owner: &str, amount: u64) -> PyResult<PyObject> {
+    solana_instruction_to_py(
+        py,
+        bulk_keychain::solana::deposit(owner, amount)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?,
+    )
+}
+
+/// Build an unsigned mainnet USDC withdrawal intent; no tokens transfer in this instruction.
+#[pyfunction]
+fn build_withdraw_intent_instruction(
+    py: Python<'_>,
+    owner: &str,
+    amount: u64,
+) -> PyResult<PyObject> {
+    solana_instruction_to_py(
+        py,
+        bulk_keychain::solana::request_withdraw(owner, amount)
+            .map_err(|error| PyValueError::new_err(error.to_string()))?,
+    )
 }
