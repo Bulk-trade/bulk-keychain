@@ -19,9 +19,15 @@ use bulk_keychain::{
     TriggerBasket, UpdateMultisigPolicy, UserSettings, WhitelistFaucet, Withdraw,
     WithdrawLockRecover,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use wasm_bindgen::prelude::*;
+
+// JSON action maps must be plain objects for JSON.stringify and API submission.
+// Preserve all other serde-wasm-bindgen defaults, including exact nonce strings.
+fn to_js_value(value: &impl Serialize) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    value.serialize(&serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true))
+}
 
 #[inline]
 fn parse_signature_domain(value: &str) -> Result<SignatureDomain, JsError> {
@@ -244,7 +250,7 @@ impl WasmSigner {
         let signature = self.inner.sign_bytes(&prepared.inner.message_bytes);
         let signed = finalize_transaction(prepared.inner.clone(), &signature)
             .map_err(|error| JsError::new(&error.to_string()))?;
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     // ========================================================================
@@ -267,7 +273,7 @@ impl WasmSigner {
             .sign(order_item, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign multiple orders - each becomes its own transaction (parallel)
@@ -290,7 +296,7 @@ impl WasmSigner {
             .sign_all(order_items, base)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign multiple orders atomically in ONE transaction
@@ -313,7 +319,7 @@ impl WasmSigner {
             .sign_group(order_items, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     // ========================================================================
@@ -329,7 +335,7 @@ impl WasmSigner {
             .sign_faucet(nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign agent wallet creation/deletion
@@ -348,7 +354,7 @@ impl WasmSigner {
             .sign_agent_wallet(agent, delete, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign builder-code recipient approval (`abc`)
@@ -365,7 +371,7 @@ impl WasmSigner {
             .sign_approve_commission_fee(to, fee, parse_optional_nonce(nonce)?)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign builder-code recipient approval (`abc`)
@@ -392,7 +398,7 @@ impl WasmSigner {
             .sign_revoke_commission_fee(to, parse_optional_nonce(nonce)?)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign builder-code recipient revocation (`rbc`)
@@ -423,7 +429,7 @@ impl WasmSigner {
             .sign_user_settings(user_settings, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a liquidator config update (`liq`)
@@ -441,7 +447,7 @@ impl WasmSigner {
             .sign_update_liquidator_config(input.into(), parse_optional_nonce(nonce)?)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign one or more oracle price updates (`px`)
@@ -468,7 +474,7 @@ impl WasmSigner {
             .sign_oracle_prices(oracle_prices, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a batch Pyth oracle update (`o`)
@@ -496,7 +502,7 @@ impl WasmSigner {
             .sign_pyth_oracle(pyth_oracles, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a margin transfer between accounts
@@ -535,7 +541,7 @@ impl WasmSigner {
             .sign_transfer(transfer, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a sub-account creation (optional initial margin transfer)
@@ -557,7 +563,7 @@ impl WasmSigner {
             .sign_create_sub_account(sub_account, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig creation
@@ -591,7 +597,7 @@ impl WasmSigner {
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig proposal
@@ -611,7 +617,7 @@ impl WasmSigner {
             .sign_multisig_propose(MultisigPropose::new(multisig, actions), nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig approval
@@ -633,7 +639,7 @@ impl WasmSigner {
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig rejection
@@ -652,7 +658,7 @@ impl WasmSigner {
             .sign_multisig_reject(MultisigReject::new(multisig, proposal_id as u64), nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig cancellation
@@ -671,7 +677,7 @@ impl WasmSigner {
             .sign_multisig_cancel(MultisigCancel::new(multisig, proposal_id as u64), nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig execution
@@ -693,7 +699,7 @@ impl WasmSigner {
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a multisig policy update
@@ -730,7 +736,7 @@ impl WasmSigner {
             )
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a sub-account removal
@@ -751,7 +757,7 @@ impl WasmSigner {
             .sign_remove_sub_account(target, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign a sub-account rename
@@ -774,7 +780,7 @@ impl WasmSigner {
             .sign_rename_sub_account(RenameSubAccount { account, name }, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     /// Sign whitelist/un-whitelist faucet access (`whitelistFaucet`)
@@ -794,7 +800,7 @@ impl WasmSigner {
             .sign_whitelist_faucet(target, whitelist, nonce_val)
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+        to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
     }
 
     // ========================================================================
@@ -835,7 +841,7 @@ impl WasmSigner {
                 .sign_orders_batch(order_batches, base)
                 .map_err(|e| JsError::new(&e.to_string()))?;
 
-            serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+            to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
         }
     }
 }
@@ -1789,7 +1795,7 @@ impl WasmPreparedMessage {
     /// Get the actions JSON
     #[wasm_bindgen(getter)]
     pub fn actions(&self) -> JsValue {
-        serde_wasm_bindgen::to_value(&self.inner.actions).unwrap_or(JsValue::NULL)
+        to_js_value(&self.inner.actions).unwrap_or(JsValue::NULL)
     }
 
     /// Get the account public key (base58)
@@ -1817,7 +1823,7 @@ impl WasmPreparedMessage {
     pub fn finalize(&self, signature: &str) -> Result<JsValue, JsError> {
         let signed = finalize_transaction(self.inner.clone(), signature)
             .map_err(|error| JsError::new(&error.to_string()))?;
-        serde_wasm_bindgen::to_value(&signed).map_err(|error| JsError::new(&error.to_string()))
+        to_js_value(&signed).map_err(|error| JsError::new(&error.to_string()))
     }
 
     /// Finalize with signature bytes (Uint8Array)
@@ -1825,7 +1831,7 @@ impl WasmPreparedMessage {
     pub fn finalize_bytes(&self, signature: &[u8]) -> Result<JsValue, JsError> {
         let signed = bulk_keychain::finalize_transaction_bytes(self.inner.clone(), signature)
             .map_err(|error| JsError::new(&error.to_string()))?;
-        serde_wasm_bindgen::to_value(&signed).map_err(|error| JsError::new(&error.to_string()))
+        to_js_value(&signed).map_err(|error| JsError::new(&error.to_string()))
     }
 }
 
@@ -2772,7 +2778,7 @@ pub fn wasm_finalize_transaction(prepared: JsValue, signature: &str) -> Result<J
         serde_wasm_bindgen::from_value(prepared).map_err(|e| JsError::new(&e.to_string()))?;
     let signed = finalize_transaction(prep, signature)
         .map_err(|error| JsError::new(&error.to_string()))?;
-    serde_wasm_bindgen::to_value(&signed).map_err(|e| JsError::new(&e.to_string()))
+    to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
 }
 
 #[cfg(test)]
@@ -3093,7 +3099,7 @@ mod tests {
 /// Build an unsigned mainnet USDC deposit instruction from an exact base-unit amount.
 #[wasm_bindgen(js_name = buildDepositInstruction, skip_typescript)]
 pub fn build_deposit_instruction(owner: &str, amount: &str) -> Result<JsValue, JsError> {
-    serde_wasm_bindgen::to_value(
+    to_js_value(
         &bulk_keychain::solana::deposit(
             owner,
             bulk_keychain::parse_nonce_decimal(amount)
@@ -3107,7 +3113,7 @@ pub fn build_deposit_instruction(owner: &str, amount: &str) -> Result<JsValue, J
 /// Build an unsigned mainnet USDC withdrawal intent; no tokens transfer in this instruction.
 #[wasm_bindgen(js_name = buildWithdrawIntentInstruction, skip_typescript)]
 pub fn build_withdraw_intent_instruction(owner: &str, amount: &str) -> Result<JsValue, JsError> {
-    serde_wasm_bindgen::to_value(
+    to_js_value(
         &bulk_keychain::solana::request_withdraw(
             owner,
             bulk_keychain::parse_nonce_decimal(amount)
