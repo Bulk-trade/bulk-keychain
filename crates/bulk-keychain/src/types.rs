@@ -286,7 +286,11 @@ pub struct Order {
     /// Optional builder-code fee paid by this order.
     ///
     /// Builder codes are encoded as commission fees on the wire.
-    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "builderCode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub commission: Option<Commission>,
     /// Market-order slippage limit in basis points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -486,7 +490,11 @@ pub struct Stop {
     #[serde(default)]
     pub iso: bool,
     /// Optional builder-code fee paid when this conditional executes.
-    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "builderCode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub commission: Option<Commission>,
 }
 
@@ -504,7 +512,11 @@ pub struct TakeProfit {
     #[serde(default)]
     pub iso: bool,
     /// Optional builder-code fee paid when this conditional executes.
-    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "builderCode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub commission: Option<Commission>,
 }
 
@@ -525,7 +537,11 @@ pub struct RangeOco {
     #[serde(default)]
     pub iso: bool,
     /// Optional builder-code fee paid when this conditional executes.
-    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "builderCode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub commission: Option<Commission>,
 }
 
@@ -558,7 +574,11 @@ pub struct TrailingStop {
     #[serde(default)]
     pub iso: bool,
     /// Optional builder-code fee paid when this conditional executes.
-    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "builderCode",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub commission: Option<Commission>,
 }
 

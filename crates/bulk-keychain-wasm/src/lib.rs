@@ -131,7 +131,9 @@ impl WasmKeypair {
 
 impl Default for WasmKeypair {
     fn default() -> Self {
-        Self { inner: Keypair::generate() }
+        Self {
+            inner: Keypair::generate(),
+        }
     }
 }
 
@@ -226,7 +228,10 @@ impl WasmSigner {
 
     /// Sign an explicit wallet mode using this signer's key and configured network.
     #[wasm_bindgen(js_name = signWalletPrepared)]
-    pub fn sign_wallet_prepared(&self, wallet: &WasmWalletPreparedMessage) -> Result<JsValue, JsError> {
+    pub fn sign_wallet_prepared(
+        &self,
+        wallet: &WasmWalletPreparedMessage,
+    ) -> Result<JsValue, JsError> {
         let signed = bulk_keychain::sign_wallet_message(&self.inner, wallet.inner.clone())
             .map_err(|error| JsError::new(&error.to_string()))?;
         to_js_value(&signed).map_err(|error| JsError::new(&error.to_string()))
@@ -252,8 +257,11 @@ impl WasmSigner {
             )));
         }
 
-        if prepared.inner.message_bytes.last().copied() != Some(self.inner.signature_domain() as u8) {
-            return Err(JsError::new("Prepared message network domain does not match signer"));
+        if prepared.inner.message_bytes.last().copied() != Some(self.inner.signature_domain() as u8)
+        {
+            return Err(JsError::new(
+                "Prepared message network domain does not match signer",
+            ));
         }
         let signature = self.inner.sign_bytes(&prepared.inner.message_bytes);
         let signed = finalize_transaction(prepared.inner.clone(), &signature)
@@ -1480,7 +1488,9 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
 fn json_builder_code(
     obj: &serde_json::Map<String, JsonValue>,
 ) -> Result<Option<Commission>, JsError> {
-    let Some(value) = obj.get("builderCode") else { return Ok(None) };
+    let Some(value) = obj.get("builderCode") else {
+        return Ok(None);
+    };
     let builder = json_obj(value, "builderCode")?;
     let fee = builder
         .get("fee")
@@ -2811,8 +2821,8 @@ pub fn wasm_prepare_update_multisig_policy(
 pub fn wasm_finalize_transaction(prepared: JsValue, signature: &str) -> Result<JsValue, JsError> {
     let prep: PreparedMessage =
         serde_wasm_bindgen::from_value(prepared).map_err(|e| JsError::new(&e.to_string()))?;
-    let signed = finalize_transaction(prep, signature)
-        .map_err(|error| JsError::new(&error.to_string()))?;
+    let signed =
+        finalize_transaction(prep, signature).map_err(|error| JsError::new(&error.to_string()))?;
     to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
 }
 

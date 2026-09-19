@@ -535,7 +535,12 @@ pub(crate) fn finalize_with_message(
         ));
     }
     ed25519_dalek::VerifyingKey::from_bytes(signer.as_bytes())
-        .and_then(|key| key.verify_strict(signing_message.unwrap_or(&prepared.message_bytes), &decoded_signature))
+        .and_then(|key| {
+            key.verify_strict(
+                signing_message.unwrap_or(&prepared.message_bytes),
+                &decoded_signature,
+            )
+        })
         .map_err(|_| {
             Error::SigningFailed(
                 "signature does not verify for the prepared signer and message".into(),
@@ -1207,7 +1212,8 @@ mod tests {
             Some(1234567890),
         )
         .unwrap();
-        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet).sign_bytes(&prepared.message_bytes);
+        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet)
+            .sign_bytes(&prepared.message_bytes);
         let signed = finalize_transaction(prepared.clone(), &signature).unwrap();
 
         assert_eq!(signed.nonce, prepared.nonce);
@@ -1244,7 +1250,8 @@ mod tests {
         let restored: PreparedMessage = serde_json::from_value(prepared_json).unwrap();
         assert_eq!(restored.nonce, NONCE);
 
-        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet).sign_bytes(&restored.message_bytes);
+        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet)
+            .sign_bytes(&restored.message_bytes);
         let signed = finalize_transaction(restored, &signature).unwrap();
         let signed_json = signed.to_json().unwrap();
         let signed_value: serde_json::Value = serde_json::from_str(&signed_json).unwrap();

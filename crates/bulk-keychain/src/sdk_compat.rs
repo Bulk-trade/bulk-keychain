@@ -358,26 +358,37 @@ struct TxStop {
 impl Serialize for TxStop {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            let mut state = serializer.serialize_struct("Stop", 6 + usize::from(self.commission.is_some()))?;
+            let mut state =
+                serializer.serialize_struct("Stop", 6 + usize::from(self.commission.is_some()))?;
             state.serialize_field("c", &self.symbol)?;
             state.serialize_field("d", &self.is_buy)?;
             state.serialize_field("sz", &SafeF64(self.size))?;
             state.serialize_field("tr", &SafeF64(self.trigger_price))?;
             state.serialize_field("lim", &self.limit_price.map(SafeF64))?;
             state.serialize_field("i", &self.iso)?;
-            if let Some(commission) = &self.commission { state.serialize_field("builderCode", commission)?; }
+            if let Some(commission) = &self.commission {
+                state.serialize_field("builderCode", commission)?;
+            }
             state.end()
         } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
             let mut tuple = serializer.serialize_tuple(7)?;
-            tuple.serialize_element(&self.symbol)?; tuple.serialize_element(&self.is_buy)?;
-            tuple.serialize_element(&SafeF64(self.size))?; tuple.serialize_element(&SafeF64(self.trigger_price))?;
-            tuple.serialize_element(&self.limit_price.map(SafeF64))?; tuple.serialize_element(&self.iso)?;
-            tuple.serialize_element(&self.commission)?; tuple.end()
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&SafeF64(self.trigger_price))?;
+            tuple.serialize_element(&self.limit_price.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.end()
         } else {
             let mut tuple = serializer.serialize_tuple(6)?;
-            tuple.serialize_element(&self.symbol)?; tuple.serialize_element(&self.is_buy)?;
-            tuple.serialize_element(&SafeF64(self.size))?; tuple.serialize_element(&SafeF64(self.trigger_price))?;
-            tuple.serialize_element(&self.limit_price.map(SafeF64))?; tuple.serialize_element(&self.iso)?; tuple.end()
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&SafeF64(self.trigger_price))?;
+            tuple.serialize_element(&self.limit_price.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.end()
         }
     }
 }
@@ -396,7 +407,17 @@ struct TxTakeProfit {
 
 impl Serialize for TxTakeProfit {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
-        TxStop { symbol: self.symbol.clone(), is_buy: self.is_buy, size: self.size, trigger_price: self.trigger_price, limit_price: self.limit_price, iso: self.iso, commission: self.commission.clone(), layout: self.layout }.serialize(serializer)
+        TxStop {
+            symbol: self.symbol.clone(),
+            is_buy: self.is_buy,
+            size: self.size,
+            trigger_price: self.trigger_price,
+            limit_price: self.limit_price,
+            iso: self.iso,
+            commission: self.commission.clone(),
+            layout: self.layout,
+        }
+        .serialize(serializer)
     }
 }
 
@@ -417,24 +438,43 @@ struct TxRangeOco {
 impl Serialize for TxRangeOco {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            let mut state = serializer.serialize_struct("Range", 8 + usize::from(self.commission.is_some()))?;
-            state.serialize_field("c", &self.symbol)?; state.serialize_field("d", &self.is_buy)?;
-            state.serialize_field("sz", &SafeF64(self.size))?; state.serialize_field("pmin", &SafeF64(self.collar_min))?;
-            state.serialize_field("pmax", &SafeF64(self.collar_max))?; state.serialize_field("lmin", &self.limit_min.map(SafeF64))?;
-            state.serialize_field("lmax", &self.limit_max.map(SafeF64))?; state.serialize_field("i", &self.iso)?;
-            if let Some(commission) = &self.commission { state.serialize_field("builderCode", commission)?; }
+            let mut state =
+                serializer.serialize_struct("Range", 8 + usize::from(self.commission.is_some()))?;
+            state.serialize_field("c", &self.symbol)?;
+            state.serialize_field("d", &self.is_buy)?;
+            state.serialize_field("sz", &SafeF64(self.size))?;
+            state.serialize_field("pmin", &SafeF64(self.collar_min))?;
+            state.serialize_field("pmax", &SafeF64(self.collar_max))?;
+            state.serialize_field("lmin", &self.limit_min.map(SafeF64))?;
+            state.serialize_field("lmax", &self.limit_max.map(SafeF64))?;
+            state.serialize_field("i", &self.iso)?;
+            if let Some(commission) = &self.commission {
+                state.serialize_field("builderCode", commission)?;
+            }
             state.end()
         } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
             let mut tuple = serializer.serialize_tuple(9)?;
-            tuple.serialize_element(&self.symbol)?; tuple.serialize_element(&self.is_buy)?; tuple.serialize_element(&SafeF64(self.size))?;
-            tuple.serialize_element(&SafeF64(self.collar_min))?; tuple.serialize_element(&SafeF64(self.collar_max))?;
-            tuple.serialize_element(&self.limit_min.map(SafeF64))?; tuple.serialize_element(&self.limit_max.map(SafeF64))?;
-            tuple.serialize_element(&self.iso)?; tuple.serialize_element(&self.commission)?; tuple.end()
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&SafeF64(self.collar_min))?;
+            tuple.serialize_element(&SafeF64(self.collar_max))?;
+            tuple.serialize_element(&self.limit_min.map(SafeF64))?;
+            tuple.serialize_element(&self.limit_max.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.end()
         } else {
             let mut tuple = serializer.serialize_tuple(8)?;
-            tuple.serialize_element(&self.symbol)?; tuple.serialize_element(&self.is_buy)?; tuple.serialize_element(&SafeF64(self.size))?;
-            tuple.serialize_element(&SafeF64(self.collar_min))?; tuple.serialize_element(&SafeF64(self.collar_max))?;
-            tuple.serialize_element(&self.limit_min.map(SafeF64))?; tuple.serialize_element(&self.limit_max.map(SafeF64))?; tuple.serialize_element(&self.iso)?; tuple.end()
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&SafeF64(self.collar_min))?;
+            tuple.serialize_element(&SafeF64(self.collar_max))?;
+            tuple.serialize_element(&self.limit_min.map(SafeF64))?;
+            tuple.serialize_element(&self.limit_max.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.end()
         }
     }
 }
@@ -474,21 +514,40 @@ struct TxTrailingStop {
 impl Serialize for TxTrailingStop {
     fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
         if serializer.is_human_readable() {
-            let mut state = serializer.serialize_struct("Trailing", 7 + usize::from(self.commission.is_some()))?;
-            state.serialize_field("c", &self.symbol)?; state.serialize_field("b", &self.is_buy)?; state.serialize_field("sz", &SafeF64(self.size))?;
-            state.serialize_field("trb", &self.trail_bps)?; state.serialize_field("stb", &self.step_bps)?;
-            state.serialize_field("lim", &self.limit_price.map(SafeF64))?; state.serialize_field("i", &self.iso)?;
-            if let Some(commission) = &self.commission { state.serialize_field("builderCode", commission)?; }
+            let mut state = serializer
+                .serialize_struct("Trailing", 7 + usize::from(self.commission.is_some()))?;
+            state.serialize_field("c", &self.symbol)?;
+            state.serialize_field("b", &self.is_buy)?;
+            state.serialize_field("sz", &SafeF64(self.size))?;
+            state.serialize_field("trb", &self.trail_bps)?;
+            state.serialize_field("stb", &self.step_bps)?;
+            state.serialize_field("lim", &self.limit_price.map(SafeF64))?;
+            state.serialize_field("i", &self.iso)?;
+            if let Some(commission) = &self.commission {
+                state.serialize_field("builderCode", commission)?;
+            }
             state.end()
         } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
             let mut tuple = serializer.serialize_tuple(8)?;
-            tuple.serialize_element(&self.symbol)?; tuple.serialize_element(&self.is_buy)?; tuple.serialize_element(&SafeF64(self.size))?;
-            tuple.serialize_element(&self.trail_bps)?; tuple.serialize_element(&self.step_bps)?; tuple.serialize_element(&self.limit_price.map(SafeF64))?;
-            tuple.serialize_element(&self.iso)?; tuple.serialize_element(&self.commission)?; tuple.end()
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&self.trail_bps)?;
+            tuple.serialize_element(&self.step_bps)?;
+            tuple.serialize_element(&self.limit_price.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.end()
         } else {
             let mut tuple = serializer.serialize_tuple(7)?;
-            tuple.serialize_element(&self.symbol)?; tuple.serialize_element(&self.is_buy)?; tuple.serialize_element(&SafeF64(self.size))?;
-            tuple.serialize_element(&self.trail_bps)?; tuple.serialize_element(&self.step_bps)?; tuple.serialize_element(&self.limit_price.map(SafeF64))?; tuple.serialize_element(&self.iso)?; tuple.end()
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&self.trail_bps)?;
+            tuple.serialize_element(&self.step_bps)?;
+            tuple.serialize_element(&self.limit_price.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.end()
         }
     }
 }
@@ -1138,8 +1197,13 @@ fn order_item_has_builder_code(item: &OrderItem) -> bool {
         OrderItem::TakeProfit(order) => order.commission.is_some(),
         OrderItem::RangeOco(order) => order.commission.is_some(),
         OrderItem::TrailingStop(order) => order.commission.is_some(),
-        OrderItem::TriggerBasket(trigger) => trigger.actions.iter().any(order_item_has_builder_code),
-        OrderItem::OnFill(on_fill) => order_item_has_builder_code(&on_fill.trigger) || on_fill.actions.iter().any(order_item_has_builder_code),
+        OrderItem::TriggerBasket(trigger) => {
+            trigger.actions.iter().any(order_item_has_builder_code)
+        }
+        OrderItem::OnFill(on_fill) => {
+            order_item_has_builder_code(&on_fill.trigger)
+                || on_fill.actions.iter().any(order_item_has_builder_code)
+        }
         _ => false,
     }
 }
@@ -1591,16 +1655,37 @@ mod tests {
         let account = Pubkey::from_bytes([3u8; 32]);
         let recipient = Pubkey::from_bytes([4u8; 32]);
         let plain = Stop {
-            symbol: "BTC-USD".to_string(), is_buy: false, size: 0.1,
-            trigger_price: 90_000.0, limit_price: f64::NAN, iso: false, commission: None,
+            symbol: "BTC-USD".to_string(),
+            is_buy: false,
+            size: 0.1,
+            trigger_price: 90_000.0,
+            limit_price: f64::NAN,
+            iso: false,
+            commission: None,
         };
         let mut commissioned = plain.clone();
         commissioned.commission = Some(Commission::new(recipient, 5).unwrap());
-        let action = |stop| Action::Order { orders: vec![OrderItem::Stop(stop)] };
+        let action = |stop| Action::Order {
+            orders: vec![OrderItem::Stop(stop)],
+        };
         let mut plain_bytes = Vec::new();
         let mut builder_bytes = Vec::new();
-        serialize_for_sdk_signing(&action(plain), SignatureDomain::Devnet, 9, &account, &mut plain_bytes).unwrap();
-        serialize_for_sdk_signing(&action(commissioned), SignatureDomain::Devnet, 9, &account, &mut builder_bytes).unwrap();
+        serialize_for_sdk_signing(
+            &action(plain),
+            SignatureDomain::Devnet,
+            9,
+            &account,
+            &mut plain_bytes,
+        )
+        .unwrap();
+        serialize_for_sdk_signing(
+            &action(commissioned),
+            SignatureDomain::Devnet,
+            9,
+            &account,
+            &mut builder_bytes,
+        )
+        .unwrap();
         assert!(!plain_bytes.starts_with(SIGNABLE_ACTIONS_V3_PREFIX));
         assert!(builder_bytes.starts_with(SIGNABLE_ACTIONS_V3_PREFIX));
         assert_ne!(plain_bytes, builder_bytes);

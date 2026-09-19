@@ -131,7 +131,9 @@ impl NativeKeypair {
 
 impl Default for NativeKeypair {
     fn default() -> Self {
-        Self { inner: Keypair::generate() }
+        Self {
+            inner: Keypair::generate(),
+        }
     }
 }
 
@@ -226,9 +228,13 @@ impl NativeSigner {
 
     /// Sign a wallet-mode preparation using this signer's key and configured network.
     #[napi]
-    pub fn sign_wallet_prepared(&self, wallet: WalletPreparedMessageOutput) -> Result<SignedTransactionOutput> {
+    pub fn sign_wallet_prepared(
+        &self,
+        wallet: WalletPreparedMessageOutput,
+    ) -> Result<SignedTransactionOutput> {
         bulk_keychain::sign_wallet_message(&self.inner, wallet.try_into()?)
-            .map(Into::into).map_err(|error| Error::from_reason(error.to_string()))
+            .map(Into::into)
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 
     /// Sign raw message bytes and return a base58 Ed25519 signature.
