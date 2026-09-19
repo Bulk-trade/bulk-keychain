@@ -286,7 +286,7 @@ pub struct Order {
     /// Optional builder-code fee paid by this order.
     ///
     /// Builder codes are encoded as commission fees on the wire.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
     pub commission: Option<Commission>,
     /// Market-order slippage limit in basis points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -485,6 +485,9 @@ pub struct Stop {
     /// Isolated-margin flag
     #[serde(default)]
     pub iso: bool,
+    /// Optional builder-code fee paid when this conditional executes.
+    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    pub commission: Option<Commission>,
 }
 
 /// Take-profit order: triggers when price crosses threshold
@@ -500,6 +503,9 @@ pub struct TakeProfit {
     /// Isolated-margin flag
     #[serde(default)]
     pub iso: bool,
+    /// Optional builder-code fee paid when this conditional executes.
+    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    pub commission: Option<Commission>,
 }
 
 /// Range / OCO order: collar around a position
@@ -518,6 +524,9 @@ pub struct RangeOco {
     /// Isolated-margin flag
     #[serde(default)]
     pub iso: bool,
+    /// Optional builder-code fee paid when this conditional executes.
+    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    pub commission: Option<Commission>,
 }
 
 /// Trigger basket: fires a set of actions when price crosses threshold.
@@ -548,6 +557,9 @@ pub struct TrailingStop {
     /// Isolated-margin flag
     #[serde(default)]
     pub iso: bool,
+    /// Optional builder-code fee paid when this conditional executes.
+    #[serde(rename = "builderCode", default, skip_serializing_if = "Option::is_none")]
+    pub commission: Option<Commission>,
 }
 
 /// On-fill consequent: one-shot follow-up actions executed on first fill of a trigger action.
