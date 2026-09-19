@@ -866,6 +866,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 trigger_price,
                 limit_price,
                 iso,
+                commission: parse_commission(dict.get_item("builder_code")?)?,
             }))
         }
         "take_profit" | "tp" => {
@@ -900,6 +901,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 trigger_price,
                 limit_price,
                 iso,
+                commission: parse_commission(dict.get_item("builder_code")?)?,
             }))
         }
         "range" | "rng" => {
@@ -944,6 +946,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 limit_min,
                 limit_max,
                 iso,
+                commission: parse_commission(dict.get_item("builder_code")?)?,
             }))
         }
         "trig" => {
@@ -1028,6 +1031,7 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 step_bps,
                 limit_price,
                 iso,
+                commission: parse_commission(dict.get_item("builder_code")?)?,
             }))
         }
         _ => Err(PyValueError::new_err(format!(

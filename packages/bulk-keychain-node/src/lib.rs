@@ -37,6 +37,21 @@ fn parse_optional_nonce(value: Option<String>) -> Result<Option<u64>> {
 }
 
 #[inline]
+fn parse_builder_code(value: Option<BuilderCodeInput>) -> Result<Option<Commission>> {
+    value
+        .map(|builder| {
+            Commission::new(
+                Pubkey::from_base58(&builder.to)
+                    .map_err(|e| Error::from_reason(format!("Invalid builderCode.to: {e}")))?,
+                u8::try_from(builder.fee)
+                    .map_err(|_| Error::from_reason("builderCode.fee must be 1..=15"))?,
+            )
+            .map_err(|e| Error::from_reason(e.to_string()))
+        })
+        .transpose()
+}
+
+#[inline]
 fn parse_nonce(value: &str) -> Result<u64> {
     bulk_keychain::parse_nonce_decimal(value).map_err(|error| Error::from_reason(error.to_string()))
 }
@@ -116,7 +131,9 @@ impl NativeKeypair {
 
 impl Default for NativeKeypair {
     fn default() -> Self {
-        Self { inner: Keypair::generate() }
+        Self {
+            inner: Keypair::generate(),
+        }
     }
 }
 
@@ -211,9 +228,13 @@ impl NativeSigner {
 
     /// Sign a wallet-mode preparation using this signer's key and configured network.
     #[napi]
-    pub fn sign_wallet_prepared(&self, wallet: WalletPreparedMessageOutput) -> Result<SignedTransactionOutput> {
+    pub fn sign_wallet_prepared(
+        &self,
+        wallet: WalletPreparedMessageOutput,
+    ) -> Result<SignedTransactionOutput> {
         bulk_keychain::sign_wallet_message(&self.inner, wallet.try_into()?)
-            .map(Into::into).map_err(|error| Error::from_reason(error.to_string()))
+            .map(Into::into)
+            .map_err(|error| Error::from_reason(error.to_string()))
     }
 
     /// Sign raw message bytes and return a base58 Ed25519 signature.
@@ -909,18 +930,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     iso,
                     order_type,
                     client_id: None,
-                    commission: input
-                        .builder_code
-                        .map(|commission| {
-                            Commission::new(
-                                Pubkey::from_base58(&commission.to).map_err(|e| {
-                                    Error::from_reason(format!("Invalid builderCode.to: {}", e))
-                                })?,
-                                commission.fee as u8,
-                            )
-                            .map_err(|e| Error::from_reason(e.to_string()))
-                        })
-                        .transpose()?,
+                    commission: parse_builder_code(input.builder_code)?,
                     slippage: input.slippage,
                 };
                 if let Some(cid) = client_id {
@@ -980,6 +990,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     trigger_price,
                     limit_price,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             "takeProfit" | "tp" => {
@@ -1003,6 +1014,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     trigger_price,
                     limit_price,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             "range" | "rng" => {
@@ -1032,6 +1044,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_min,
                     limit_max,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             "trig" => {
@@ -1089,6 +1102,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     step_bps,
                     limit_price,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             _ => Err(Error::from_reason(format!(

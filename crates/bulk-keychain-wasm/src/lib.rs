@@ -131,7 +131,9 @@ impl WasmKeypair {
 
 impl Default for WasmKeypair {
     fn default() -> Self {
-        Self { inner: Keypair::generate() }
+        Self {
+            inner: Keypair::generate(),
+        }
     }
 }
 
@@ -226,7 +228,10 @@ impl WasmSigner {
 
     /// Sign an explicit wallet mode using this signer's key and configured network.
     #[wasm_bindgen(js_name = signWalletPrepared)]
-    pub fn sign_wallet_prepared(&self, wallet: &WasmWalletPreparedMessage) -> Result<JsValue, JsError> {
+    pub fn sign_wallet_prepared(
+        &self,
+        wallet: &WasmWalletPreparedMessage,
+    ) -> Result<JsValue, JsError> {
         let signed = bulk_keychain::sign_wallet_message(&self.inner, wallet.inner.clone())
             .map_err(|error| JsError::new(&error.to_string()))?;
         to_js_value(&signed).map_err(|error| JsError::new(&error.to_string()))
@@ -252,8 +257,11 @@ impl WasmSigner {
             )));
         }
 
-        if prepared.inner.message_bytes.last().copied() != Some(self.inner.signature_domain() as u8) {
-            return Err(JsError::new("Prepared message network domain does not match signer"));
+        if prepared.inner.message_bytes.last().copied() != Some(self.inner.signature_domain() as u8)
+        {
+            return Err(JsError::new(
+                "Prepared message network domain does not match signer",
+            ));
         }
         let signature = self.inner.sign_bytes(&prepared.inner.message_bytes);
         let signed = finalize_transaction(prepared.inner.clone(), &signature)
@@ -902,6 +910,19 @@ struct BuilderCodeInput {
     fee: u8,
 }
 
+fn parse_builder_code(value: Option<BuilderCodeInput>) -> Result<Option<Commission>, String> {
+    value
+        .map(|builder| {
+            Commission::new(
+                Pubkey::from_base58(&builder.to)
+                    .map_err(|e| format!("Invalid builderCode.to: {e}"))?,
+                builder.fee,
+            )
+            .map_err(|e| e.to_string())
+        })
+        .transpose()
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct OrderTypeInput {
@@ -1052,17 +1073,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     iso,
                     order_type,
                     client_id: None,
-                    commission: input
-                        .builder_code
-                        .map(|commission| {
-                            Commission::new(
-                                Pubkey::from_base58(&commission.to)
-                                    .map_err(|e| format!("Invalid builderCode.to: {}", e))?,
-                                commission.fee,
-                            )
-                            .map_err(|e| e.to_string())
-                        })
-                        .transpose()?,
+                    commission: parse_builder_code(input.builder_code)?,
                     slippage: input.slippage,
                 };
                 if let Some(cid) = client_id {
@@ -1104,6 +1115,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     trigger_price,
                     limit_price,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             "takeProfit" | "tp" => {
@@ -1121,6 +1133,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     trigger_price,
                     limit_price,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             "range" | "rng" => {
@@ -1140,6 +1153,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_min,
                     limit_max,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             "trig" => {
@@ -1190,6 +1204,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     step_bps,
                     limit_price,
                     iso: input.iso.unwrap_or(false),
+                    commission: parse_builder_code(input.builder_code)?,
                 }))
             }
             _ => Err(format!("Invalid item type: {}", input.item_type)),
@@ -1380,6 +1395,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 trigger_price: json_f64(p, "tr")?,
                 limit_price: p.get("lim").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
+                commission: json_builder_code(p)?,
             }))
         }
         "tp" => {
@@ -1391,6 +1407,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 trigger_price: json_f64(p, "tr")?,
                 limit_price: p.get("lim").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
+                commission: json_builder_code(p)?,
             }))
         }
         "rng" => {
@@ -1410,6 +1427,7 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                     .and_then(JsonValue::as_f64)
                     .unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
+                commission: json_builder_code(p)?,
             }))
         }
         "trig" => {
@@ -1460,10 +1478,29 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 step_bps: json_u32(p, "stb", None)?,
                 limit_price: p.get("lim").and_then(JsonValue::as_f64),
                 iso: json_bool(p, "i", false)?,
+                commission: json_builder_code(p)?,
             }))
         }
         _ => parse_order_input_value(value)?.try_into().map_err(js_err),
     }
+}
+
+fn json_builder_code(
+    obj: &serde_json::Map<String, JsonValue>,
+) -> Result<Option<Commission>, JsError> {
+    let Some(value) = obj.get("builderCode") else {
+        return Ok(None);
+    };
+    let builder = json_obj(value, "builderCode")?;
+    let fee = builder
+        .get("fee")
+        .and_then(JsonValue::as_u64)
+        .ok_or_else(|| js_err("builderCode.fee must be an integer"))?;
+    parse_builder_code(Some(BuilderCodeInput {
+        to: json_str(builder, "to")?.to_string(),
+        fee: u8::try_from(fee).map_err(|_| js_err("builderCode.fee must be 1..=15"))?,
+    }))
+    .map_err(js_err)
 }
 
 fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
@@ -2784,8 +2821,8 @@ pub fn wasm_prepare_update_multisig_policy(
 pub fn wasm_finalize_transaction(prepared: JsValue, signature: &str) -> Result<JsValue, JsError> {
     let prep: PreparedMessage =
         serde_wasm_bindgen::from_value(prepared).map_err(|e| JsError::new(&e.to_string()))?;
-    let signed = finalize_transaction(prep, signature)
-        .map_err(|error| JsError::new(&error.to_string()))?;
+    let signed =
+        finalize_transaction(prep, signature).map_err(|error| JsError::new(&error.to_string()))?;
     to_js_value(&signed).map_err(|e| JsError::new(&e.to_string()))
 }
 

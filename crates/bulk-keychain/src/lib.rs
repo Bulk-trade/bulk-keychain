@@ -47,8 +47,8 @@
 //! let signed_txs = signer.sign_all(orders, None).unwrap();
 //! ```
 
-mod error;
 mod clear_sign;
+mod error;
 mod keypair;
 pub mod nonce;
 pub mod order_id;
@@ -77,8 +77,11 @@ pub use prepare::{
     prepare_withdraw, prepare_withdraw_lock_recover, PreparedMessage,
 };
 pub use sign::Signer;
-pub use wallet::{finalize_wallet_message, prepare_wallet_message, sign_wallet_message, WalletPreparedMessage, WalletSignatureMode};
 pub use types::*;
+pub use wallet::{
+    finalize_wallet_message, prepare_wallet_message, sign_wallet_message, WalletPreparedMessage,
+    WalletSignatureMode,
+};
 
 /// Re-export for convenience
 pub use bs58;

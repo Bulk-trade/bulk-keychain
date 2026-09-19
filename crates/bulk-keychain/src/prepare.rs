@@ -535,7 +535,12 @@ pub(crate) fn finalize_with_message(
         ));
     }
     ed25519_dalek::VerifyingKey::from_bytes(signer.as_bytes())
-        .and_then(|key| key.verify_strict(signing_message.unwrap_or(&prepared.message_bytes), &decoded_signature))
+        .and_then(|key| {
+            key.verify_strict(
+                signing_message.unwrap_or(&prepared.message_bytes),
+                &decoded_signature,
+            )
+        })
         .map_err(|_| {
             Error::SigningFailed(
                 "signature does not verify for the prepared signer and message".into(),
@@ -812,28 +817,32 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "c": cancel_all.symbols
             }
         })),
-        OrderItem::Stop(stop) => Ok(json!({
-            "st": {
+        OrderItem::Stop(stop) => {
+            let mut body = json!({
                 "c": stop.symbol,
                 "d": stop.is_buy,
                 "sz": stop.size,
                 "tr": stop.trigger_price,
                 "lim": stop.limit_price,
                 "i": stop.iso
-            }
-        })),
-        OrderItem::TakeProfit(tp) => Ok(json!({
-            "tp": {
+            });
+            add_builder_code(&mut body, stop.commission);
+            Ok(json!({ "st": body }))
+        }
+        OrderItem::TakeProfit(tp) => {
+            let mut body = json!({
                 "c": tp.symbol,
                 "d": tp.is_buy,
                 "sz": tp.size,
                 "tr": tp.trigger_price,
                 "lim": tp.limit_price,
                 "i": tp.iso
-            }
-        })),
-        OrderItem::RangeOco(rng) => Ok(json!({
-            "rng": {
+            });
+            add_builder_code(&mut body, tp.commission);
+            Ok(json!({ "tp": body }))
+        }
+        OrderItem::RangeOco(rng) => {
+            let mut body = json!({
                 "c": rng.symbol,
                 "d": rng.is_buy,
                 "sz": rng.size,
@@ -842,8 +851,10 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "lmin": rng.limit_min,
                 "lmax": rng.limit_max,
                 "i": rng.iso
-            }
-        })),
+            });
+            add_builder_code(&mut body, rng.commission);
+            Ok(json!({ "rng": body }))
+        }
         OrderItem::TriggerBasket(trig) => {
             let nested: Result<Vec<_>> = trig.actions.iter().map(order_item_to_json).collect();
             Ok(json!({
@@ -865,8 +876,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 }
             }))
         }
-        OrderItem::TrailingStop(trl) => Ok(json!({
-            "trl": {
+        OrderItem::TrailingStop(trl) => {
+            let mut body = json!({
                 "c": trl.symbol,
                 "b": trl.is_buy,
                 "sz": trl.size,
@@ -874,8 +885,16 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "stb": trl.step_bps,
                 "lim": trl.limit_price,
                 "i": trl.iso
-            }
-        })),
+            });
+            add_builder_code(&mut body, trl.commission);
+            Ok(json!({ "trl": body }))
+        }
+    }
+}
+
+fn add_builder_code(body: &mut serde_json::Value, commission: Option<Commission>) {
+    if let Some(commission) = commission {
+        body["builderCode"] = json!({ "to": commission.to.to_base58(), "fee": commission.fee });
     }
 }
 
@@ -1193,7 +1212,8 @@ mod tests {
             Some(1234567890),
         )
         .unwrap();
-        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet).sign_bytes(&prepared.message_bytes);
+        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet)
+            .sign_bytes(&prepared.message_bytes);
         let signed = finalize_transaction(prepared.clone(), &signature).unwrap();
 
         assert_eq!(signed.nonce, prepared.nonce);
@@ -1230,7 +1250,8 @@ mod tests {
         let restored: PreparedMessage = serde_json::from_value(prepared_json).unwrap();
         assert_eq!(restored.nonce, NONCE);
 
-        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet).sign_bytes(&restored.message_bytes);
+        let signature = crate::Signer::new(keypair, SignatureDomain::Devnet)
+            .sign_bytes(&restored.message_bytes);
         let signed = finalize_transaction(restored, &signature).unwrap();
         let signed_json = signed.to_json().unwrap();
         let signed_value: serde_json::Value = serde_json::from_str(&signed_json).unwrap();

@@ -910,28 +910,32 @@ impl Signer {
                     "c": cancel_all.symbols
                 }
             })),
-            OrderItem::Stop(stop) => Ok(json!({
-                "st": {
+            OrderItem::Stop(stop) => {
+                let mut body = json!({
                     "c": stop.symbol,
                     "d": stop.is_buy,
                     "sz": stop.size,
                     "tr": stop.trigger_price,
                     "lim": stop.limit_price,
                     "i": stop.iso
-                }
-            })),
-            OrderItem::TakeProfit(tp) => Ok(json!({
-                "tp": {
+                });
+                add_builder_code(&mut body, stop.commission);
+                Ok(json!({ "st": body }))
+            }
+            OrderItem::TakeProfit(tp) => {
+                let mut body = json!({
                     "c": tp.symbol,
                     "d": tp.is_buy,
                     "sz": tp.size,
                     "tr": tp.trigger_price,
                     "lim": tp.limit_price,
                     "i": tp.iso
-                }
-            })),
-            OrderItem::RangeOco(rng) => Ok(json!({
-                "rng": {
+                });
+                add_builder_code(&mut body, tp.commission);
+                Ok(json!({ "tp": body }))
+            }
+            OrderItem::RangeOco(rng) => {
+                let mut body = json!({
                     "c": rng.symbol,
                     "d": rng.is_buy,
                     "sz": rng.size,
@@ -940,8 +944,10 @@ impl Signer {
                     "lmin": rng.limit_min,
                     "lmax": rng.limit_max,
                     "i": rng.iso
-                }
-            })),
+                });
+                add_builder_code(&mut body, rng.commission);
+                Ok(json!({ "rng": body }))
+            }
             OrderItem::TriggerBasket(trig) => {
                 let nested: Result<Vec<_>> = trig
                     .actions
@@ -971,8 +977,8 @@ impl Signer {
                     }
                 }))
             }
-            OrderItem::TrailingStop(trl) => Ok(json!({
-                "trl": {
+            OrderItem::TrailingStop(trl) => {
+                let mut body = json!({
                     "c": trl.symbol,
                     "b": trl.is_buy,
                     "sz": trl.size,
@@ -980,9 +986,17 @@ impl Signer {
                     "stb": trl.step_bps,
                     "lim": trl.limit_price,
                     "i": trl.iso
-                }
-            })),
+                });
+                add_builder_code(&mut body, trl.commission);
+                Ok(json!({ "trl": body }))
+            }
         }
+    }
+}
+
+fn add_builder_code(body: &mut serde_json::Value, commission: Option<Commission>) {
+    if let Some(commission) = commission {
+        body["builderCode"] = json!({ "to": commission.to.to_base58(), "fee": commission.fee });
     }
 }
 
