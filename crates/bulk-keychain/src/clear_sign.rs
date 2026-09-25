@@ -77,6 +77,12 @@ fn optional(value: &Value, fixed: bool) -> Result<String> {
         Ok(format!("{:.8}", number(value)?))
     }
 }
+fn optional_slippage(body: &Value, key: &str, label: &str) -> Result<String> {
+    match body.get(key) {
+        None | Some(Value::Null) => Ok(String::new()),
+        Some(value) => Ok(format!(" {label}={}bps", safe(value)?)),
+    }
+}
 
 fn action_line(action: &Value, depth: usize) -> Result<String> {
     if depth > 32 {
@@ -154,7 +160,7 @@ fn action_line(action: &Value, depth: usize) -> Result<String> {
             ))
         }
         "st" | "tp" => Ok(format!(
-            "{} {} {} thresh={} sz={} limit={}",
+            "{} {} {} thresh={} sz={} limit={}{}",
             if tag == "st" { "Stop" } else { "TakeProfit" },
             text(body, "c")?,
             if boolean(body, "d")? {
@@ -164,17 +170,20 @@ fn action_line(action: &Value, depth: usize) -> Result<String> {
             },
             safe(&body["tr"])?,
             safe(&body["sz"])?,
-            optional(&body["lim"], true)?
+            optional(&body["lim"], true)?,
+            optional_slippage(body, "slippage", "slippage")?
         )),
         "rng" => Ok(format!(
-            "Range {} {} min={} max={} sz={} lmin={} lmax={}",
+            "Range {} {} min={} max={} sz={} lmin={} lmax={}{}{}",
             text(body, "c")?,
             if boolean(body, "d")? { "Buy" } else { "Sell" },
             safe(&body["pmin"])?,
             safe(&body["pmax"])?,
             safe(&body["sz"])?,
             optional(&body["lmin"], true)?,
-            optional(&body["lmax"], true)?
+            optional(&body["lmax"], true)?,
+            optional_slippage(body, "slSlippage", "sl_slippage")?,
+            optional_slippage(body, "tpSlippage", "tp_slippage")?
         )),
         "trig" => {
             let actions = body["actions"]
@@ -196,13 +205,14 @@ fn action_line(action: &Value, depth: usize) -> Result<String> {
             ))
         }
         "trl" => Ok(format!(
-            "Trailing {} {} sz={} trail={}bps step={}bps limit={}",
+            "Trailing {} {} sz={} trail={}bps step={}bps limit={}{}",
             text(body, "c")?,
             if boolean(body, "b")? { "Buy" } else { "Sell" },
             safe(&body["sz"])?,
             integer(body, "trb")?,
             integer(body, "stb")?,
-            optional(&body["lim"], true)?
+            optional(&body["lim"], true)?,
+            optional_slippage(body, "slippage", "slippage")?
         )),
         "faucet" => Ok(format!(
             "Faucet user={} amount={}",

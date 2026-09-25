@@ -496,6 +496,9 @@ pub struct Stop {
         skip_serializing_if = "Option::is_none"
     )]
     pub commission: Option<Commission>,
+    /// Optional market-order slippage override, in basis points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slippage: Option<f64>,
 }
 
 /// Take-profit order: triggers when price crosses threshold
@@ -518,6 +521,9 @@ pub struct TakeProfit {
         skip_serializing_if = "Option::is_none"
     )]
     pub commission: Option<Commission>,
+    /// Optional market-order slippage override, in basis points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slippage: Option<f64>,
 }
 
 /// Range / OCO order: collar around a position
@@ -543,6 +549,20 @@ pub struct RangeOco {
         skip_serializing_if = "Option::is_none"
     )]
     pub commission: Option<Commission>,
+    /// Optional market-order slippage override for the stop-loss leg, in basis points.
+    #[serde(
+        rename = "slSlippage",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sl_slippage: Option<f64>,
+    /// Optional market-order slippage override for the take-profit leg, in basis points.
+    #[serde(
+        rename = "tpSlippage",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tp_slippage: Option<f64>,
 }
 
 /// Trigger basket: fires a set of actions when price crosses threshold.
@@ -580,6 +600,9 @@ pub struct TrailingStop {
         skip_serializing_if = "Option::is_none"
     )]
     pub commission: Option<Commission>,
+    /// Optional market-order slippage override, in basis points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slippage: Option<f64>,
 }
 
 /// On-fill consequent: one-shot follow-up actions executed on first fill of a trigger action.

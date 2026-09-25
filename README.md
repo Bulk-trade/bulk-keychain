@@ -492,6 +492,7 @@ signed = agent.sign_prepared(prepared)
   size: 0.1,
   triggerPrice: 90000,
   limitPrice: 89900,  // omit for market-style fill
+  // slippage: 100,   // optional bps; omit to use the exchange security default
 }
 ```
 
@@ -504,6 +505,7 @@ signed = agent.sign_prepared(prepared)
   size: 0.1,
   triggerPrice: 110000,
   limitPrice: 110100,  // omit for market-style fill
+  // slippage: 100,    // optional bps; omit to use the exchange security default
 }
 ```
 
@@ -518,6 +520,8 @@ signed = agent.sign_prepared(prepared)
   pmax: 110000,   // take-profit trigger price
   lmin: 89900,    // stop-loss limit price (omit for market-style fill)
   lmax: 110100,   // take-profit limit price (omit for market-style fill)
+  // slSlippage: 100, // optional stop-loss leg slippage in bps
+  // tpSlippage: 100, // optional take-profit leg slippage in bps
 }
 ```
 
@@ -549,6 +553,7 @@ Protective stop that follows price by a fixed distance (`trailBps`), resetting f
   trailBps: 100,          // trailing distance in basis points
   stepBps: 10,            // favorable reset step in basis points
   limitPrice: null,       // optional: omit or null for market-style trigger
+  // slippage: 100,       // optional bps; omit to use the exchange security default
 }
 ```
 
