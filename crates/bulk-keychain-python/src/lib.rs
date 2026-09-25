@@ -867,6 +867,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 limit_price,
                 iso,
                 commission: parse_commission(dict.get_item("builder_code")?)?,
+                slippage: dict
+                    .get_item("slippage")?
+                    .map(|value| value.extract())
+                    .transpose()?,
             }))
         }
         "take_profit" | "tp" => {
@@ -902,6 +906,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 limit_price,
                 iso,
                 commission: parse_commission(dict.get_item("builder_code")?)?,
+                slippage: dict
+                    .get_item("slippage")?
+                    .map(|value| value.extract())
+                    .transpose()?,
             }))
         }
         "range" | "rng" => {
@@ -947,6 +955,14 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 limit_max,
                 iso,
                 commission: parse_commission(dict.get_item("builder_code")?)?,
+                sl_slippage: dict
+                    .get_item("sl_slippage")?
+                    .map(|value| value.extract())
+                    .transpose()?,
+                tp_slippage: dict
+                    .get_item("tp_slippage")?
+                    .map(|value| value.extract())
+                    .transpose()?,
             }))
         }
         "trig" => {
@@ -1032,6 +1048,10 @@ fn parse_order_item(obj: &Bound<'_, PyAny>) -> PyResult<OrderItem> {
                 limit_price,
                 iso,
                 commission: parse_commission(dict.get_item("builder_code")?)?,
+                slippage: dict
+                    .get_item("slippage")?
+                    .map(|value| value.extract())
+                    .transpose()?,
             }))
         }
         _ => Err(PyValueError::new_err(format!(

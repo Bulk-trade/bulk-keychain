@@ -130,3 +130,64 @@ fn limit_slippage_rejected_before_preparation_or_signing() {
         ));
     }
 }
+
+#[test]
+fn conditional_orders_use_v4_with_omitted_or_explicit_slippage() {
+    const V4_PREFIX: &[u8] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x04";
+    let account = Pubkey::from_bytes([4; 32]);
+    let stop = OrderItem::Stop(Stop {
+        symbol: "BTC-USD".into(),
+        is_buy: false,
+        size: 1.0,
+        trigger_price: 90_000.0,
+        limit_price: f64::NAN,
+        iso: false,
+        commission: None,
+        slippage: None,
+    });
+    let range = OrderItem::RangeOco(RangeOco {
+        symbol: "BTC-USD".into(),
+        is_buy: true,
+        size: 1.0,
+        collar_min: 90_000.0,
+        collar_max: 110_000.0,
+        limit_min: f64::NAN,
+        limit_max: f64::NAN,
+        iso: false,
+        commission: None,
+        sl_slippage: Some(25.0),
+        tp_slippage: Some(50.0),
+    });
+    let trailing = OrderItem::TrailingStop(TrailingStop {
+        symbol: "BTC-USD".into(),
+        is_buy: true,
+        size: 1.0,
+        trail_bps: 100,
+        step_bps: 10,
+        limit_price: None,
+        iso: false,
+        commission: None,
+        slippage: None,
+    });
+
+    for orders in [
+        vec![stop],
+        vec![range],
+        vec![OrderItem::TriggerBasket(TriggerBasket {
+            symbol: "BTC-USD".into(),
+            is_buy: true,
+            trigger_price: 100_000.0,
+            actions: vec![trailing],
+        })],
+    ] {
+        let prepared = prepare_action(
+            &Action::Order { orders },
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(42),
+        )
+        .unwrap();
+        assert!(prepared.message_bytes.starts_with(V4_PREFIX));
+    }
+}

@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 const SCALE: f64 = 1e8;
 const SIGNABLE_ACTIONS_V2_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x02";
 const SIGNABLE_ACTIONS_V3_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x03";
+const SIGNABLE_ACTIONS_V4_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x04";
 
 mod serde_hash {
     use super::*;
@@ -157,6 +158,7 @@ enum SigningLayout {
     LegacyEmbedded,
     V2,
     V3,
+    V4,
 }
 
 #[derive(Clone, Debug)]
@@ -352,6 +354,7 @@ struct TxStop {
     limit_price: Option<f64>,
     iso: bool,
     commission: Option<TxCommission>,
+    slippage: Option<f64>,
     layout: SigningLayout,
 }
 
@@ -370,6 +373,17 @@ impl Serialize for TxStop {
                 state.serialize_field("builderCode", commission)?;
             }
             state.end()
+        } else if matches!(self.layout, SigningLayout::V4) {
+            let mut tuple = serializer.serialize_tuple(8)?;
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&SafeF64(self.trigger_price))?;
+            tuple.serialize_element(&self.limit_price.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.serialize_element(&self.slippage.map(SafeF64))?;
+            tuple.end()
         } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
             let mut tuple = serializer.serialize_tuple(7)?;
             tuple.serialize_element(&self.symbol)?;
@@ -402,6 +416,7 @@ struct TxTakeProfit {
     limit_price: Option<f64>,
     iso: bool,
     commission: Option<TxCommission>,
+    slippage: Option<f64>,
     layout: SigningLayout,
 }
 
@@ -415,6 +430,7 @@ impl Serialize for TxTakeProfit {
             limit_price: self.limit_price,
             iso: self.iso,
             commission: self.commission.clone(),
+            slippage: self.slippage,
             layout: self.layout,
         }
         .serialize(serializer)
@@ -432,6 +448,8 @@ struct TxRangeOco {
     limit_max: Option<f64>,
     iso: bool,
     commission: Option<TxCommission>,
+    sl_slippage: Option<f64>,
+    tp_slippage: Option<f64>,
     layout: SigningLayout,
 }
 
@@ -452,6 +470,20 @@ impl Serialize for TxRangeOco {
                 state.serialize_field("builderCode", commission)?;
             }
             state.end()
+        } else if matches!(self.layout, SigningLayout::V4) {
+            let mut tuple = serializer.serialize_tuple(11)?;
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&SafeF64(self.collar_min))?;
+            tuple.serialize_element(&SafeF64(self.collar_max))?;
+            tuple.serialize_element(&self.limit_min.map(SafeF64))?;
+            tuple.serialize_element(&self.limit_max.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.serialize_element(&self.sl_slippage.map(SafeF64))?;
+            tuple.serialize_element(&self.tp_slippage.map(SafeF64))?;
+            tuple.end()
         } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
             let mut tuple = serializer.serialize_tuple(9)?;
             tuple.serialize_element(&self.symbol)?;
@@ -508,6 +540,7 @@ struct TxTrailingStop {
     limit_price: Option<f64>,
     iso: bool,
     commission: Option<TxCommission>,
+    slippage: Option<f64>,
     layout: SigningLayout,
 }
 
@@ -527,6 +560,18 @@ impl Serialize for TxTrailingStop {
                 state.serialize_field("builderCode", commission)?;
             }
             state.end()
+        } else if matches!(self.layout, SigningLayout::V4) {
+            let mut tuple = serializer.serialize_tuple(9)?;
+            tuple.serialize_element(&self.symbol)?;
+            tuple.serialize_element(&self.is_buy)?;
+            tuple.serialize_element(&SafeF64(self.size))?;
+            tuple.serialize_element(&self.trail_bps)?;
+            tuple.serialize_element(&self.step_bps)?;
+            tuple.serialize_element(&self.limit_price.map(SafeF64))?;
+            tuple.serialize_element(&self.iso)?;
+            tuple.serialize_element(&self.commission)?;
+            tuple.serialize_element(&self.slippage.map(SafeF64))?;
+            tuple.end()
         } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
             let mut tuple = serializer.serialize_tuple(8)?;
             tuple.serialize_element(&self.symbol)?;
@@ -885,6 +930,7 @@ fn order_item_to_tx_action(item: &OrderItem, layout: SigningLayout) -> Result<Tx
             limit_price: nan_to_none(stop.limit_price),
             iso: stop.iso,
             commission: stop.commission.map(TxCommission::try_from).transpose()?,
+            slippage: stop.slippage,
             layout,
         })),
         OrderItem::TakeProfit(tp) => Ok(TxAction::TakeProfit(TxTakeProfit {
@@ -895,6 +941,7 @@ fn order_item_to_tx_action(item: &OrderItem, layout: SigningLayout) -> Result<Tx
             limit_price: nan_to_none(tp.limit_price),
             iso: tp.iso,
             commission: tp.commission.map(TxCommission::try_from).transpose()?,
+            slippage: tp.slippage,
             layout,
         })),
         OrderItem::RangeOco(rng) => Ok(TxAction::RangeOco(TxRangeOco {
@@ -907,6 +954,8 @@ fn order_item_to_tx_action(item: &OrderItem, layout: SigningLayout) -> Result<Tx
             limit_max: nan_to_none(rng.limit_max),
             iso: rng.iso,
             commission: rng.commission.map(TxCommission::try_from).transpose()?,
+            sl_slippage: rng.sl_slippage,
+            tp_slippage: rng.tp_slippage,
             layout,
         })),
         OrderItem::TriggerBasket(trig) => {
@@ -948,6 +997,7 @@ fn order_item_to_tx_action(item: &OrderItem, layout: SigningLayout) -> Result<Tx
             limit_price: trl.limit_price,
             iso: trl.iso,
             commission: trl.commission.map(TxCommission::try_from).transpose()?,
+            slippage: trl.slippage,
             layout,
         })),
     }
@@ -1146,7 +1196,9 @@ pub(crate) fn serialize_for_sdk_signing(
     account: &Pubkey,
     out: &mut Vec<u8>,
 ) -> Result<()> {
-    let layout = if action_has_builder_code(action) {
+    let layout = if action_contains_leaf_conditional(action) {
+        SigningLayout::V4
+    } else if action_has_builder_code(action) {
         SigningLayout::V3
     } else if action_has_explicit_slippage(action) {
         SigningLayout::V2
@@ -1162,6 +1214,7 @@ pub(crate) fn serialize_for_sdk_signing(
     match layout {
         SigningLayout::V2 => out.extend_from_slice(SIGNABLE_ACTIONS_V2_PREFIX),
         SigningLayout::V3 => out.extend_from_slice(SIGNABLE_ACTIONS_V3_PREFIX),
+        SigningLayout::V4 => out.extend_from_slice(SIGNABLE_ACTIONS_V4_PREFIX),
         SigningLayout::Legacy | SigningLayout::LegacyEmbedded => {}
     }
     bincode::serialize_into(&mut *out, &tx_actions)
@@ -1170,6 +1223,38 @@ pub(crate) fn serialize_for_sdk_signing(
     out.extend_from_slice(account.as_bytes());
     out.push(signature_domain as u8);
     Ok(())
+}
+
+fn action_contains_leaf_conditional(action: &Action) -> bool {
+    match action {
+        Action::Order { orders } => orders.iter().any(order_item_contains_leaf_conditional),
+        Action::MultisigPropose(proposal) => proposal
+            .actions
+            .iter()
+            .any(action_contains_leaf_conditional),
+        _ => false,
+    }
+}
+
+fn order_item_contains_leaf_conditional(item: &OrderItem) -> bool {
+    match item {
+        OrderItem::Stop(_)
+        | OrderItem::TakeProfit(_)
+        | OrderItem::RangeOco(_)
+        | OrderItem::TrailingStop(_) => true,
+        OrderItem::TriggerBasket(trigger) => trigger
+            .actions
+            .iter()
+            .any(order_item_contains_leaf_conditional),
+        OrderItem::OnFill(on_fill) => {
+            order_item_contains_leaf_conditional(&on_fill.trigger)
+                || on_fill
+                    .actions
+                    .iter()
+                    .any(order_item_contains_leaf_conditional)
+        }
+        _ => false,
+    }
 }
 
 fn action_has_explicit_slippage(action: &Action) -> bool {
@@ -1485,6 +1570,7 @@ mod tests {
                     limit_price: f64::NAN,
                     iso: false,
                     commission: None,
+                    slippage: None,
                 })),
                 actions: vec![Order::market("BTC-USD", false, 0.1).into()],
             })],
@@ -1651,7 +1737,7 @@ mod tests {
     }
 
     #[test]
-    fn conditional_builder_code_uses_v3_and_binds_the_conditional() {
+    fn conditional_builder_code_uses_v4_and_binds_the_conditional() {
         let account = Pubkey::from_bytes([3u8; 32]);
         let recipient = Pubkey::from_bytes([4u8; 32]);
         let plain = Stop {
@@ -1662,6 +1748,7 @@ mod tests {
             limit_price: f64::NAN,
             iso: false,
             commission: None,
+            slippage: None,
         };
         let mut commissioned = plain.clone();
         commissioned.commission = Some(Commission::new(recipient, 5).unwrap());
@@ -1687,7 +1774,7 @@ mod tests {
         )
         .unwrap();
         assert!(!plain_bytes.starts_with(SIGNABLE_ACTIONS_V3_PREFIX));
-        assert!(builder_bytes.starts_with(SIGNABLE_ACTIONS_V3_PREFIX));
+        assert!(builder_bytes.starts_with(SIGNABLE_ACTIONS_V4_PREFIX));
         assert_ne!(plain_bytes, builder_bytes);
     }
 }

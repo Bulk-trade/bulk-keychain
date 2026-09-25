@@ -885,6 +885,8 @@ struct OrderInput {
     iso: Option<bool>,
     builder_code: Option<BuilderCodeInput>,
     slippage: Option<f64>,
+    sl_slippage: Option<f64>,
+    tp_slippage: Option<f64>,
     order_type: Option<OrderTypeInput>,
     client_id: Option<String>,
     order_id: Option<String>,
@@ -1116,6 +1118,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_price,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    slippage: input.slippage,
                 }))
             }
             "takeProfit" | "tp" => {
@@ -1134,6 +1137,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_price,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    slippage: input.slippage,
                 }))
             }
             "range" | "rng" => {
@@ -1154,6 +1158,8 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_max,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    sl_slippage: input.sl_slippage,
+                    tp_slippage: input.tp_slippage,
                 }))
             }
             "trig" => {
@@ -1205,6 +1211,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_price,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    slippage: input.slippage,
                 }))
             }
             _ => Err(format!("Invalid item type: {}", input.item_type)),
@@ -1396,6 +1403,10 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 limit_price: p.get("lim").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
                 commission: json_builder_code(p)?,
+                slippage: p
+                    .contains_key("slippage")
+                    .then(|| json_f64(p, "slippage"))
+                    .transpose()?,
             }))
         }
         "tp" => {
@@ -1408,6 +1419,10 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 limit_price: p.get("lim").and_then(JsonValue::as_f64).unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
                 commission: json_builder_code(p)?,
+                slippage: p
+                    .contains_key("slippage")
+                    .then(|| json_f64(p, "slippage"))
+                    .transpose()?,
             }))
         }
         "rng" => {
@@ -1428,6 +1443,14 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                     .unwrap_or(f64::NAN),
                 iso: json_bool(p, "i", false)?,
                 commission: json_builder_code(p)?,
+                sl_slippage: p
+                    .contains_key("slSlippage")
+                    .then(|| json_f64(p, "slSlippage"))
+                    .transpose()?,
+                tp_slippage: p
+                    .contains_key("tpSlippage")
+                    .then(|| json_f64(p, "tpSlippage"))
+                    .transpose()?,
             }))
         }
         "trig" => {
@@ -1479,6 +1502,10 @@ fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
                 limit_price: p.get("lim").and_then(JsonValue::as_f64),
                 iso: json_bool(p, "i", false)?,
                 commission: json_builder_code(p)?,
+                slippage: p
+                    .contains_key("slippage")
+                    .then(|| json_f64(p, "slippage"))
+                    .transpose()?,
             }))
         }
         _ => parse_order_input_value(value)?.try_into().map_err(js_err),

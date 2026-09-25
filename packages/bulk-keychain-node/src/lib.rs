@@ -712,6 +712,12 @@ pub struct OrderInput {
     #[serde(rename = "builderCode")]
     pub builder_code: Option<BuilderCodeInput>,
     pub slippage: Option<f64>,
+    #[napi(js_name = "slSlippage")]
+    #[serde(rename = "slSlippage")]
+    pub sl_slippage: Option<f64>,
+    #[napi(js_name = "tpSlippage")]
+    #[serde(rename = "tpSlippage")]
+    pub tp_slippage: Option<f64>,
     pub order_type: Option<OrderTypeInput>,
     pub client_id: Option<String>,
     pub order_id: Option<String>,
@@ -991,6 +997,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_price,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    slippage: input.slippage,
                 }))
             }
             "takeProfit" | "tp" => {
@@ -1015,6 +1022,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_price,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    slippage: input.slippage,
                 }))
             }
             "range" | "rng" => {
@@ -1045,6 +1053,8 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_max,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    sl_slippage: input.sl_slippage,
+                    tp_slippage: input.tp_slippage,
                 }))
             }
             "trig" => {
@@ -1103,6 +1113,7 @@ impl TryFrom<OrderInput> for OrderItem {
                     limit_price,
                     iso: input.iso.unwrap_or(false),
                     commission: parse_builder_code(input.builder_code)?,
+                    slippage: input.slippage,
                 }))
             }
             _ => Err(Error::from_reason(format!(

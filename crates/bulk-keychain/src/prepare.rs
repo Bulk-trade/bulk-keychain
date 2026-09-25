@@ -827,6 +827,7 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "i": stop.iso
             });
             add_builder_code(&mut body, stop.commission);
+            add_optional_f64(&mut body, "slippage", stop.slippage);
             Ok(json!({ "st": body }))
         }
         OrderItem::TakeProfit(tp) => {
@@ -839,6 +840,7 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "i": tp.iso
             });
             add_builder_code(&mut body, tp.commission);
+            add_optional_f64(&mut body, "slippage", tp.slippage);
             Ok(json!({ "tp": body }))
         }
         OrderItem::RangeOco(rng) => {
@@ -853,6 +855,8 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "i": rng.iso
             });
             add_builder_code(&mut body, rng.commission);
+            add_optional_f64(&mut body, "slSlippage", rng.sl_slippage);
+            add_optional_f64(&mut body, "tpSlippage", rng.tp_slippage);
             Ok(json!({ "rng": body }))
         }
         OrderItem::TriggerBasket(trig) => {
@@ -887,6 +891,7 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
                 "i": trl.iso
             });
             add_builder_code(&mut body, trl.commission);
+            add_optional_f64(&mut body, "slippage", trl.slippage);
             Ok(json!({ "trl": body }))
         }
     }
@@ -895,6 +900,12 @@ fn order_item_to_json(item: &OrderItem) -> Result<serde_json::Value> {
 fn add_builder_code(body: &mut serde_json::Value, commission: Option<Commission>) {
     if let Some(commission) = commission {
         body["builderCode"] = json!({ "to": commission.to.to_base58(), "fee": commission.fee });
+    }
+}
+
+fn add_optional_f64(body: &mut serde_json::Value, key: &str, value: Option<f64>) {
+    if let Some(value) = value {
+        body[key] = json!(value);
     }
 }
 
