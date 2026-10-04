@@ -193,7 +193,10 @@ impl Serialize for TxMarketOrder {
                 state.serialize_field("slippage", &SafeF64(slippage))?;
             }
             state.end()
-        } else if matches!(self.layout, SigningLayout::V2 | SigningLayout::V3) {
+        } else if matches!(
+            self.layout,
+            SigningLayout::V2 | SigningLayout::V3 | SigningLayout::V4
+        ) {
             let mut tuple = serializer.serialize_tuple(7)?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
