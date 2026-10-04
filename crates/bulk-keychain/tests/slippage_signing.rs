@@ -191,3 +191,45 @@ fn conditional_orders_use_v4_with_omitted_or_explicit_slippage() {
         assert!(prepared.message_bytes.starts_with(V4_PREFIX));
     }
 }
+
+#[test]
+fn on_fill_range_with_market_slippage_matches_sdk_v4_vector() {
+    const SDK_SIGNABLE_HEX: &str = "ffffffffffffffff62756c6b2d616374696f6e730401000000000000000a000000000000000700000000000000534f4c2d555344017fdd5c84000000000000000100e269b60c0000000100000000000000070000000700000000000000534f4c2d555344017fdd5c8400000000001374ad0200000000dd0ee902000000000000000000009f41f3f546db18b5aec8bd97efc4b9d71ea4b7d83b270495a4bc9b77f8d08b121169783fe0167c01";
+    let account = Pubkey::from_base58("DEDNehoFBw8Ac33gZPdNrc7EZREFcjuJ93Gj2QR6Q9hd").unwrap();
+    let action = Action::Order {
+        orders: vec![OrderItem::OnFill(OnFill {
+            trigger: Box::new(
+                Order::market("SOL-USD", true, 22.206_785_27)
+                    .with_slippage(546.0)
+                    .into(),
+            ),
+            actions: vec![OrderItem::RangeOco(RangeOco {
+                symbol: "SOL-USD".into(),
+                is_buy: true,
+                size: 22.206_785_27,
+                collar_min: 115.0,
+                collar_max: 125.0,
+                limit_min: f64::NAN,
+                limit_max: f64::NAN,
+                iso: false,
+                commission: None,
+                sl_slippage: None,
+                tp_slippage: None,
+            })],
+        })],
+    };
+
+    let prepared = prepare_action(
+        &action,
+        SignatureDomain::Mainnet,
+        &account,
+        Some(&Pubkey::from_base58("H2b1D7TCCmhA1S5KUEVq6d8VWcU4CL8i3NuGxHmKxuCk").unwrap()),
+        Some(1_791_103_298_972_000_000),
+    )
+    .unwrap();
+
+    assert!(prepared
+        .message_bytes
+        .starts_with(b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x04"));
+    assert_eq!(hex::encode(prepared.message_bytes), SDK_SIGNABLE_HEX);
+}
