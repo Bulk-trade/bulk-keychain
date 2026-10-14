@@ -20,6 +20,7 @@ categories = ["cryptography", "api-bindings"]
 ed25519-dalek = { version = "2.1", features = ["rand_core", "batch"] }
 sha2 = "0.10"
 rand = "0.8"
+zeroize = { version = "1.8", features = ["derive"] }
 bs58 = "0.5"
 base64 = "0.22"
 hex = "0.4"
