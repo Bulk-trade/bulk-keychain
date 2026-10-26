@@ -505,7 +505,7 @@ impl PySigner {
     /// Sign a margin transfer between accounts.
     ///
     /// `kind` is "internal" (default) or "external".
-    #[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, kind=None, nonce=None))]
+    #[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, kind=None, nonce=None, symbol=None))]
     fn sign_transfer(
         &mut self,
         from_pubkey: &str,
@@ -513,6 +513,7 @@ impl PySigner {
         margin_amount: f64,
         kind: Option<&str>,
         nonce: Option<u64>,
+        symbol: Option<&str>,
     ) -> PyResult<PyObject> {
         let from =
             Pubkey::from_base58(from_pubkey).map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -525,6 +526,7 @@ impl PySigner {
             from,
             to,
             margin_amount,
+            symbol: symbol.map(str::to_string),
         };
 
         let signed = self
@@ -1795,7 +1797,7 @@ fn py_prepare_remove_sub_account(
 
 /// Prepare a margin transfer for external signing
 #[pyfunction]
-#[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, signature_domain, account, kind=None, signer=None, nonce=None))]
+#[pyo3(signature = (from_pubkey, to_pubkey, margin_amount, signature_domain, account, kind=None, signer=None, nonce=None, symbol=None))]
 #[allow(clippy::too_many_arguments)]
 fn py_prepare_transfer(
     from_pubkey: &str,
@@ -1806,6 +1808,7 @@ fn py_prepare_transfer(
     kind: Option<&str>,
     signer: Option<&str>,
     nonce: Option<u64>,
+    symbol: Option<&str>,
 ) -> PyResult<PyObject> {
     let signature_domain = parse_signature_domain(signature_domain)?;
     let from =
@@ -1824,6 +1827,7 @@ fn py_prepare_transfer(
         from,
         to,
         margin_amount,
+        symbol: symbol.map(str::to_string),
     };
 
     let prepared = prepare_transfer(

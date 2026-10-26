@@ -67,7 +67,7 @@ pub use order_id::{
 };
 pub use prepare::{
     finalize_all, finalize_transaction, finalize_transaction_bytes, prepare_action,
-    prepare_agent_wallet, prepare_all, prepare_approve_builder_code,
+    prepare_actions, prepare_agent_wallet, prepare_all, prepare_approve_builder_code,
     prepare_approve_commission_fee, prepare_create_multisig, prepare_create_sub_account,
     prepare_faucet, prepare_group, prepare_message, prepare_multisig_approve,
     prepare_multisig_cancel, prepare_multisig_execute, prepare_multisig_propose,

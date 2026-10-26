@@ -543,6 +543,7 @@ impl NativeSigner {
         margin_amount: f64,
         kind: Option<String>,
         nonce: Option<String>,
+        symbol: Option<String>,
     ) -> Result<SignedTransactionOutput> {
         let from =
             Pubkey::from_base58(&from_pubkey).map_err(|e| Error::from_reason(e.to_string()))?;
@@ -555,6 +556,7 @@ impl NativeSigner {
             from,
             to,
             margin_amount,
+            symbol,
         };
 
         let signed = self
@@ -1557,6 +1559,8 @@ pub struct TransferOptions {
     pub nonce: Option<String>,
     /// "internal" (default) or "external"
     pub kind: Option<String>,
+    /// Optional isolated perpetual symbol; `to` is its parent account.
+    pub symbol: Option<String>,
 }
 
 /// Prepare a margin transfer for external signing
@@ -1585,6 +1589,7 @@ pub fn prepare_transfer_tx(
         from,
         to,
         margin_amount,
+        symbol: options.symbol,
     };
 
     let prepared = prepare_transfer(transfer, signature_domain, &account, signer.as_ref(), nonce)

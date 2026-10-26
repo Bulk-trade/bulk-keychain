@@ -235,6 +235,8 @@ export interface TransferOptions {
   nonce?: string
   /** "internal" (default) or "external" */
   kind?: string
+  /** Optional isolated perpetual symbol; `to` is its parent account. */
+  symbol?: string
 }
 /** Prepare a margin transfer for external signing */
 export declare function prepareTransferTx(fromPubkey: string, toPubkey: string, marginAmount: number, options: TransferOptions): PreparedMessageOutput
@@ -395,7 +397,7 @@ export declare class NativeSigner {
   /** Sign a batch Pyth oracle update (`o`) */
   signPythOracle(oracles: Array<PythOraclePriceInput>, nonce?: string | undefined | null): SignedTransactionOutput
   /** Sign a margin transfer between accounts */
-  signTransfer(fromPubkey: string, toPubkey: string, marginAmount: number, kind?: string | undefined | null, nonce?: string | undefined | null): SignedTransactionOutput
+  signTransfer(fromPubkey: string, toPubkey: string, marginAmount: number, kind?: string | undefined | null, nonce?: string | undefined | null, symbol?: string | undefined | null): SignedTransactionOutput
   /** Sign a sub-account creation (optional initial margin transfer) */
   signCreateSubAccount(name: string, marginAmount?: number | undefined | null, nonce?: string | undefined | null): SignedTransactionOutput
   /** Sign a sub-account removal */
