@@ -1,6 +1,6 @@
 {
   "name": "bulk-keychain",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "description": "A simple high perf signing lib for BULK txns",
   "license": "MIT",
   "repository": {
