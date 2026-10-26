@@ -1,7 +1,7 @@
 //! Message preparation for external wallet signing.
 
 use crate::order_id::compute_order_item_id_at_index;
-use crate::sdk_compat::serialize_for_sdk_signing;
+use crate::sdk_compat::{serialize_actions_for_sdk_signing, serialize_for_sdk_signing};
 use crate::types::*;
 use crate::{Error, Result};
 use rayon::prelude::*;
@@ -75,6 +75,67 @@ pub fn prepare_group(
     }
     let action = Action::Order { orders: items };
     prepare_action(&action, signature_domain, account, signer, nonce)
+}
+
+/// Prepare an ordered top-level action batch for external-wallet signing.
+pub fn prepare_actions(
+    actions: Vec<Action>,
+    signature_domain: SignatureDomain,
+    account: &Pubkey,
+    signer: Option<&Pubkey>,
+    nonce: Option<u64>,
+) -> Result<PreparedMessage> {
+    if actions.is_empty() {
+        return Err(Error::EmptyOrders);
+    }
+
+    let signer_pubkey = signer.unwrap_or(account);
+    let nonce = nonce.unwrap_or_else(crate::nonce::current_timestamp_nanos);
+    let mut message_bytes = Vec::with_capacity(512);
+    serialize_actions_for_sdk_signing(
+        &actions,
+        signature_domain,
+        nonce,
+        account,
+        &mut message_bytes,
+    )?;
+
+    let mut wire_actions = Vec::new();
+    let mut order_ids = Vec::new();
+    let mut scratch = Vec::with_capacity(96);
+    for action in &actions {
+        let action_index = wire_actions.len() as u32;
+        if let Action::Order { orders } = action {
+            for (offset, order) in orders.iter().enumerate() {
+                if let Some(id) = compute_order_item_id_at_index(
+                    order,
+                    action_index + offset as u32,
+                    nonce,
+                    account,
+                    &mut scratch,
+                ) {
+                    order_ids.push(id.to_base58());
+                }
+            }
+        }
+        wire_actions.extend(action_to_json(action)?);
+    }
+
+    let (order_id, order_ids) = match order_ids.len() {
+        0 => (None, None),
+        1 => (order_ids.into_iter().next(), None),
+        _ => (None, Some(order_ids)),
+    };
+
+    Ok(PreparedMessage {
+        message_bytes,
+        order_id,
+        order_ids,
+        actions: wire_actions,
+        account: account.to_base58(),
+        signer: signer_pubkey.to_base58(),
+        nonce,
+    })
 }
 
 /// Prepare a faucet transaction.
@@ -1028,6 +1089,32 @@ mod tests {
         assert_eq!(prepared.actions.len(), 2);
         assert!(prepared.order_id.is_none());
         assert_eq!(prepared.order_ids.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn test_prepare_actions_preserves_transfer_before_iso_order() {
+        let account = Pubkey::from_bytes([9u8; 32]);
+        let mut order = Order::market("BTC-USD", true, 0.1);
+        order.iso = true;
+        let prepared = prepare_actions(
+            vec![
+                Action::Transfer(Transfer::internal_iso(account, account, 100.0, "BTC-USD")),
+                Action::Order {
+                    orders: vec![OrderItem::Order(order)],
+                },
+            ],
+            SignatureDomain::Devnet,
+            &account,
+            None,
+            Some(1234567890),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.actions.len(), 2);
+        assert!(prepared.actions[0].get("transfer").is_some());
+        assert!(prepared.actions[1].get("m").is_some());
+        assert!(prepared.order_id.is_some());
+        assert!(prepared.order_ids.is_none());
     }
 
     #[test]

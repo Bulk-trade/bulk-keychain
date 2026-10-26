@@ -4,14 +4,15 @@
 //! enabling high-performance transaction signing in browser environments.
 
 use bulk_keychain::{
-    finalize_transaction, prepare_agent_wallet, prepare_all, prepare_approve_commission_fee,
-    prepare_create_multisig, prepare_create_sub_account, prepare_faucet, prepare_group,
-    prepare_message, prepare_multisig_approve, prepare_multisig_cancel, prepare_multisig_execute,
-    prepare_multisig_propose, prepare_multisig_reject, prepare_remove_sub_account,
-    prepare_rename_sub_account, prepare_revoke_commission_fee, prepare_transfer,
-    prepare_update_liquidator_config, prepare_update_multisig_policy, prepare_user_settings,
-    prepare_withdraw, prepare_withdraw_lock_recover, Action, AgentWallet, Cancel, CancelAll,
-    Commission, CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, LiquidatorConfig,
+    finalize_transaction, prepare_actions, prepare_agent_wallet, prepare_all,
+    prepare_approve_commission_fee, prepare_create_multisig, prepare_create_sub_account,
+    prepare_faucet, prepare_group, prepare_message, prepare_multisig_approve,
+    prepare_multisig_cancel, prepare_multisig_execute, prepare_multisig_propose,
+    prepare_multisig_reject, prepare_remove_sub_account, prepare_rename_sub_account,
+    prepare_revoke_commission_fee, prepare_transfer, prepare_update_liquidator_config,
+    prepare_update_multisig_policy, prepare_user_settings, prepare_withdraw,
+    prepare_withdraw_lock_recover, Action, AgentWallet, Cancel, CancelAll, Commission,
+    CreateMultisig, CreateSubAccount, Faucet, Hash, Keypair, LiquidatorConfig,
     LiquidatorInstrumentConfig, Modify, MultisigApprove, MultisigCancel, MultisigExecute,
     MultisigPropose, MultisigReject, NonceManager, NonceStrategy, OnFill, OraclePrice, Order,
     OrderItem, OrderType, PreparedMessage, Pubkey, PythOraclePrice, RangeOco, RenameSubAccount,
@@ -1310,6 +1311,16 @@ fn parse_order_input_value(value: JsonValue) -> Result<OrderInput, JsError> {
     serde_json::from_value(value).map_err(|e| js_err(e.to_string()))
 }
 
+fn parse_group_order_item(value: JsonValue) -> Result<OrderItem, JsError> {
+    let is_friendly_order_input = value
+        .as_object()
+        .is_some_and(|object| object.contains_key("type"));
+    if is_friendly_order_input {
+        return parse_order_input_value(value)?.try_into().map_err(js_err);
+    }
+    parse_order_item_value(value)
+}
+
 fn parse_order_item_value(value: JsonValue) -> Result<OrderItem, JsError> {
     let obj = json_obj(&value, "order item")?;
     let (tag, payload) = obj
@@ -1555,9 +1566,9 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
                 JsonValue::Array(items) => items
                     .iter()
                     .cloned()
-                    .map(parse_order_item_value)
+                    .map(parse_group_order_item)
                     .collect::<Result<Vec<_>, _>>()?,
-                _ => vec![parse_order_item_value(payload.clone())?],
+                _ => vec![parse_group_order_item(payload.clone())?],
             };
             Ok(Action::Order { orders })
         }
@@ -2076,6 +2087,38 @@ pub fn wasm_prepare_group(
 
     let prepared = prepare_group(
         order_items,
+        opts.signature_domain,
+        &account,
+        signer.as_ref(),
+        nonce,
+    )
+    .map_err(|e| JsError::new(&e.to_string()))?;
+
+    Ok(WasmPreparedMessage { inner: prepared })
+}
+
+/// Prepare an ordered top-level action batch as one signed transaction.
+///
+/// @param actions - Ordered array of top-level action objects
+/// @param options - { account: string, signer?: string, nonce?: string }
+#[wasm_bindgen(js_name = prepareActionGroup)]
+pub fn wasm_prepare_action_group(
+    actions: JsValue,
+    options: JsValue,
+) -> Result<WasmPreparedMessage, JsError> {
+    let opts: PrepareOptions =
+        serde_wasm_bindgen::from_value(options).map_err(|e| JsError::new(&e.to_string()))?;
+    let actions = parse_action_values(actions)?;
+    let account = Pubkey::from_base58(&opts.account).map_err(|e| JsError::new(&e.to_string()))?;
+    let signer = opts
+        .signer
+        .map(|s| Pubkey::from_base58(&s))
+        .transpose()
+        .map_err(|e| JsError::new(&e.to_string()))?;
+    let nonce = parse_optional_nonce(opts.nonce)?;
+
+    let prepared = prepare_actions(
+        actions,
         opts.signature_domain,
         &account,
         signer.as_ref(),

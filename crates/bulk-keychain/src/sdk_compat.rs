@@ -1230,18 +1230,38 @@ pub(crate) fn serialize_for_sdk_signing(
     account: &Pubkey,
     out: &mut Vec<u8>,
 ) -> Result<()> {
-    let layout = if action_contains_transfer(action) {
+    serialize_actions_for_sdk_signing(
+        std::slice::from_ref(action),
+        signature_domain,
+        nonce,
+        account,
+        out,
+    )
+}
+
+/// Serialize an ordered top-level action batch for SDK-compatible signing.
+pub(crate) fn serialize_actions_for_sdk_signing(
+    actions: &[Action],
+    signature_domain: SignatureDomain,
+    nonce: u64,
+    account: &Pubkey,
+    out: &mut Vec<u8>,
+) -> Result<()> {
+    let layout = if actions.iter().any(action_contains_transfer) {
         SigningLayout::V6
-    } else if action_contains_leaf_conditional(action) {
+    } else if actions.iter().any(action_contains_leaf_conditional) {
         SigningLayout::V4
-    } else if action_has_builder_code(action) {
+    } else if actions.iter().any(action_has_builder_code) {
         SigningLayout::V3
-    } else if action_has_explicit_slippage(action) {
+    } else if actions.iter().any(action_has_explicit_slippage) {
         SigningLayout::V2
     } else {
         SigningLayout::Legacy
     };
-    let tx_actions = action_to_tx_actions(action, layout)?;
+    let mut tx_actions = Vec::new();
+    for action in actions {
+        tx_actions.extend(action_to_tx_actions(action, layout)?);
+    }
     if tx_actions.is_empty() {
         return Err(Error::EmptyOrders);
     }
