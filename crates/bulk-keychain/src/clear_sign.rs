@@ -252,7 +252,7 @@ fn action_line(action: &Value, depth: usize) -> Result<String> {
             text(body, "name")?
         )),
         "transfer" => Ok(format!(
-            "Transfer {} from={} to={} amt={:.8}",
+            "Transfer {} from={} to={} amt={:.8} symbol={}",
             match text(body, "k")? {
                 "internal" => "Internal",
                 "external" => "External",
@@ -260,7 +260,11 @@ fn action_line(action: &Value, depth: usize) -> Result<String> {
             },
             text(body, "from")?,
             text(body, "to")?,
-            number(&body["marginAmount"])?
+            number(&body["marginAmount"])?,
+            body.get("symbol")
+                .and_then(Value::as_str)
+                .map(|symbol| format!("Some({symbol:?})"))
+                .unwrap_or_else(|| "None".to_string())
         )),
         "abc" => Ok(format!(
             "ApproveCommissionFee to={} max_fee={}",

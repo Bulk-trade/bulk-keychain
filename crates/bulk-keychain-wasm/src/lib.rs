@@ -528,6 +528,7 @@ impl WasmSigner {
     /// @param toPubkey - destination account pubkey (base58)
     /// @param marginAmount - amount to transfer
     /// @param nonce - optional nonce
+    /// @param symbol - optional isolated perpetual symbol; `to` is its parent account
     #[wasm_bindgen(js_name = signTransfer)]
     pub fn sign_transfer(
         &mut self,
@@ -536,6 +537,7 @@ impl WasmSigner {
         to_pubkey: &str,
         margin_amount: f64,
         nonce: Option<String>,
+        symbol: Option<String>,
     ) -> Result<JsValue, JsError> {
         let from = Pubkey::from_base58(from_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
         let to = Pubkey::from_base58(to_pubkey).map_err(|e| JsError::new(&e.to_string()))?;
@@ -550,6 +552,7 @@ impl WasmSigner {
             from,
             to,
             margin_amount,
+            symbol,
         };
 
         let signed = self
@@ -1661,6 +1664,10 @@ fn parse_action_value(value: JsonValue) -> Result<Action, JsError> {
                 from: json_pubkey(p, "from")?,
                 to: json_pubkey(p, "to")?,
                 margin_amount: json_f64(p, "marginAmount")?,
+                symbol: p
+                    .get("symbol")
+                    .and_then(JsonValue::as_str)
+                    .map(str::to_string),
             }))
         }
         "wtd" | "withdraw" => {
@@ -2313,6 +2320,8 @@ pub fn wasm_prepare_transfer(
         nonce: Option<String>,
         #[serde(default)]
         kind: Option<String>,
+        #[serde(default)]
+        symbol: Option<String>,
     }
 
     let opts: TransferOptions =
@@ -2338,6 +2347,7 @@ pub fn wasm_prepare_transfer(
         from,
         to,
         margin_amount,
+        symbol: opts.symbol,
     };
 
     let prepared = prepare_transfer(

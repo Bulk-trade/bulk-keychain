@@ -1057,6 +1057,8 @@ pub struct Transfer {
     pub from: Pubkey,
     pub to: Pubkey,
     pub margin_amount: f64,
+    /// Isolated perpetual symbol. When set, `to` is the ISO lane's parent account.
+    pub symbol: Option<String>,
 }
 
 impl Transfer {
@@ -1067,6 +1069,7 @@ impl Transfer {
             from,
             to,
             margin_amount,
+            symbol: None,
         }
     }
 
@@ -1077,6 +1080,23 @@ impl Transfer {
             from,
             to,
             margin_amount,
+            symbol: None,
+        }
+    }
+
+    /// Internal transfer to an isolated perpetual lane under `parent`.
+    pub fn internal_iso(
+        from: Pubkey,
+        parent: Pubkey,
+        margin_amount: f64,
+        symbol: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: TransferKind::Internal,
+            from,
+            to: parent,
+            margin_amount,
+            symbol: Some(symbol.into()),
         }
     }
 }

@@ -12,6 +12,7 @@ const SCALE: f64 = 1e8;
 const SIGNABLE_ACTIONS_V2_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x02";
 const SIGNABLE_ACTIONS_V3_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x03";
 const SIGNABLE_ACTIONS_V4_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x04";
+const SIGNABLE_ACTIONS_V6_PREFIX: &[u8; 21] = b"\xff\xff\xff\xff\xff\xff\xff\xffbulk-actions\x06";
 
 mod serde_hash {
     use super::*;
@@ -40,6 +41,14 @@ mod serde_pubkey {
         } else {
             val.as_bytes().serialize(serializer)
         }
+    }
+}
+
+struct SdkPubkey<'a>(&'a Pubkey);
+
+impl Serialize for SdkPubkey<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        serde_pubkey::serialize(self.0, serializer)
     }
 }
 
@@ -159,6 +168,7 @@ enum SigningLayout {
     V2,
     V3,
     V4,
+    V6,
 }
 
 #[derive(Clone, Debug)]
@@ -195,7 +205,7 @@ impl Serialize for TxMarketOrder {
             state.end()
         } else if matches!(
             self.layout,
-            SigningLayout::V2 | SigningLayout::V3 | SigningLayout::V4
+            SigningLayout::V2 | SigningLayout::V3 | SigningLayout::V4 | SigningLayout::V6
         ) {
             let mut tuple = serializer.serialize_tuple(7)?;
             tuple.serialize_element(&self.symbol)?;
@@ -376,7 +386,7 @@ impl Serialize for TxStop {
                 state.serialize_field("builderCode", commission)?;
             }
             state.end()
-        } else if matches!(self.layout, SigningLayout::V4) {
+        } else if matches!(self.layout, SigningLayout::V4 | SigningLayout::V6) {
             let mut tuple = serializer.serialize_tuple(8)?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
@@ -473,7 +483,7 @@ impl Serialize for TxRangeOco {
                 state.serialize_field("builderCode", commission)?;
             }
             state.end()
-        } else if matches!(self.layout, SigningLayout::V4) {
+        } else if matches!(self.layout, SigningLayout::V4 | SigningLayout::V6) {
             let mut tuple = serializer.serialize_tuple(11)?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
@@ -563,7 +573,7 @@ impl Serialize for TxTrailingStop {
                 state.serialize_field("builderCode", commission)?;
             }
             state.end()
-        } else if matches!(self.layout, SigningLayout::V4) {
+        } else if matches!(self.layout, SigningLayout::V4 | SigningLayout::V6) {
             let mut tuple = serializer.serialize_tuple(9)?;
             tuple.serialize_element(&self.symbol)?;
             tuple.serialize_element(&self.is_buy)?;
@@ -672,16 +682,32 @@ impl From<TransferKind> for TxTransferKind {
     }
 }
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug)]
 struct TxTransfer {
-    #[serde(rename = "k")]
     kind: TxTransferKind,
-    #[serde(with = "serde_pubkey")]
     from: Pubkey,
-    #[serde(with = "serde_pubkey")]
     to: Pubkey,
     margin_amount: f64,
+    symbol: Option<String>,
+    layout: SigningLayout,
+}
+
+impl Serialize for TxTransfer {
+    fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
+        let mut tuple = serializer.serialize_tuple(if self.layout == SigningLayout::V6 {
+            5
+        } else {
+            4
+        })?;
+        tuple.serialize_element(&self.kind)?;
+        tuple.serialize_element(&SdkPubkey(&self.from))?;
+        tuple.serialize_element(&SdkPubkey(&self.to))?;
+        tuple.serialize_element(&self.margin_amount)?;
+        if self.layout == SigningLayout::V6 {
+            tuple.serialize_element(&self.symbol)?;
+        }
+        tuple.end()
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1079,6 +1105,8 @@ fn action_to_tx_actions(action: &Action, layout: SigningLayout) -> Result<Vec<Tx
             from: transfer.from,
             to: transfer.to,
             margin_amount: transfer.margin_amount,
+            symbol: transfer.symbol.clone(),
+            layout,
         })]),
         Action::Withdraw(_) | Action::WithdrawLockRecover(_) => Err(Error::LegacyWithdrawal),
         Action::CreateMultisig(action) => Ok(vec![TxAction::CreateMultisig(TxCreateMultisig {
@@ -1092,7 +1120,10 @@ fn action_to_tx_actions(action: &Action, layout: SigningLayout) -> Result<Vec<Tx
             for inner in &action.actions {
                 actions.extend(action_to_tx_actions(
                     inner,
-                    if matches!(layout, SigningLayout::V2 | SigningLayout::V3) {
+                    if matches!(
+                        layout,
+                        SigningLayout::V2 | SigningLayout::V3 | SigningLayout::V6
+                    ) {
                         layout
                     } else {
                         SigningLayout::LegacyEmbedded
@@ -1199,7 +1230,9 @@ pub(crate) fn serialize_for_sdk_signing(
     account: &Pubkey,
     out: &mut Vec<u8>,
 ) -> Result<()> {
-    let layout = if action_contains_leaf_conditional(action) {
+    let layout = if action_contains_transfer(action) {
+        SigningLayout::V6
+    } else if action_contains_leaf_conditional(action) {
         SigningLayout::V4
     } else if action_has_builder_code(action) {
         SigningLayout::V3
@@ -1218,6 +1251,7 @@ pub(crate) fn serialize_for_sdk_signing(
         SigningLayout::V2 => out.extend_from_slice(SIGNABLE_ACTIONS_V2_PREFIX),
         SigningLayout::V3 => out.extend_from_slice(SIGNABLE_ACTIONS_V3_PREFIX),
         SigningLayout::V4 => out.extend_from_slice(SIGNABLE_ACTIONS_V4_PREFIX),
+        SigningLayout::V6 => out.extend_from_slice(SIGNABLE_ACTIONS_V6_PREFIX),
         SigningLayout::Legacy | SigningLayout::LegacyEmbedded => {}
     }
     bincode::serialize_into(&mut *out, &tx_actions)
@@ -1226,6 +1260,14 @@ pub(crate) fn serialize_for_sdk_signing(
     out.extend_from_slice(account.as_bytes());
     out.push(signature_domain as u8);
     Ok(())
+}
+
+fn action_contains_transfer(action: &Action) -> bool {
+    match action {
+        Action::Transfer(_) => true,
+        Action::MultisigPropose(proposal) => proposal.actions.iter().any(action_contains_transfer),
+        _ => false,
+    }
 }
 
 fn action_contains_leaf_conditional(action: &Action) -> bool {
@@ -1374,6 +1416,41 @@ pub(crate) fn compute_order_item_id_with_seqno(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transfers_use_v6_and_bind_the_iso_symbol() {
+        let account = Pubkey::from_bytes([0xa5; 32]);
+        let recipient = Pubkey::from_bytes([0xb6; 32]);
+        let nonce = 42;
+        let plain = Action::Transfer(Transfer::internal(account, recipient, 10.0));
+        let iso = Action::Transfer(Transfer::internal_iso(account, recipient, 10.0, "BTC-USD"));
+
+        let mut plain_bytes = Vec::new();
+        let mut iso_bytes = Vec::new();
+        serialize_for_sdk_signing(
+            &plain,
+            SignatureDomain::Devnet,
+            nonce,
+            &account,
+            &mut plain_bytes,
+        )
+        .unwrap();
+        serialize_for_sdk_signing(
+            &iso,
+            SignatureDomain::Devnet,
+            nonce,
+            &account,
+            &mut iso_bytes,
+        )
+        .unwrap();
+
+        assert!(plain_bytes.starts_with(SIGNABLE_ACTIONS_V6_PREFIX));
+        assert!(iso_bytes.starts_with(SIGNABLE_ACTIONS_V6_PREFIX));
+        assert_ne!(plain_bytes, iso_bytes);
+        // V6 serializes an explicit Option tag even when the ISO symbol is absent.
+        assert_eq!(plain_bytes[plain_bytes.len() - 41 - 1], 0);
+        assert_eq!(iso_bytes[iso_bytes.len() - 41 - 1 - 8 - "BTC-USD".len()], 1);
+    }
 
     #[test]
     fn sdk_signable_bytes_end_with_the_selected_network_domain() {

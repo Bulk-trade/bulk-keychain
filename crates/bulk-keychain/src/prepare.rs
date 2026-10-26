@@ -663,8 +663,9 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "name": action.name
             }
         })]),
-        Action::Transfer(transfer) => Ok(vec![json!({
-            "transfer": {
+        Action::Transfer(transfer) => {
+            let mut value = json!({
+                "transfer": {
                 "k": match transfer.kind {
                     TransferKind::Internal => "internal",
                     TransferKind::External => "external",
@@ -673,7 +674,12 @@ fn action_to_json(action: &Action) -> Result<Vec<serde_json::Value>> {
                 "to": transfer.to.to_base58(),
                 "marginAmount": transfer.margin_amount,
             }
-        })]),
+            });
+            if let Some(symbol) = &transfer.symbol {
+                value["transfer"]["symbol"] = json!(symbol);
+            }
+            Ok(vec![value])
+        }
         Action::Withdraw(_) | Action::WithdrawLockRecover(_) => Err(Error::LegacyWithdrawal),
         Action::CreateMultisig(action) => Ok(vec![json!({
             "createMultisig": {
