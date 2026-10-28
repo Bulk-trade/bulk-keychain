@@ -14,6 +14,8 @@ const PARALLEL_THRESHOLD: usize = 10;
 /// Prepared message for external signing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreparedMessage {
+    /// Transaction wire/signing schema.
+    pub version: u32,
     /// Raw canonical BULK-SDK message bytes to sign.
     #[serde(with = "serde_bytes")]
     pub message_bytes: Vec<u8>,
@@ -128,6 +130,7 @@ pub fn prepare_actions(
     };
 
     Ok(PreparedMessage {
+        version: 12,
         message_bytes,
         order_id,
         order_ids,
@@ -426,6 +429,7 @@ pub fn prepare_action(
     let order_ids = compute_action_order_ids(action, nonce, account);
 
     Ok(PreparedMessage {
+        version: 12,
         message_bytes,
         order_id,
         order_ids,
@@ -538,6 +542,7 @@ fn prepare_single_item(
     let actions = action_to_json(&action)?;
 
     Ok(PreparedMessage {
+        version: 12,
         message_bytes,
         order_id,
         order_ids: None,
@@ -608,6 +613,7 @@ pub(crate) fn finalize_with_message(
             )
         })?;
     Ok(SignedTransaction {
+        version: prepared.version,
         actions: prepared.actions,
         nonce: prepared.nonce,
         account: prepared.account,

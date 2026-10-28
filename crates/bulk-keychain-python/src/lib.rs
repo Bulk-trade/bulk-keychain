@@ -2016,6 +2016,11 @@ fn prepared_from_py(prepared: &Bound<'_, PyDict>) -> PyResult<PreparedMessage> {
         )?
         .extract()?;
     let prepared = PreparedMessage {
+        version: prepared
+            .get_item("version")?
+            .map(|value| value.extract())
+            .transpose()?
+            .unwrap_or(12),
         message_bytes: prepared
             .get_item("message_bytes")?
             .ok_or_else(|| PyValueError::new_err("Missing 'message_bytes'"))?

@@ -13,6 +13,7 @@ fn all_modes_match_real_sdk_bytes_and_signatures() {
     );
     for fixture in fixtures["vectors"].as_array().unwrap() {
         let raw = PreparedMessage {
+            version: 12,
             message_bytes: hex::decode(fixture["raw_hex"].as_str().unwrap()).unwrap(),
             actions: fixture["actions"].as_array().unwrap().clone(),
             account: fixture["account"].as_str().unwrap().into(),
