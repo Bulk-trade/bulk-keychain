@@ -840,6 +840,8 @@ pub struct PythOraclePriceInput {
 #[napi(object)]
 #[derive(Debug)]
 pub struct SignedTransactionOutput {
+    /// Transaction wire/signing schema.
+    pub version: u32,
     /// Actions JSON as string
     pub actions: String,
     /// Nonce
@@ -860,6 +862,7 @@ pub struct SignedTransactionOutput {
 impl From<bulk_keychain::SignedTransaction> for SignedTransactionOutput {
     fn from(tx: bulk_keychain::SignedTransaction) -> Self {
         Self {
+            version: tx.version,
             actions: serde_json::to_string(&tx.actions).unwrap_or_default(),
             nonce: tx.nonce.to_string(),
             account: tx.account,
@@ -1199,6 +1202,8 @@ pub struct CreateSubAccountOptions {
 /// Prepared message ready for external wallet signing
 #[napi(object)]
 pub struct PreparedMessageOutput {
+    /// Transaction wire/signing schema.
+    pub version: u32,
     /// Raw message bytes to sign (pass to wallet.signMessage())
     pub message_bytes: Buffer,
     /// Message as base58 string
@@ -1224,6 +1229,7 @@ pub struct PreparedMessageOutput {
 impl From<PreparedMessage> for PreparedMessageOutput {
     fn from(p: PreparedMessage) -> Self {
         Self {
+            version: p.version,
             message_bytes: Buffer::from(p.message_bytes.clone()),
             message_base58: p.message_base58(),
             message_base64: p.message_base64(),
@@ -1830,6 +1836,7 @@ impl TryFrom<PreparedMessageOutput> for PreparedMessage {
     type Error = Error;
     fn try_from(prepared: PreparedMessageOutput) -> Result<Self> {
         Ok(PreparedMessage {
+            version: prepared.version,
             message_bytes: prepared.message_bytes.to_vec(),
             actions: serde_json::from_str(&prepared.actions)
                 .map_err(|error| Error::from_reason(error.to_string()))?,

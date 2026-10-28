@@ -1421,6 +1421,8 @@ impl From<UpdateMultisigPolicy> for Action {
 /// A signed transaction ready to submit to the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedTransaction {
+    /// Transaction wire/signing schema
+    pub version: u32,
     /// Actions to execute atomically (compact tagged format)
     pub actions: Vec<serde_json::Value>,
     /// Transaction nonce

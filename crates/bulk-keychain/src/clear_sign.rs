@@ -293,6 +293,7 @@ mod tests {
             serde_json::from_str(include_str!("../tests/fixtures/clear_sign_sdk.json")).unwrap();
         for vector in fixtures["vectors"].as_array().unwrap() {
             let prepared = PreparedMessage {
+                version: 12,
                 message_bytes: hex::decode(vector["message_hex"].as_str().unwrap()).unwrap(),
                 actions: serde_json::from_value(vector["actions"].clone()).unwrap(),
                 account: "11111111111111111111111111111111".into(),

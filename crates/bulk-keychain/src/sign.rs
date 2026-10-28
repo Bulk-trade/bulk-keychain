@@ -152,6 +152,7 @@ impl Signer {
         let actions = self.action_to_json(action)?;
 
         Ok(SignedTransaction {
+            version: 12,
             actions,
             nonce,
             account: account.to_base58(),
@@ -240,6 +241,7 @@ impl Signer {
         let actions = self.action_to_json(&action)?;
 
         Ok(SignedTransaction {
+            version: 12,
             actions,
             nonce,
             account: account.to_base58(),
@@ -621,6 +623,7 @@ impl Signer {
         let actions = self.action_to_json(&action)?;
 
         Ok(SignedTransaction {
+            version: 12,
             actions,
             nonce,
             account: account.to_base58(),
